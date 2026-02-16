@@ -268,12 +268,18 @@ Use jobId as the canonical identifier; id is accepted for compatibility. Use con
       switch (action) {
         case "status":
           return jsonResult(await callGatewayTool("cron.status", gatewayOpts, {}));
-        case "list":
+        case "list": {
+          const cfg = loadConfig();
+          const agentId = opts?.agentSessionKey
+            ? resolveSessionAgentId({ sessionKey: opts.agentSessionKey, config: cfg })
+            : undefined;
           return jsonResult(
             await callGatewayTool("cron.list", gatewayOpts, {
               includeDisabled: Boolean(params.includeDisabled),
+              agentId,
             }),
           );
+        }
         case "add": {
           // Flat-params recovery: non-frontier models (e.g. Grok) sometimes flatten
           // job properties to the top level alongside `action` instead of nesting
@@ -402,10 +408,15 @@ Use jobId as the canonical identifier; id is accepted for compatibility. Use con
             throw new Error("patch required");
           }
           const patch = normalizeCronJobPatch(params.patch) ?? params.patch;
+          const cfg = loadConfig();
+          const agentId = opts?.agentSessionKey
+            ? resolveSessionAgentId({ sessionKey: opts.agentSessionKey, config: cfg })
+            : undefined;
           return jsonResult(
             await callGatewayTool("cron.update", gatewayOpts, {
               id,
               patch,
+              agentId,
             }),
           );
         }
@@ -414,7 +425,11 @@ Use jobId as the canonical identifier; id is accepted for compatibility. Use con
           if (!id) {
             throw new Error("jobId required (id accepted for backward compatibility)");
           }
-          return jsonResult(await callGatewayTool("cron.remove", gatewayOpts, { id }));
+          const cfg = loadConfig();
+          const agentId = opts?.agentSessionKey
+            ? resolveSessionAgentId({ sessionKey: opts.agentSessionKey, config: cfg })
+            : undefined;
+          return jsonResult(await callGatewayTool("cron.remove", gatewayOpts, { id, agentId }));
         }
         case "run": {
           const id = readStringParam(params, "jobId") ?? readStringParam(params, "id");

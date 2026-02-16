@@ -9,6 +9,7 @@ import {
   resolveAgentWorkspaceDir,
   resolveDefaultAgentId,
 } from "../../agents/agent-scope.js";
+import { ensureAuthProfileStore, listProfilesForProvider } from "../../agents/auth-profiles.js";
 import { runCliAgent } from "../../agents/cli-runner.js";
 import { getCliSessionId, setCliSessionId } from "../../agents/cli-session.js";
 import { lookupContextTokens } from "../../agents/context.js";
@@ -173,13 +174,44 @@ export async function runCronIsolatedAgentTurn(params: {
   });
   const workspaceDir = workspace.dir;
 
-  const resolvedDefault = resolveConfiguredModelRef({
-    cfg: cfgWithAgentDefaults,
-    defaultProvider: DEFAULT_PROVIDER,
-    defaultModel: DEFAULT_MODEL,
-  });
-  let provider = resolvedDefault.provider;
-  let model = resolvedDefault.model;
+  // Load auth profiles to determine the user's configured provider.
+  // For multi-tenant personas, always use the provider the user has set up via OAuth/auth-profiles.
+  const cronAuthStore = ensureAuthProfileStore(agentDir, { allowKeychainPrompt: false });
+
+  // Provider to default model mapping
+  const providerDefaults: Record<string, string> = {
+    "google-gemini-cli": "gemini-2.0-flash",
+    "openai-codex": "gpt-4o",
+    anthropic: "claude-sonnet-4-20250514",
+    openai: "gpt-4o",
+    google: "gemini-2.0-flash",
+    groq: "llama-3.3-70b-versatile",
+    xai: "grok-3-latest",
+    mistral: "mistral-large-latest",
+  };
+
+  // Find the first available provider from auth-profiles
+  let provider: string | undefined;
+  let model: string | undefined;
+  for (const [providerKey, defaultModel] of Object.entries(providerDefaults)) {
+    const profiles = listProfilesForProvider(cronAuthStore, providerKey);
+    if (profiles.length > 0) {
+      provider = providerKey;
+      model = defaultModel;
+      break;
+    }
+  }
+
+  // Fall back to config defaults only if no auth profiles exist
+  if (!provider || !model) {
+    const resolvedDefault = resolveConfiguredModelRef({
+      cfg: cfgWithAgentDefaults,
+      defaultProvider: DEFAULT_PROVIDER,
+      defaultModel: DEFAULT_MODEL,
+    });
+    provider = resolvedDefault.provider;
+    model = resolvedDefault.model;
+  }
   let catalog: Awaited<ReturnType<typeof loadModelCatalog>> | undefined;
   const loadCatalog = async () => {
     if (!catalog) {
@@ -440,6 +472,7 @@ export async function runCronIsolatedAgentTurn(params: {
           sessionId: cronSession.sessionEntry.sessionId,
           sessionKey: agentSessionKey,
           agentId,
+          agentDir,
           messageChannel,
           agentAccountId: resolvedDelivery.accountId,
           sessionFile,

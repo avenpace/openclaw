@@ -423,6 +423,41 @@ async function executeJobCore(
   sessionId?: string;
   sessionKey?: string;
 }> {
+  // For non-default agents (multi-tenant personas), force isolated execution
+  // even if sessionTarget is "main", since heartbeat uses the default model.
+  const defaultAgentId = state.deps.defaultAgentId ?? "main";
+  const isNonDefaultAgent =
+    typeof job.agentId === "string" &&
+    job.agentId.trim() &&
+    job.agentId.trim().toLowerCase() !== defaultAgentId.toLowerCase();
+
+  if (isNonDefaultAgent && job.sessionTarget === "main" && job.payload.kind === "systemEvent") {
+    // Convert systemEvent to agentTurn for isolated execution
+    const text = resolveJobPayloadTextForMain(job);
+    if (!text) {
+      return { status: "skipped", error: "main job requires non-empty systemEvent text" };
+    }
+    // Format the reminder text for delivery (not as a request to set a new reminder)
+    const reminderContent = text.replace(/^Reminder:\s*/i, "").trim() || text;
+    const deliveryMessage = `⏰ SCHEDULED REMINDER - It's time! Deliver this reminder to the user now via their messaging channel: "${reminderContent}"`;
+
+    const res = await state.deps.runIsolatedAgentJob({
+      job: {
+        ...job,
+        sessionTarget: "isolated",
+        payload: { kind: "agentTurn", message: deliveryMessage },
+      },
+      message: deliveryMessage,
+    });
+    return {
+      status: res.status,
+      error: res.error,
+      summary: res.summary ?? text,
+      sessionId: res.sessionId,
+      sessionKey: res.sessionKey,
+    };
+  }
+
   if (job.sessionTarget === "main") {
     const text = resolveJobPayloadTextForMain(job);
     if (!text) {

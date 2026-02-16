@@ -77,11 +77,27 @@ export async function status(state: CronServiceState) {
   });
 }
 
-export async function list(state: CronServiceState, opts?: { includeDisabled?: boolean }) {
+export async function list(
+  state: CronServiceState,
+  opts?: { includeDisabled?: boolean; agentId?: string },
+) {
   return await locked(state, async () => {
     await ensureLoadedForRead(state);
     const includeDisabled = opts?.includeDisabled === true;
-    const jobs = (state.store?.jobs ?? []).filter((j) => includeDisabled || j.enabled);
+    const filterAgentId = opts?.agentId?.trim()?.toLowerCase();
+    const jobs = (state.store?.jobs ?? []).filter((j) => {
+      if (!includeDisabled && !j.enabled) {
+        return false;
+      }
+      // Filter by agentId if provided (multi-tenant isolation)
+      if (filterAgentId) {
+        const jobAgentId = j.agentId?.trim()?.toLowerCase();
+        if (jobAgentId !== filterAgentId) {
+          return false;
+        }
+      }
+      return true;
+    });
     return jobs.toSorted((a, b) => (a.state.nextRunAtMs ?? 0) - (b.state.nextRunAtMs ?? 0));
   });
 }
@@ -120,11 +136,33 @@ export async function add(state: CronServiceState, input: CronJobCreate) {
   });
 }
 
-export async function update(state: CronServiceState, id: string, patch: CronJobPatch) {
+/** Check if agentId matches (for multi-tenant isolation) */
+function verifyAgentId(
+  jobAgentId: string | undefined,
+  requestAgentId: string | undefined,
+): boolean {
+  if (!requestAgentId) {
+    return true;
+  } // No filter = allow all (backwards compat)
+  const jobId = jobAgentId?.trim()?.toLowerCase();
+  const reqId = requestAgentId.trim().toLowerCase();
+  return jobId === reqId;
+}
+
+export async function update(
+  state: CronServiceState,
+  id: string,
+  patch: CronJobPatch,
+  opts?: { agentId?: string },
+) {
   return await locked(state, async () => {
     warnIfDisabled(state, "update");
     await ensureLoaded(state, { skipRecompute: true });
     const job = findJobOrThrow(state, id);
+    // Multi-tenant: verify ownership
+    if (opts?.agentId && !verifyAgentId(job.agentId, opts.agentId)) {
+      throw new Error(`Job ${id} not found`);
+    }
     const now = state.deps.nowMs();
     applyJobPatch(job, patch);
     if (job.schedule.kind === "every") {
@@ -174,7 +212,7 @@ export async function update(state: CronServiceState, id: string, patch: CronJob
   });
 }
 
-export async function remove(state: CronServiceState, id: string) {
+export async function remove(state: CronServiceState, id: string, opts?: { agentId?: string }) {
   return await locked(state, async () => {
     warnIfDisabled(state, "remove");
     await ensureLoaded(state);
@@ -182,7 +220,17 @@ export async function remove(state: CronServiceState, id: string) {
     if (!state.store) {
       return { ok: false, removed: false } as const;
     }
-    state.store.jobs = state.store.jobs.filter((j) => j.id !== id);
+    // Multi-tenant: only remove if agentId matches (or no filter)
+    state.store.jobs = state.store.jobs.filter((j) => {
+      if (j.id !== id) {
+        return true;
+      } // Keep non-matching jobs
+      // If agentId filter provided, verify ownership
+      if (opts?.agentId && !verifyAgentId(j.agentId, opts.agentId)) {
+        return true; // Keep job (not owned by requester)
+      }
+      return false; // Remove this job
+    });
     const removed = (state.store.jobs.length ?? 0) !== before;
     await persist(state);
     armTimer(state);

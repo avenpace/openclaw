@@ -22,7 +22,7 @@ export class CronService {
     return await ops.status(this.state);
   }
 
-  async list(opts?: { includeDisabled?: boolean }) {
+  async list(opts?: { includeDisabled?: boolean; agentId?: string }) {
     return await ops.list(this.state, opts);
   }
 
@@ -30,12 +30,12 @@ export class CronService {
     return await ops.add(this.state, input);
   }
 
-  async update(id: string, patch: CronJobPatch) {
-    return await ops.update(this.state, id, patch);
+  async update(id: string, patch: CronJobPatch, opts?: { agentId?: string }) {
+    return await ops.update(this.state, id, patch, opts);
   }
 
-  async remove(id: string) {
-    return await ops.remove(this.state, id);
+  async remove(id: string, opts?: { agentId?: string }) {
+    return await ops.remove(this.state, id, opts);
   }
 
   async run(id: string, mode?: "due" | "force") {
