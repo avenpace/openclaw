@@ -428,8 +428,9 @@ export function buildAgentSystemPrompt(params: {
       ? toolLines.join("\n")
       : isExternalChannel
         ? [
-            // SECURITY: Minimal tool description for external channels
-            "Available tools: message, memory_search, memory_get, tts, image, sessions_list, sessions_history, sessions_send, session_status",
+            // SECURITY: Tool description for external channels - web allowed, file ops blocked
+            "Available tools: message, web_search, web_fetch, memory_search, memory_get, tts, image, sessions_list, sessions_history, sessions_send, session_status",
+            "Note: File operations are disabled. You cannot download, save, or execute files.",
           ].join("\n")
         : [
             "Pi lists the standard tools above. This runtime enables:",

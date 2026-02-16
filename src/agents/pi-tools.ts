@@ -462,22 +462,21 @@ export function createOpenClawCodingTools(options?: {
   // on the wire and maps them back for tool dispatch.
 
   // SECURITY: Hard filter for external channels - remove all system access tools
-  // This prevents prompt injection attacks from executing commands, reading files,
-  // accessing hardware, or making network requests
+  // This prevents prompt injection attacks from executing commands or accessing files.
+  // Web tools (web_search, web_fetch) are ALLOWED for information retrieval.
+  // File operations are blocked so downloaded content cannot be saved/executed.
   const messageProvider = options?.messageProvider?.trim()?.toLowerCase();
   const isExternalChannel = messageProvider === 'whatsapp' || messageProvider === 'telegram';
   if (isExternalChannel) {
     const blockedToolsForExternalChannels = new Set([
       // Command execution
       'exec', 'process',
-      // File system access
+      // File system access (blocks downloading/saving files)
       'read', 'write', 'edit', 'ls', 'find', 'grep', 'apply_patch', 'file',
       // Browser/UI control
       'browser', 'canvas',
       // Hardware access (camera, location, screen)
       'camera', 'nodes',
-      // Network access
-      'web', 'web_search', 'web_fetch',
       // Scheduling/automation
       'cron', 'gateway',
       // Subagent spawning (prevent escalation)
