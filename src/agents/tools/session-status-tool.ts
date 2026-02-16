@@ -330,8 +330,35 @@ export function createSessionStatusTool(opts?: {
       }
 
       if (!resolved) {
-        const kind = shouldResolveSessionIdInput(requestedKeyRaw) ? "sessionId" : "sessionKey";
-        throw new Error(`Unknown ${kind}: ${requestedKeyRaw}`);
+        // Session not found in store - return basic status for embedded/platform agents
+        // This handles cases where the session exists as a transcript file but isn't
+        // registered in the session metadata store (common for platform-managed personas)
+        const configured = resolveDefaultModelForAgent({ cfg, agentId });
+        const userTimezone = resolveUserTimezone(cfg.agents?.defaults?.userTimezone);
+        const userTimeFormat = resolveUserTimeFormat(cfg.agents?.defaults?.timeFormat);
+        const userTime = formatUserTime(new Date(), userTimezone, userTimeFormat);
+        const timeLine = userTime
+          ? `🕒 Time: ${userTime} (${userTimezone})`
+          : `🕒 Time zone: ${userTimezone}`;
+
+        const basicStatus = [
+          `📊 Session Status`,
+          `Session: ${requestedKeyRaw}`,
+          `Agent: ${agentId}`,
+          `Model: ${configured.provider}/${configured.model}`,
+          timeLine,
+        ].join("\n");
+
+        return {
+          content: [{ type: "text", text: basicStatus }],
+          details: {
+            ok: true,
+            sessionKey: requestedKeyRaw,
+            changedModel: false,
+            statusText: basicStatus,
+            note: "Session not in metadata store (embedded agent)",
+          },
+        };
       }
 
       const configured = resolveDefaultModelForAgent({ cfg, agentId });
