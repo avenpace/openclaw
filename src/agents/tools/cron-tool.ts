@@ -370,22 +370,35 @@ Use jobId as the canonical identifier; id is accepted for compatibility. Use con
             const delivery = isRecord(deliveryValue) ? deliveryValue : undefined;
             const modeRaw = typeof delivery?.mode === "string" ? delivery.mode : "";
             const mode = modeRaw.trim().toLowerCase();
-            const hasTarget =
-              (typeof delivery?.channel === "string" && delivery.channel.trim()) ||
-              (typeof delivery?.to === "string" && delivery.to.trim());
-            const shouldInfer =
-              (deliveryValue == null || delivery) && mode !== "none" && !hasTarget;
-            if (shouldInfer) {
+            const hasExplicitChannel = typeof delivery?.channel === "string" && delivery.channel.trim();
+            const hasExplicitTo = typeof delivery?.to === "string" && delivery.to.trim();
+            const hasExplicitAccountId = typeof delivery?.accountId === "string" && delivery.accountId.trim();
+            const shouldInferTarget = (deliveryValue == null || delivery) && mode !== "none" && !hasExplicitChannel && !hasExplicitTo;
+            // Always try to get accountId from session even if channel/to are explicit
+            const shouldInferAccountId = !hasExplicitAccountId && mode !== "none";
+
+            if (shouldInferTarget || shouldInferAccountId) {
               const inferred = inferDeliveryFromSessionKey(opts.agentSessionKey);
               if (inferred) {
-                (job as { delivery?: unknown }).delivery = {
-                  ...delivery,
-                  ...inferred,
-                } satisfies CronDelivery;
+                if (shouldInferTarget) {
+                  // Full inference: use inferred channel, to, and accountId
+                  (job as { delivery?: unknown }).delivery = {
+                    ...delivery,
+                    ...inferred,
+                  } satisfies CronDelivery;
+                } else if (shouldInferAccountId && inferred.accountId) {
+                  // Only add accountId to existing delivery config
+                  const existingMode = delivery?.mode as CronDelivery["mode"] | undefined;
+                  (job as { delivery?: unknown }).delivery = {
+                    ...delivery,
+                    mode: existingMode ?? "announce",
+                    accountId: inferred.accountId,
+                  } satisfies CronDelivery;
+                }
 
                 // Convert systemEvent to agentTurn for delivery support
                 // Delivery config only works with sessionTarget="isolated"
-                if (payloadKind === "systemEvent") {
+                if (payloadKind === "systemEvent" && shouldInferTarget) {
                   const payload = (job as { payload: { kind: string; text?: string } }).payload;
                   const reminderText = payload.text?.replace(/^Reminder:\s*/i, "").trim() || payload.text || "";
                   const deliveryMessage = `⏰ SCHEDULED REMINDER: Deliver this to the user now: "${reminderText}"`;
