@@ -143,6 +143,61 @@ function stripThreadSuffixFromSessionKey(sessionKey: string): string {
   return parent ? parent : sessionKey;
 }
 
+// Phone number regex that matches:
+// - International format: +1234567890, +62 812 345 6789
+// - With/without spaces, dashes, parentheses
+const PHONE_NUMBER_REGEX = /\+\d[\d\s\-().]{6,18}\d/g;
+
+/**
+ * Extract phone numbers from text, normalizing to digits only (with + prefix)
+ */
+function extractPhoneNumbers(text: string): string[] {
+  const matches = text.match(PHONE_NUMBER_REGEX);
+  if (!matches) {
+    return [];
+  }
+  // Normalize: keep only + and digits
+  return matches.map((m) => m.replace(/[\s\-().]/g, ""));
+}
+
+/**
+ * Extract the explicit delivery target phone number from the payload.
+ * Checks both agentTurn.message and systemEvent.text for phone numbers.
+ * Returns the first phone number found that differs from the sender (inferred from session key).
+ */
+function extractDeliveryTargetFromPayload(params: {
+  payload?: { kind?: string; text?: string; message?: string };
+  senderPhone?: string;
+}): string | null {
+  const { payload, senderPhone } = params;
+  if (!payload) {
+    return null;
+  }
+
+  // Get text from payload (message for agentTurn, text for systemEvent)
+  const text = payload.message || payload.text || "";
+  if (!text.trim()) {
+    return null;
+  }
+
+  const phoneNumbers = extractPhoneNumbers(text);
+  if (phoneNumbers.length === 0) {
+    return null;
+  }
+
+  // Normalize sender phone for comparison (if provided)
+  const normalizedSender = senderPhone?.replace(/[\s\-().]/g, "") || "";
+
+  // Find the first phone number that's different from the sender
+  for (const phone of phoneNumbers) {
+    if (phone !== normalizedSender) {
+      return phone;
+    }
+  }
+
+  return null;
+}
+
 function inferDeliveryFromSessionKey(agentSessionKey?: string): CronDelivery | null {
   const rawSessionKey = agentSessionKey?.trim();
   if (!rawSessionKey) {
@@ -381,10 +436,21 @@ Use jobId as the canonical identifier; id is accepted for compatibility. Use con
               const inferred = inferDeliveryFromSessionKey(opts.agentSessionKey);
               if (inferred) {
                 if (shouldInferTarget) {
-                  // Full inference: use inferred channel, to, and accountId
+                  // Check if the payload contains an explicit target phone number
+                  // This handles cases where the user says "send reminder to +1234567890"
+                  // and the LLM doesn't explicitly set delivery.to
+                  const payload = (job as { payload?: { kind?: string; text?: string; message?: string } }).payload;
+                  const targetFromPayload = extractDeliveryTargetFromPayload({
+                    payload,
+                    senderPhone: inferred.to, // The inferred 'to' is the sender from session key
+                  });
+
+                  // Full inference: use inferred channel and accountId, but prefer payload target
                   (job as { delivery?: unknown }).delivery = {
                     ...delivery,
                     ...inferred,
+                    // Override 'to' if we found a target in the payload
+                    ...(targetFromPayload ? { to: targetFromPayload } : {}),
                   } satisfies CronDelivery;
                 } else if (shouldInferAccountId && inferred.accountId) {
                   // Only add accountId to existing delivery config
