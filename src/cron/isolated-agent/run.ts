@@ -357,10 +357,15 @@ export async function runCronIsolatedAgentTurn(params: {
   const deliveryPlan = resolveCronDeliveryPlan(params.job);
   const deliveryRequested = deliveryPlan.requested;
 
-  const resolvedDelivery = await resolveDeliveryTarget(cfgWithAgentDefaults, agentId, {
+  const resolvedDeliveryBase = await resolveDeliveryTarget(cfgWithAgentDefaults, agentId, {
     channel: deliveryPlan.channel ?? "last",
     to: deliveryPlan.to,
   });
+  // Use accountId from delivery plan if provided, otherwise use resolved session accountId
+  const resolvedDelivery = {
+    ...resolvedDeliveryBase,
+    accountId: deliveryPlan.accountId ?? resolvedDeliveryBase.accountId,
+  };
 
   const { formattedTime, timeLine } = resolveCronStyleNow(params.cfg, now);
   const base = `[cron:${params.job.id} ${params.job.name}] ${params.message}`.trim();

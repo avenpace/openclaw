@@ -69,6 +69,7 @@ export const CronPayloadPatchSchema = Type.Union([
 
 const CronDeliveryBaseProperties = {
   channel: Type.Optional(Type.Union([Type.Literal("last"), NonEmptyString])),
+  accountId: Type.Optional(Type.String()),
   to: Type.Optional(Type.String()),
   bestEffort: Type.Optional(Type.Boolean()),
 };

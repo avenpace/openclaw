@@ -185,13 +185,21 @@ function inferDeliveryFromSessionKey(agentSessionKey?: string): CronDelivery | n
   }
 
   let channel: CronMessageChannel | undefined;
+  let accountId: string | undefined;
   if (markerIndex >= 1) {
     channel = parts[0]?.trim().toLowerCase() as CronMessageChannel;
+  }
+  // Extract accountId when present (format: <channel>:<accountId>:direct:<peerId>)
+  if (markerIndex >= 2) {
+    accountId = parts[1]?.trim();
   }
 
   const delivery: CronDelivery = { mode: "announce", to: peerId };
   if (channel) {
     delivery.channel = channel;
+  }
+  if (accountId) {
+    delivery.accountId = accountId;
   }
   return delivery;
 }
@@ -347,12 +355,16 @@ Use jobId as the canonical identifier; id is accepted for compatibility. Use con
             }
           }
 
+          // Infer delivery for both agentTurn and systemEvent jobs
+          // When delivery is inferred for systemEvent jobs, convert to agentTurn with isolated target
+          // because delivery config only works with sessionTarget="isolated"
+          const payloadKind = (job as { payload?: { kind?: string; text?: string; message?: string } }).payload?.kind;
           if (
             opts?.agentSessionKey &&
             job &&
             typeof job === "object" &&
             "payload" in job &&
-            (job as { payload?: { kind?: string } }).payload?.kind === "agentTurn"
+            (payloadKind === "agentTurn" || payloadKind === "systemEvent")
           ) {
             const deliveryValue = (job as { delivery?: unknown }).delivery;
             const delivery = isRecord(deliveryValue) ? deliveryValue : undefined;
@@ -370,6 +382,19 @@ Use jobId as the canonical identifier; id is accepted for compatibility. Use con
                   ...delivery,
                   ...inferred,
                 } satisfies CronDelivery;
+
+                // Convert systemEvent to agentTurn for delivery support
+                // Delivery config only works with sessionTarget="isolated"
+                if (payloadKind === "systemEvent") {
+                  const payload = (job as { payload: { kind: string; text?: string } }).payload;
+                  const reminderText = payload.text?.replace(/^Reminder:\s*/i, "").trim() || payload.text || "";
+                  const deliveryMessage = `⏰ SCHEDULED REMINDER: Deliver this to the user now: "${reminderText}"`;
+                  (job as { payload: { kind: string; message?: string; text?: string } }).payload = {
+                    kind: "agentTurn",
+                    message: deliveryMessage,
+                  };
+                  (job as { sessionTarget?: string }).sessionTarget = "isolated";
+                }
               }
             }
           }

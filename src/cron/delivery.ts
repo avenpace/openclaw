@@ -3,6 +3,7 @@ import type { CronDeliveryMode, CronJob, CronMessageChannel } from "./types.js";
 export type CronDeliveryPlan = {
   mode: CronDeliveryMode;
   channel: CronMessageChannel;
+  accountId?: string;
   to?: string;
   source: "delivery" | "payload";
   requested: boolean;
@@ -48,6 +49,9 @@ export function resolveCronDeliveryPlan(job: CronJob): CronDeliveryPlan {
     (delivery as { channel?: unknown } | undefined)?.channel,
   );
   const deliveryTo = normalizeTo((delivery as { to?: unknown } | undefined)?.to);
+  const deliveryAccountId = normalizeTo(
+    (delivery as { accountId?: unknown } | undefined)?.accountId,
+  );
 
   const channel = deliveryChannel ?? payloadChannel ?? "last";
   const to = deliveryTo ?? payloadTo;
@@ -56,6 +60,7 @@ export function resolveCronDeliveryPlan(job: CronJob): CronDeliveryPlan {
     return {
       mode: resolvedMode,
       channel,
+      accountId: deliveryAccountId,
       to,
       source: "delivery",
       requested: resolvedMode === "announce",
