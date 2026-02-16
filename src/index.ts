@@ -4,6 +4,14 @@ import { fileURLToPath } from "node:url";
 import { getReplyFromConfig } from "./auto-reply/reply.js";
 import { applyTemplate } from "./auto-reply/templating.js";
 import { monitorWebChannel } from "./channel-web.js";
+import { monitorWebInbox } from "./web/inbound/monitor.js";
+import { runEmbeddedPiAgent } from "./agents/pi-embedded.js";
+import { startWebLoginWithQr, waitForWebLogin } from "./web/login-qr.js";
+import { setConfigOverride } from "./config/runtime-overrides.js";
+import type { MsgContext } from "./auto-reply/templating.js";
+import type { ReplyPayload } from "./auto-reply/types.js";
+import type { WebChannelStatus } from "./web/auto-reply/types.js";
+import { startGatewayServer } from "./gateway/server.js";
 import { createDefaultDeps } from "./cli/deps.js";
 import { promptYesNo } from "./cli/prompt.js";
 import { waitForever } from "./cli/wait.js";
@@ -60,6 +68,7 @@ export {
   loadConfig,
   loadSessionStore,
   monitorWebChannel,
+  monitorWebInbox,
   normalizeE164,
   PortInUseError,
   promptYesNo,
@@ -67,10 +76,18 @@ export {
   resolveStorePath,
   runCommandWithTimeout,
   runExec,
+  runEmbeddedPiAgent,
   saveSessionStore,
+  setConfigOverride,
+  startGatewayServer,
+  startWebLoginWithQr,
   toWhatsappJid,
   waitForever,
+  waitForWebLogin,
 };
+
+// Re-export types for platform integration
+export type { MsgContext, ReplyPayload, WebChannelStatus };
 
 const isMain = isMainModule({
   currentFile: fileURLToPath(import.meta.url),
