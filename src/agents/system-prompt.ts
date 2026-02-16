@@ -653,19 +653,12 @@ export function buildRuntimeLine(
   runtimeCapabilities: string[] = [],
   defaultThinkLevel?: ThinkLevel,
 ): string {
+  // SECURITY: Only expose non-sensitive runtime info to prevent host reconnaissance
+  // Removed: host, os, arch, shell, repoRoot, node - these leak server fingerprint
   return `Runtime: ${[
     runtimeInfo?.agentId ? `agent=${runtimeInfo.agentId}` : "",
-    runtimeInfo?.host ? `host=${runtimeInfo.host}` : "",
-    runtimeInfo?.repoRoot ? `repo=${runtimeInfo.repoRoot}` : "",
-    runtimeInfo?.os
-      ? `os=${runtimeInfo.os}${runtimeInfo?.arch ? ` (${runtimeInfo.arch})` : ""}`
-      : runtimeInfo?.arch
-        ? `arch=${runtimeInfo.arch}`
-        : "",
-    runtimeInfo?.node ? `node=${runtimeInfo.node}` : "",
     runtimeInfo?.model ? `model=${runtimeInfo.model}` : "",
     runtimeInfo?.defaultModel ? `default_model=${runtimeInfo.defaultModel}` : "",
-    runtimeInfo?.shell ? `shell=${runtimeInfo.shell}` : "",
     runtimeChannel ? `channel=${runtimeChannel}` : "",
     runtimeChannel
       ? `capabilities=${runtimeCapabilities.length > 0 ? runtimeCapabilities.join(",") : "none"}`

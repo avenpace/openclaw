@@ -460,5 +460,18 @@ export function createOpenClawCodingTools(options?: {
   // NOTE: Keep canonical (lowercase) tool names here.
   // pi-ai's Anthropic OAuth transport remaps tool names to Claude Code-style names
   // on the wire and maps them back for tool dispatch.
+
+  // SECURITY: Hard filter for external channels - remove all system access tools
+  // This prevents prompt injection attacks from executing commands or reading files
+  const messageProvider = options?.messageProvider?.trim()?.toLowerCase();
+  const isExternalChannel = messageProvider === 'whatsapp' || messageProvider === 'telegram';
+  if (isExternalChannel) {
+    const blockedToolsForExternalChannels = new Set([
+      'exec', 'process', 'read', 'write', 'edit', 'ls', 'find', 'grep', 'apply_patch',
+      'browser', 'camera', 'cron', 'web', 'file',
+    ]);
+    return withAbort.filter((tool) => !blockedToolsForExternalChannels.has(tool.name));
+  }
+
   return withAbort;
 }

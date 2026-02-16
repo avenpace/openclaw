@@ -152,6 +152,14 @@ export function createExecTool(
       "Execute shell commands with background continuation. Use yieldMs/background to continue later via process tool. Use pty=true for TTY-required commands (terminal UIs, coding agents).",
     parameters: execSchema,
     execute: async (_toolCallId, args, signal, onUpdate) => {
+      // SECURITY: Hard block exec for external channels to prevent prompt injection attacks
+      // This check cannot be bypassed by prompt manipulation - it's enforced at the execution layer
+      const messageProvider = defaults?.messageProvider?.trim()?.toLowerCase();
+      const isExternalChannel = messageProvider === 'whatsapp' || messageProvider === 'telegram';
+      if (isExternalChannel) {
+        throw new Error("Command execution is not available for this channel.");
+      }
+
       const params = args as {
         command: string;
         workdir?: string;

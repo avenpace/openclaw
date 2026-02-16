@@ -319,7 +319,15 @@ export async function runEmbeddedAttempt(
             params.requireExplicitMessageTarget ?? isSubagentSessionKey(params.sessionKey),
           disableMessageTool: params.disableMessageTool,
         });
-    const tools = sanitizeToolsForGoogle({ tools: toolsRaw, provider: params.provider });
+    // SECURITY: Filter out dangerous tools for external channels (WhatsApp, Telegram)
+    // These tools can leak host info or execute arbitrary commands
+    const dangerousToolsForExternalChannels = ['exec', 'process', 'read', 'write', 'edit', 'ls', 'find', 'grep'];
+    const messageChannel = params.messageChannel ?? params.messageProvider;
+    const isExternalMessageChannel = messageChannel === 'whatsapp' || messageChannel === 'telegram';
+    const toolsFiltered = isExternalMessageChannel
+      ? toolsRaw.filter((tool) => !dangerousToolsForExternalChannels.includes(tool.name))
+      : toolsRaw;
+    const tools = sanitizeToolsForGoogle({ tools: toolsFiltered, provider: params.provider });
     logToolSchemasForGoogle({ tools, provider: params.provider });
 
     const machineName = await getMachineDisplayName();
@@ -395,19 +403,21 @@ export async function runEmbeddedAttempt(
       agentId: sessionAgentId,
     });
     const defaultModelLabel = `${defaultModelRef.provider}/${defaultModelRef.model}`;
+    // SECURITY: For external channels, don't expose host system info to prevent reconnaissance
+    const isExternalChannel = runtimeChannel === 'whatsapp' || runtimeChannel === 'telegram';
     const { runtimeInfo, userTimezone, userTime, userTimeFormat } = buildSystemPromptParams({
       config: params.config,
       agentId: sessionAgentId,
-      workspaceDir: effectiveWorkspace,
-      cwd: process.cwd(),
+      workspaceDir: isExternalChannel ? undefined : effectiveWorkspace,
+      cwd: isExternalChannel ? undefined : process.cwd(),
       runtime: {
-        host: machineName,
-        os: `${os.type()} ${os.release()}`,
-        arch: os.arch(),
-        node: process.version,
+        host: isExternalChannel ? 'cloud' : machineName,
+        os: isExternalChannel ? 'cloud' : `${os.type()} ${os.release()}`,
+        arch: isExternalChannel ? '' : os.arch(),
+        node: isExternalChannel ? '' : process.version,
         model: `${params.provider}/${params.modelId}`,
         defaultModel: defaultModelLabel,
-        shell: detectRuntimeShell(),
+        shell: isExternalChannel ? '' : detectRuntimeShell(),
         channel: runtimeChannel,
         capabilities: runtimeCapabilities,
         channelActions,
