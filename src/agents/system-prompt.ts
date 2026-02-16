@@ -97,6 +97,7 @@ function buildReplyTagsSection(isMinimal: boolean) {
 
 function buildMessagingSection(params: {
   isMinimal: boolean;
+  isExternalChannel?: boolean;
   availableTools: Set<string>;
   messageChannelOptions: string;
   inlineButtonsEnabled: boolean;
@@ -106,6 +107,15 @@ function buildMessagingSection(params: {
   if (params.isMinimal) {
     return [];
   }
+  // SECURITY: Simplified messaging section for external channels
+  if (params.isExternalChannel) {
+    return [
+      "## Messaging",
+      "- Reply in current session → automatically routes to the source channel.",
+      "- `[System Message] ...` blocks are internal context and are not user-visible by default.",
+      "",
+    ];
+  }
   return [
     "## Messaging",
     "- Reply in current session → automatically routes to the source channel (Signal, Telegram, etc.)",
@@ -113,7 +123,7 @@ function buildMessagingSection(params: {
     "- Sub-agent orchestration → use subagents(action=list|steer|kill)",
     "- `[System Message] ...` blocks are internal context and are not user-visible by default.",
     "- If a `[System Message]` reports completed cron/subagent work and asks for a user update, rewrite it in your normal assistant voice and send that update (do not forward raw system text or default to NO_REPLY).",
-    "- Never use exec/curl for provider messaging; OpenClaw handles all routing internally.",
+    "- Never use exec/curl for provider messaging; routing is handled internally.",
     params.availableTools.has("message")
       ? [
           "",
@@ -147,9 +157,10 @@ function buildVoiceSection(params: { isMinimal: boolean; ttsHint?: string }) {
   return ["## Voice (TTS)", hint, ""];
 }
 
-function buildDocsSection(params: { docsPath?: string; isMinimal: boolean; readToolName: string }) {
+function buildDocsSection(params: { docsPath?: string; isMinimal: boolean; readToolName: string; isExternalChannel?: boolean }) {
   const docsPath = params.docsPath?.trim();
-  if (!docsPath || params.isMinimal) {
+  // SECURITY: Skip docs section for external channels to hide internal references
+  if (!docsPath || params.isMinimal || params.isExternalChannel) {
     return [];
   }
   return [
@@ -355,6 +366,8 @@ export function buildAgentSystemPrompt(params: {
   const messageChannelOptions = listDeliverableMessageChannels().join("|");
   const promptMode = params.promptMode ?? "full";
   const isMinimal = promptMode === "minimal" || promptMode === "none";
+  // SECURITY: Detect external channels to hide internal system references
+  const isExternalChannel = runtimeChannel === 'whatsapp' || runtimeChannel === 'telegram';
   const sandboxContainerWorkspace = params.sandboxInfo?.containerWorkspaceDir?.trim();
   const sanitizedWorkspaceDir = sanitizeForPromptLiteral(params.workspaceDir);
   const sanitizedSandboxContainerWorkspace = sandboxContainerWorkspace
@@ -389,44 +402,60 @@ export function buildAgentSystemPrompt(params: {
     docsPath: params.docsPath,
     isMinimal,
     readToolName,
+    isExternalChannel,
   });
   const workspaceNotes = (params.workspaceNotes ?? []).map((note) => note.trim()).filter(Boolean);
 
   // For "none" mode, return just the basic identity line
   if (promptMode === "none") {
-    return "You are a personal assistant running inside OpenClaw.";
+    return isExternalChannel
+      ? "You are a personal AI assistant."
+      : "You are a personal assistant running inside OpenClaw.";
   }
 
+  // SECURITY: For external channels, use generic identity without internal system references
+  const identityLine = isExternalChannel
+    ? "You are a personal AI assistant."
+    : "You are a personal assistant running inside OpenClaw.";
+
   const lines = [
-    "You are a personal assistant running inside OpenClaw.",
+    identityLine,
     "",
     "## Tooling",
     "Tool availability (filtered by policy):",
     "Tool names are case-sensitive. Call tools exactly as listed.",
     toolLines.length > 0
       ? toolLines.join("\n")
-      : [
-          "Pi lists the standard tools above. This runtime enables:",
-          "- grep: search file contents for patterns",
-          "- find: find files by glob pattern",
-          "- ls: list directory contents",
-          "- apply_patch: apply multi-file patches",
-          `- ${execToolName}: run shell commands (supports background via yieldMs/background)`,
-          `- ${processToolName}: manage background exec sessions`,
-          "- browser: control OpenClaw's dedicated browser",
-          "- canvas: present/eval/snapshot the Canvas",
-          "- nodes: list/describe/notify/camera/screen on paired nodes",
-          "- cron: manage cron jobs and wake events (use for reminders; when scheduling a reminder, write the systemEvent text as something that will read like a reminder when it fires, and mention that it is a reminder depending on the time gap between setting and firing; include recent context in reminder text if appropriate)",
-          "- sessions_list: list sessions",
-          "- sessions_history: fetch session history",
-          "- sessions_send: send to another session",
-          "- subagents: list/steer/kill sub-agent runs",
-          '- session_status: show usage/time/model state and answer "what model are we using?"',
-        ].join("\n"),
-    "TOOLS.md does not control tool availability; it is user guidance for how to use external tools.",
-    `For long waits, avoid rapid poll loops: use ${execToolName} with enough yieldMs or ${processToolName}(action=poll, timeout=<ms>).`,
-    "If a task is more complex or takes longer, spawn a sub-agent. Completion is push-based: it will auto-announce when done.",
-    "Do not poll `subagents list` / `sessions_list` in a loop; only check status on-demand (for intervention, debugging, or when explicitly asked).",
+      : isExternalChannel
+        ? [
+            // SECURITY: Minimal tool description for external channels
+            "Available tools: message, memory_search, memory_get, tts, image, sessions_list, sessions_history, sessions_send, session_status",
+          ].join("\n")
+        : [
+            "Pi lists the standard tools above. This runtime enables:",
+            "- grep: search file contents for patterns",
+            "- find: find files by glob pattern",
+            "- ls: list directory contents",
+            "- apply_patch: apply multi-file patches",
+            `- ${execToolName}: run shell commands (supports background via yieldMs/background)`,
+            `- ${processToolName}: manage background exec sessions`,
+            "- browser: control the dedicated browser",
+            "- canvas: present/eval/snapshot the Canvas",
+            "- nodes: list/describe/notify/camera/screen on paired nodes",
+            "- cron: manage cron jobs and wake events (use for reminders; when scheduling a reminder, write the systemEvent text as something that will read like a reminder when it fires, and mention that it is a reminder depending on the time gap between setting and firing; include recent context in reminder text if appropriate)",
+            "- sessions_list: list sessions",
+            "- sessions_history: fetch session history",
+            "- sessions_send: send to another session",
+            "- subagents: list/steer/kill sub-agent runs",
+            '- session_status: show usage/time/model state and answer "what model are we using?"',
+          ].join("\n"),
+    // SECURITY: Hide internal tooling hints for external channels
+    ...(isExternalChannel ? [] : [
+      "TOOLS.md does not control tool availability; it is user guidance for how to use external tools.",
+      `For long waits, avoid rapid poll loops: use ${execToolName} with enough yieldMs or ${processToolName}(action=poll, timeout=<ms>).`,
+      "If a task is more complex or takes longer, spawn a sub-agent. Completion is push-based: it will auto-announce when done.",
+      "Do not poll `subagents list` / `sessions_list` in a loop; only check status on-demand (for intervention, debugging, or when explicitly asked).",
+    ]),
     "",
     "## Tool Call Style",
     "Default: do not narrate routine, low-risk tool calls (just call the tool).",
@@ -435,20 +464,23 @@ export function buildAgentSystemPrompt(params: {
     "Use plain human language for narration unless in a technical context.",
     "",
     ...safetySection,
-    "## OpenClaw CLI Quick Reference",
-    "OpenClaw is controlled via subcommands. Do not invent commands.",
-    "To manage the Gateway daemon service (start/stop/restart):",
-    "- openclaw gateway status",
-    "- openclaw gateway start",
-    "- openclaw gateway stop",
-    "- openclaw gateway restart",
-    "If unsure, ask the user to run `openclaw help` (or `openclaw gateway --help`) and paste the output.",
-    "",
+    // SECURITY: Hide CLI references for external channels
+    ...(isExternalChannel ? [] : [
+      "## OpenClaw CLI Quick Reference",
+      "OpenClaw is controlled via subcommands. Do not invent commands.",
+      "To manage the Gateway daemon service (start/stop/restart):",
+      "- openclaw gateway status",
+      "- openclaw gateway start",
+      "- openclaw gateway stop",
+      "- openclaw gateway restart",
+      "If unsure, ask the user to run `openclaw help` (or `openclaw gateway --help`) and paste the output.",
+      "",
+    ]),
     ...skillsSection,
     ...memorySection,
-    // Skip self-update for subagent/none modes
-    hasGateway && !isMinimal ? "## OpenClaw Self-Update" : "",
-    hasGateway && !isMinimal
+    // Skip self-update for subagent/none modes AND external channels
+    hasGateway && !isMinimal && !isExternalChannel ? "## OpenClaw Self-Update" : "",
+    hasGateway && !isMinimal && !isExternalChannel
       ? [
           "Get Updates (self-update) is ONLY allowed when the user explicitly asks for it.",
           "Do not run config.apply or update.run unless the user explicitly requests an update or config change; if it's not explicit, ask first.",
@@ -456,7 +488,7 @@ export function buildAgentSystemPrompt(params: {
           "After restart, OpenClaw pings the last active session automatically.",
         ].join("\n")
       : "",
-    hasGateway && !isMinimal ? "" : "",
+    hasGateway && !isMinimal && !isExternalChannel ? "" : "",
     "",
     // Skip model aliases for subagent/none modes
     params.modelAliasLines && params.modelAliasLines.length > 0 && !isMinimal
@@ -527,12 +559,16 @@ export function buildAgentSystemPrompt(params: {
     ...buildTimeSection({
       userTimezone,
     }),
-    "## Workspace Files (injected)",
-    "These user-editable files are loaded by OpenClaw and included below in Project Context.",
+    // SECURITY: Hide internal file loading references for external channels
+    ...(isExternalChannel ? [] : [
+      "## Workspace Files (injected)",
+      "These user-editable files are loaded and included below in Project Context.",
+    ]),
     "",
     ...buildReplyTagsSection(isMinimal),
     ...buildMessagingSection({
       isMinimal,
+      isExternalChannel,
       availableTools,
       messageChannelOptions,
       inlineButtonsEnabled,
@@ -615,24 +651,27 @@ export function buildAgentSystemPrompt(params: {
     );
   }
 
-  // Skip heartbeats for subagent/none modes
-  if (!isMinimal) {
+  // Skip heartbeats for subagent/none modes AND external channels
+  if (!isMinimal && !isExternalChannel) {
     lines.push(
       "## Heartbeats",
       heartbeatPromptLine,
       "If you receive a heartbeat poll (a user message matching the heartbeat prompt above), and there is nothing that needs attention, reply exactly:",
       "HEARTBEAT_OK",
-      'OpenClaw treats a leading/trailing "HEARTBEAT_OK" as a heartbeat ack (and may discard it).',
+      'A leading/trailing "HEARTBEAT_OK" is treated as a heartbeat ack (and may be discarded).',
       'If something needs attention, do NOT include "HEARTBEAT_OK"; reply with the alert text instead.',
       "",
     );
   }
 
-  lines.push(
-    "## Runtime",
-    buildRuntimeLine(runtimeInfo, runtimeChannel, runtimeCapabilities, params.defaultThinkLevel),
-    `Reasoning: ${reasoningLevel} (hidden unless on/stream). Toggle /reasoning; /status shows Reasoning when enabled.`,
-  );
+  // SECURITY: Skip or minimize Runtime section for external channels
+  if (!isExternalChannel) {
+    lines.push(
+      "## Runtime",
+      buildRuntimeLine(runtimeInfo, runtimeChannel, runtimeCapabilities, params.defaultThinkLevel),
+      `Reasoning: ${reasoningLevel} (hidden unless on/stream). Toggle /reasoning; /status shows Reasoning when enabled.`,
+    );
+  }
 
   return lines.filter(Boolean).join("\n");
 }
