@@ -1,5 +1,7 @@
 import { monitorWebInbox } from "../inbound/monitor.js";
 import type { WebInboundMessage, WebListenerCloseReason } from "../inbound/types.js";
+import { hasControlCommand } from "../../auto-reply/command-detection.js";
+import { loadConfig } from "../../config/config.js";
 
 type InitMessage = {
   type: "init";
@@ -45,6 +47,13 @@ function encodeError(err: unknown): string {
 
 async function handleInit(msg: InitMessage) {
   try {
+    const cfg = loadConfig();
+    const shouldDebounce = (m: WebInboundMessage) => {
+      if (m.mediaPath || m.mediaType) return false;
+      if (m.location) return false;
+      if (m.replyToId || m.replyToBody) return false;
+      return !hasControlCommand(m.body, cfg);
+    };
     listener = await monitorWebInbox({
       verbose: msg.options.verbose,
       accountId: msg.options.accountId,
@@ -52,6 +61,7 @@ async function handleInit(msg: InitMessage) {
       mediaMaxMb: msg.options.mediaMaxMb,
       sendReadReceipts: msg.options.sendReadReceipts,
       debounceMs: msg.options.debounceMs,
+      shouldDebounce,
       onMessage: async (m) => {
         const { sendComposing, reply, sendMedia, ...payload } = m;
         send({ type: "inbound", msg: payload });
