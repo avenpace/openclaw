@@ -2,6 +2,7 @@ import { monitorWebInbox } from "../inbound/monitor.js";
 import type { WebInboundMessage, WebListenerCloseReason } from "../inbound/types.js";
 import { hasControlCommand } from "../../auto-reply/command-detection.js";
 import { loadConfig } from "../../config/config.js";
+import readline from "node:readline";
 
 type InitMessage = {
   type: "init";
@@ -37,7 +38,9 @@ let listener: Awaited<ReturnType<typeof monitorWebInbox>> | null = null;
 function send(event: WorkerEvent) {
   if (process.send) {
     process.send(event);
+    return;
   }
+  process.stdout.write(`${JSON.stringify(event)}\n`);
 }
 
 function encodeError(err: unknown): string {
@@ -108,7 +111,7 @@ async function handleCall(msg: CallMessage) {
   }
 }
 
-process.on("message", (message: ParentMessage) => {
+function handleInboundMessage(message: ParentMessage) {
   if (!message || typeof message !== "object") return;
   if (message.type === "init") {
     void handleInit(message);
@@ -117,7 +120,23 @@ process.on("message", (message: ParentMessage) => {
   if (message.type === "call") {
     void handleCall(message);
   }
-});
+}
+
+if (process.send) {
+  process.on("message", (message: ParentMessage) => {
+    handleInboundMessage(message);
+  });
+} else {
+  const rl = readline.createInterface({ input: process.stdin });
+  rl.on("line", (line) => {
+    try {
+      const msg = JSON.parse(line) as ParentMessage;
+      handleInboundMessage(msg);
+    } catch {
+      // ignore malformed lines
+    }
+  });
+}
 
 process.on("SIGTERM", () => {
   listener?.signalClose?.({ status: 0, isLoggedOut: false, error: "SIGTERM" });

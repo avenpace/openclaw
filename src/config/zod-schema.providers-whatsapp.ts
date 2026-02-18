@@ -36,6 +36,21 @@ const WhatsAppSharedSchema = z.object({
   worker: z
     .object({
       maxWorkers: z.number().int().positive().optional(),
+      docker: z
+        .object({
+          enabled: z.boolean().optional(),
+          image: z.string().optional(),
+          imageByAccount: z.record(z.string(), z.string()).optional(),
+          authMountPath: z.string().optional(),
+          workerEntry: z.string().optional(),
+          command: z.array(z.string()).optional(),
+          containerNamePrefix: z.string().optional(),
+          network: z.string().optional(),
+          extraArgs: z.array(z.string()).optional(),
+          env: z.record(z.string(), z.string()).optional(),
+        })
+        .strict()
+        .optional(),
     })
     .strict()
     .optional(),

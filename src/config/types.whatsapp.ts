@@ -42,6 +42,29 @@ export type WhatsAppConfig = {
   worker?: {
     /** Maximum concurrent WhatsApp worker processes (undefined = no limit). */
     maxWorkers?: number;
+    /** Optional Docker-backed worker execution. */
+    docker?: {
+      /** Enable Docker workers (default: false). */
+      enabled?: boolean;
+      /** Shared image for all accounts. */
+      image?: string;
+      /** Per-account image override (corporate tier). */
+      imageByAccount?: Record<string, string>;
+      /** Container auth mount base path. Default: /data/whatsapp */
+      authMountPath?: string;
+      /** Worker entry path inside container. Default: /app/openclaw/dist/web/worker/whatsapp-worker.js */
+      workerEntry?: string;
+      /** Optional custom command (overrides workerEntry). */
+      command?: string[];
+      /** Container name prefix. Default: openclaw-wa- */
+      containerNamePrefix?: string;
+      /** Optional docker network to join. */
+      network?: string;
+      /** Extra docker args (e.g., resource limits). */
+      extraArgs?: string[];
+      /** Extra env vars passed to container. */
+      env?: Record<string, string>;
+    };
   };
   /** Optional per-account WhatsApp configuration (multi-account). */
   accounts?: Record<string, WhatsAppAccountConfig>;

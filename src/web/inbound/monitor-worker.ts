@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import fs from "node:fs";
+import readline from "node:readline";
 import type { WebInboundMessage, WebListenerCloseReason } from "./types.js";
 
 type WorkerCall = {
@@ -163,17 +164,86 @@ export async function monitorWebInboxWorker(options: {
   debounceMs?: number;
   shouldDebounce?: (msg: WebInboundMessage) => boolean;
   maxWorkers?: number;
+  docker?: {
+    enabled?: boolean;
+    image?: string;
+    imageByAccount?: Record<string, string>;
+    authMountPath?: string;
+    workerEntry?: string;
+    command?: string[];
+    containerNamePrefix?: string;
+    network?: string;
+    extraArgs?: string[];
+    env?: Record<string, string>;
+  };
 }) {
   const release = await acquireWorkerSlot(options.maxWorkers);
-  const { argv } = resolveWorkerEntry();
-  const child = spawn(process.execPath, argv, {
-    stdio: ["pipe", "pipe", "pipe", "ipc"],
-    cwd: process.cwd(),
-    env: {
-      ...process.env,
-      OPENCLAW_WHATSAPP_WORKER: "1",
-    },
-  });
+  const docker = options.docker;
+  const useDocker = Boolean(docker?.enabled);
+  let child: ReturnType<typeof spawn>;
+  let containerName: string | undefined;
+
+  if (useDocker) {
+    const image = docker?.imageByAccount?.[options.accountId] ?? docker?.image;
+    if (!image) {
+      release();
+      throw new Error("WhatsApp worker docker enabled but no image configured");
+    }
+    const authMountBase = docker?.authMountPath?.trim() || "/data/whatsapp";
+    const safeAccount = options.accountId.replace(/[^a-zA-Z0-9_.-]/g, "-");
+    const namePrefix = docker?.containerNamePrefix?.trim() || "openclaw-wa-";
+    containerName = `${namePrefix}${safeAccount}`;
+    const containerAuthDir = path.posix.join(authMountBase, safeAccount);
+
+    const command = docker?.command?.length
+      ? docker.command
+      : ["node", docker?.workerEntry?.trim() || "/app/openclaw/dist/web/worker/whatsapp-worker.js"];
+
+    const args = [
+      "run",
+      "--rm",
+      "--name",
+      containerName,
+      "-i",
+      "-e",
+      "OPENCLAW_WHATSAPP_WORKER=1",
+      "-e",
+      "OPENCLAW_WHATSAPP_WORKER_TRANSPORT=stdio",
+      "-e",
+      `OPENCLAW_WHATSAPP_WORKER_AUTH_DIR=${containerAuthDir}`,
+      "-v",
+      `${options.authDir}:${containerAuthDir}`,
+    ];
+    if (docker?.network) {
+      args.push("--network", docker.network);
+    }
+    for (const [key, val] of Object.entries(docker?.env ?? {})) {
+      args.push("-e", `${key}=${val}`);
+    }
+    if (docker?.extraArgs?.length) {
+      args.push(...docker.extraArgs);
+    }
+    args.push(image, ...command);
+
+    child = spawn("docker", args, {
+      stdio: ["pipe", "pipe", "pipe"],
+      cwd: process.cwd(),
+      env: { ...process.env },
+    });
+
+    // Override authDir for worker init to container path
+    options = { ...options, authDir: containerAuthDir };
+  } else {
+    const { argv } = resolveWorkerEntry();
+    child = spawn(process.execPath, argv, {
+      stdio: ["pipe", "pipe", "pipe", "ipc"],
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        OPENCLAW_WHATSAPP_WORKER: "1",
+      },
+    });
+  }
 
   const pending = new Map<string, PendingCall>();
   let closeResolve: ((reason: WebListenerCloseReason) => void) | null = null;
@@ -192,10 +262,14 @@ export async function monitorWebInboxWorker(options: {
       const id = randomUUID();
       pending.set(id, { resolve, reject });
       const msg: WorkerCall = { type: "call", id, method, params };
-      child.send?.(msg);
+      if (child.send) {
+        child.send(msg);
+      } else if (child.stdin) {
+        child.stdin.write(`${JSON.stringify(msg)}\n`);
+      }
     });
 
-  child.on("message", (message: WorkerMessage) => {
+  const handleWorkerMessage = (message: WorkerMessage) => {
     if (!message || typeof message !== "object") return;
     if (message.type === "result") {
       const entry = pending.get(message.id);
@@ -221,7 +295,21 @@ export async function monitorWebInboxWorker(options: {
       resolveClose({ status: undefined, isLoggedOut: false, error: message.error });
       return;
     }
-  });
+  };
+
+  if (!useDocker && child.send) {
+    child.on("message", (message: WorkerMessage) => handleWorkerMessage(message));
+  } else {
+    const rl = readline.createInterface({ input: child.stdout });
+    rl.on("line", (line) => {
+      try {
+        const msg = JSON.parse(line) as WorkerMessage;
+        handleWorkerMessage(msg);
+      } catch {
+        // ignore malformed lines
+      }
+    });
+  }
 
   child.on("exit", (code, signal) => {
     resolveClose({
@@ -239,6 +327,14 @@ export async function monitorWebInboxWorker(options: {
     startedAtMs: Date.now(),
   });
 
+  workerStatus.set(options.accountId, {
+    accountId: options.accountId,
+    pid: child.pid,
+    startedAtMs: Date.now(),
+    backend: useDocker ? "docker" : "child",
+    containerName,
+  });
+
   const init: WorkerInit = {
     type: "init",
     options: {
@@ -250,7 +346,11 @@ export async function monitorWebInboxWorker(options: {
       debounceMs: options.debounceMs,
     },
   };
-  child.send?.(init);
+  if (child.send) {
+    child.send(init);
+  } else if (child.stdin) {
+    child.stdin.write(`${JSON.stringify(init)}\n`);
+  }
 
   return {
     close: async () => {
