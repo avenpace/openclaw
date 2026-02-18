@@ -198,6 +198,7 @@ export async function monitorWebChannel(
       mediaMaxMb: account.mediaMaxMb,
       sendReadReceipts: account.sendReadReceipts,
       debounceMs: inboundDebounceMs,
+      maxWorkers: baseCfg.channels?.whatsapp?.worker?.maxWorkers,
       shouldDebounce,
       onMessage: async (msg: WebInboundMsg) => {
         handledMessages += 1;

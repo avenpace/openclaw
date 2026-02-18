@@ -38,6 +38,42 @@ type PendingCall = {
   reject: (err: Error) => void;
 };
 
+type WorkerStatus = {
+  accountId: string;
+  pid?: number;
+  startedAtMs: number;
+};
+
+let activeWorkers = 0;
+const workerQueue: Array<() => void> = [];
+const workerStatus = new Map<string, WorkerStatus>();
+
+async function acquireWorkerSlot(maxWorkers?: number): Promise<() => void> {
+  if (!maxWorkers || maxWorkers <= 0) {
+    return () => {};
+  }
+  if (activeWorkers < maxWorkers) {
+    activeWorkers += 1;
+    return () => releaseWorkerSlot();
+  }
+  await new Promise<void>((resolve) => workerQueue.push(resolve));
+  activeWorkers += 1;
+  return () => releaseWorkerSlot();
+}
+
+function releaseWorkerSlot() {
+  activeWorkers = Math.max(0, activeWorkers - 1);
+  const next = workerQueue.shift();
+  if (next) next();
+}
+
+export function getWhatsAppWorkerStatus(): { active: number; workers: WorkerStatus[] } {
+  return {
+    active: activeWorkers,
+    workers: Array.from(workerStatus.values()),
+  };
+}
+
 function resolveWorkerEntry(): { argv: string[] } {
   const override = process.env.OPENCLAW_WHATSAPP_WORKER_ENTRY?.trim();
   if (override) {
@@ -126,7 +162,9 @@ export async function monitorWebInboxWorker(options: {
   sendReadReceipts?: boolean;
   debounceMs?: number;
   shouldDebounce?: (msg: WebInboundMessage) => boolean;
+  maxWorkers?: number;
 }) {
+  const release = await acquireWorkerSlot(options.maxWorkers);
   const { argv } = resolveWorkerEntry();
   const child = spawn(process.execPath, argv, {
     stdio: ["pipe", "pipe", "pipe", "ipc"],
@@ -191,6 +229,14 @@ export async function monitorWebInboxWorker(options: {
       isLoggedOut: false,
       error: `worker exited (${code ?? "null"}${signal ? `:${signal}` : ""})`,
     });
+    workerStatus.delete(options.accountId);
+    release();
+  });
+
+  workerStatus.set(options.accountId, {
+    accountId: options.accountId,
+    pid: child.pid,
+    startedAtMs: Date.now(),
   });
 
   const init: WorkerInit = {
@@ -212,6 +258,8 @@ export async function monitorWebInboxWorker(options: {
         await call("close");
       } finally {
         child.kill();
+        workerStatus.delete(options.accountId);
+        release();
       }
     },
     onClose,
@@ -237,4 +285,3 @@ export async function monitorWebInboxWorker(options: {
     sendComposingTo: async (to: string) => call("sendComposingTo", [to]),
   } as const;
 }
-

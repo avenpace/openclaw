@@ -33,6 +33,12 @@ const WhatsAppAckReactionSchema = z
 
 const WhatsAppSharedSchema = z.object({
   mode: z.enum(["inline", "worker"]).optional().default("inline"),
+  worker: z
+    .object({
+      maxWorkers: z.number().int().positive().optional(),
+    })
+    .strict()
+    .optional(),
   capabilities: z.array(z.string()).optional(),
   markdown: MarkdownConfigSchema,
   configWrites: z.boolean().optional(),

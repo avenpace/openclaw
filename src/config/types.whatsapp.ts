@@ -38,6 +38,11 @@ export type WhatsAppAckReactionConfig = {
 export type WhatsAppConfig = {
   /** Execution mode for WhatsApp sessions. */
   mode?: "inline" | "worker";
+  /** Worker pool controls when mode is "worker". */
+  worker?: {
+    /** Maximum concurrent WhatsApp worker processes (undefined = no limit). */
+    maxWorkers?: number;
+  };
   /** Optional per-account WhatsApp configuration (multi-account). */
   accounts?: Record<string, WhatsAppAccountConfig>;
   /** Optional provider capability tags used for agent/runtime guidance. */
