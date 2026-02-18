@@ -15,7 +15,7 @@ import { resolveAgentRoute } from "../../routing/resolve-route.js";
 import { defaultRuntime, type RuntimeEnv } from "../../runtime.js";
 import { resolveWhatsAppAccount } from "../accounts.js";
 import { setActiveWebListener } from "../active-listener.js";
-import { monitorWebInbox } from "../inbound.js";
+import { monitorWebInbox, monitorWebInboxWorker } from "../inbound.js";
 import {
   computeBackoff,
   newConnectionId,
@@ -63,6 +63,7 @@ export async function monitorWebChannel(
   emitStatus();
 
   const baseCfg = loadConfig();
+  const useWorker = baseCfg.channels?.whatsapp?.mode === "worker";
   const account = resolveWhatsAppAccount({
     cfg: baseCfg,
     accountId: tuning.accountId,
@@ -189,7 +190,8 @@ export async function monitorWebChannel(
       return !hasControlCommand(msg.body, cfg);
     };
 
-    const listener = await (listenerFactory ?? monitorWebInbox)({
+    const effectiveListenerFactory = useWorker ? monitorWebInboxWorker : (listenerFactory ?? monitorWebInbox);
+    const listener = await effectiveListenerFactory({
       verbose,
       accountId: account.accountId,
       authDir: account.authDir,

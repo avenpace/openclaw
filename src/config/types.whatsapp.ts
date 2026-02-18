@@ -36,6 +36,8 @@ export type WhatsAppAckReactionConfig = {
 };
 
 export type WhatsAppConfig = {
+  /** Execution mode for WhatsApp sessions. */
+  mode?: "inline" | "worker";
   /** Optional per-account WhatsApp configuration (multi-account). */
   accounts?: Record<string, WhatsAppAccountConfig>;
   /** Optional provider capability tags used for agent/runtime guidance. */
