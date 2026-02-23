@@ -1,10 +1,10 @@
 import type { AnyMessageContent } from "@whiskeysockets/baileys";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { fileURLToPath } from "node:url";
-import path from "node:path";
 import fs from "node:fs";
+import path from "node:path";
 import readline from "node:readline";
+import { fileURLToPath } from "node:url";
 import type { WebInboundMessage, WebListenerCloseReason } from "./types.js";
 
 type WorkerCall = {
@@ -43,6 +43,8 @@ type WorkerStatus = {
   accountId: string;
   pid?: number;
   startedAtMs: number;
+  backend?: "child" | "docker";
+  containerName?: string;
 };
 
 let activeWorkers = 0;
@@ -65,7 +67,9 @@ async function acquireWorkerSlot(maxWorkers?: number): Promise<() => void> {
 function releaseWorkerSlot() {
   activeWorkers = Math.max(0, activeWorkers - 1);
   const next = workerQueue.shift();
-  if (next) next();
+  if (next) {
+    next();
+  }
 }
 
 export function getWhatsAppWorkerStatus(): { active: number; workers: WorkerStatus[] } {
@@ -105,11 +109,17 @@ function createProxyMessage(
     },
     sendMedia: async (content: AnyMessageContent) => {
       const mapped = mapMediaContent(content);
-      await call("sendMessage", [replyTo, mapped.text, mapped.mediaBuffer, mapped.mediaType, {
-        accountId,
-        fileName: mapped.fileName,
-        gifPlayback: mapped.gifPlayback,
-      }]);
+      await call("sendMessage", [
+        replyTo,
+        mapped.text,
+        mapped.mediaBuffer,
+        mapped.mediaType,
+        {
+          accountId,
+          fileName: mapped.fileName,
+          gifPlayback: mapped.gifPlayback,
+        },
+      ]);
     },
   };
 }
@@ -251,7 +261,9 @@ export async function monitorWebInboxWorker(options: {
     closeResolve = resolve;
   });
   const resolveClose = (reason: WebListenerCloseReason) => {
-    if (!closeResolve) return;
+    if (!closeResolve) {
+      return;
+    }
     const r = closeResolve;
     closeResolve = null;
     r(reason);
@@ -270,10 +282,14 @@ export async function monitorWebInboxWorker(options: {
     });
 
   const handleWorkerMessage = (message: WorkerMessage) => {
-    if (!message || typeof message !== "object") return;
+    if (!message || typeof message !== "object") {
+      return;
+    }
     if (message.type === "result") {
       const entry = pending.get(message.id);
-      if (!entry) return;
+      if (!entry) {
+        return;
+      }
       pending.delete(message.id);
       if (message.ok) {
         entry.resolve(message.result);
@@ -297,9 +313,9 @@ export async function monitorWebInboxWorker(options: {
     }
   };
 
-  if (!useDocker && child.send) {
+  if (!useDocker && typeof child.send === "function") {
     child.on("message", (message: WorkerMessage) => handleWorkerMessage(message));
-  } else {
+  } else if (child.stdout) {
     const rl = readline.createInterface({ input: child.stdout });
     rl.on("line", (line) => {
       try {
@@ -372,16 +388,21 @@ export async function monitorWebInboxWorker(options: {
       mediaBuffer?: Buffer,
       mediaType?: string,
       options?: { accountId?: string; fileName?: string; gifPlayback?: boolean },
-    ) => call("sendMessage", [to, text, mediaBuffer, mediaType, options]),
-    sendPoll: async (to: string, poll: { question: string; options: string[]; maxSelections?: number }) =>
-      call("sendPoll", [to, poll]),
+    ) =>
+      call("sendMessage", [to, text, mediaBuffer, mediaType, options]) as Promise<{
+        messageId: string;
+      }>,
+    sendPoll: async (
+      to: string,
+      poll: { question: string; options: string[]; maxSelections?: number },
+    ) => call("sendPoll", [to, poll]) as Promise<{ messageId: string }>,
     sendReaction: async (
       chatJid: string,
       messageId: string,
       emoji: string,
       fromMe: boolean,
       participant?: string,
-    ) => call("sendReaction", [chatJid, messageId, emoji, fromMe, participant]),
-    sendComposingTo: async (to: string) => call("sendComposingTo", [to]),
+    ) => call("sendReaction", [chatJid, messageId, emoji, fromMe, participant]) as Promise<void>,
+    sendComposingTo: async (to: string) => call("sendComposingTo", [to]) as Promise<void>,
   } as const;
 }

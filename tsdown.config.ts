@@ -56,4 +56,14 @@ export default defineConfig([
     fixedExtension: false,
     platform: "node",
   },
+  {
+    // WhatsApp worker needs to be a separate entry for subprocess spawning
+    // Output to worker/ (not dist/worker/) to match the relative path resolution
+    // The bundled channel-web code resolves ../worker/whatsapp-worker.js from dist/
+    entry: "src/web/worker/whatsapp-worker.ts",
+    outDir: "worker",
+    env,
+    fixedExtension: false,
+    platform: "node",
+  },
 ]);

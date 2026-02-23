@@ -1,3 +1,4 @@
+import type { WebChannelStatus, WebInboundMsg, WebMonitorTuning } from "./types.js";
 import { hasControlCommand } from "../../auto-reply/command-detection.js";
 import { resolveInboundDebounceMs } from "../../auto-reply/inbound-debounce.js";
 import { getReplyFromConfig } from "../../auto-reply/reply.js";
@@ -28,7 +29,6 @@ import { whatsappHeartbeatLog, whatsappLog } from "./loggers.js";
 import { buildMentionConfig } from "./mentions.js";
 import { createEchoTracker } from "./monitor/echo.js";
 import { createWebOnMessageHandler } from "./monitor/on-message.js";
-import type { WebChannelStatus, WebInboundMsg, WebMonitorTuning } from "./types.js";
 import { isLikelyWhatsAppCryptoError } from "./util.js";
 
 export async function monitorWebChannel(
@@ -63,7 +63,11 @@ export async function monitorWebChannel(
   emitStatus();
 
   const baseCfg = loadConfig();
-  const useWorker = baseCfg.channels?.whatsapp?.mode === "worker";
+  const useWorker =
+    typeof tuning.useWorker === "boolean"
+      ? tuning.useWorker
+      : baseCfg.channels?.whatsapp?.mode === "worker";
+  const workerCfg = tuning.worker ?? baseCfg.channels?.whatsapp?.worker;
   const account = resolveWhatsAppAccount({
     cfg: baseCfg,
     accountId: tuning.accountId,
@@ -191,7 +195,9 @@ export async function monitorWebChannel(
       return !hasControlCommand(msg.body, cfg);
     };
 
-    const effectiveListenerFactory = useWorker ? monitorWebInboxWorker : (listenerFactory ?? monitorWebInbox);
+    const effectiveListenerFactory = useWorker
+      ? monitorWebInboxWorker
+      : (listenerFactory ?? monitorWebInbox);
     const listener = await effectiveListenerFactory({
       verbose,
       accountId: account.accountId,
@@ -199,8 +205,8 @@ export async function monitorWebChannel(
       mediaMaxMb: account.mediaMaxMb,
       sendReadReceipts: account.sendReadReceipts,
       debounceMs: inboundDebounceMs,
-      maxWorkers: baseCfg.channels?.whatsapp?.worker?.maxWorkers,
-      docker: baseCfg.channels?.whatsapp?.worker?.docker,
+      maxWorkers: workerCfg?.maxWorkers,
+      docker: workerCfg?.docker,
       shouldDebounce,
       onMessage: async (msg: WebInboundMsg) => {
         handledMessages += 1;

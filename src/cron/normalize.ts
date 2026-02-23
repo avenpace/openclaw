@@ -1,3 +1,4 @@
+import type { CronJobCreate, CronJobPatch } from "./types.js";
 import { sanitizeAgentId } from "../routing/session-key.js";
 import { isRecord } from "../utils.js";
 import {
@@ -9,7 +10,6 @@ import { parseAbsoluteTimeMs } from "./parse.js";
 import { migrateLegacyCronPayload } from "./payload-migration.js";
 import { inferLegacyName } from "./service/normalize.js";
 import { normalizeCronStaggerMs, resolveDefaultCronStaggerMs } from "./stagger.js";
-import type { CronJobCreate, CronJobPatch } from "./types.js";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -372,6 +372,15 @@ export function normalizeCronJobInput(
 
   if (isRecord(base.payload)) {
     next.payload = coercePayload(base.payload);
+  }
+
+  // Extract delivery from inside payload if LLM nests it incorrectly
+  // e.g. { payload: { ..., delivery: {...} } } → { payload: {...}, delivery: {...} }
+  if (isRecord(next.payload) && isRecord(next.payload.delivery)) {
+    if (!isRecord(base.delivery)) {
+      next.delivery = coerceDelivery(next.payload.delivery as UnknownRecord);
+    }
+    delete next.payload.delivery;
   }
 
   if (isRecord(base.delivery)) {

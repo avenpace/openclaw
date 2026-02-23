@@ -1,5 +1,5 @@
-import { randomUUID } from "node:crypto";
 import { DisconnectReason } from "@whiskeysockets/baileys";
+import { randomUUID } from "node:crypto";
 import { loadConfig } from "../config/config.js";
 import { danger, info, success } from "../globals.js";
 import { logInfo } from "../logger.js";
@@ -111,12 +111,15 @@ export async function startWebLoginWithQr(
     timeoutMs?: number;
     force?: boolean;
     accountId?: string;
+    authDir?: string; // Direct authDir override (bypasses config resolution)
     runtime?: RuntimeEnv;
   } = {},
 ): Promise<{ qrDataUrl?: string; message: string }> {
   const runtime = opts.runtime ?? defaultRuntime;
   const cfg = loadConfig();
-  const account = resolveWhatsAppAccount({ cfg, accountId: opts.accountId });
+  const resolvedAccount = resolveWhatsAppAccount({ cfg, accountId: opts.accountId });
+  // Allow direct authDir override for multi-tenant platforms
+  const account = opts.authDir ? { ...resolvedAccount, authDir: opts.authDir } : resolvedAccount;
   const hasWeb = await webAuthExists(account.authDir);
   const selfId = readWebSelfId(account.authDir);
   if (hasWeb && !opts.force) {

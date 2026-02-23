@@ -1,15 +1,15 @@
 import { Type } from "@sinclair/typebox";
-import { loadConfig } from "../../config/config.js";
-import { normalizeCronJobCreate, normalizeCronJobPatch } from "../../cron/normalize.js";
 import type { CronDelivery, CronMessageChannel } from "../../cron/types.js";
-import { normalizeHttpWebhookUrl } from "../../cron/webhook-url.js";
+import { loadConfig } from "../../config/config.js";
+import { loadSessionStore, resolveStorePath } from "../../config/sessions.js";
+import { normalizeCronJobCreate, normalizeCronJobPatch } from "../../cron/normalize.js";
 import { parseAgentSessionKey } from "../../sessions/session-key-utils.js";
 import { extractTextFromChatContent } from "../../shared/chat-content.js";
 import { isRecord, truncateUtf16Safe } from "../../utils.js";
 import { resolveSessionAgentId } from "../agent-scope.js";
 import { optionalStringEnum, stringEnum } from "../schema/typebox.js";
 import { type AnyAgentTool, jsonResult, readStringParam } from "./common.js";
-import { callGatewayTool, readGatewayCallOptions, type GatewayCallOptions } from "./gateway.js";
+import { callGatewayTool, type GatewayCallOptions } from "./gateway.js";
 import { resolveInternalSessionKey, resolveMainSessionAlias } from "./sessions-helpers.js";
 
 // NOTE: We use Type.Object({}, { additionalProperties: true }) for job/patch
@@ -50,12 +50,6 @@ type CronToolOptions = {
   agentSessionKey?: string;
 };
 
-type GatewayToolCaller = typeof callGatewayTool;
-
-type CronToolDeps = {
-  callGatewayTool?: GatewayToolCaller;
-};
-
 type ChatMessage = {
   role?: unknown;
   content?: unknown;
@@ -90,7 +84,6 @@ async function buildReminderContextLines(params: {
   agentSessionKey?: string;
   gatewayOpts: GatewayCallOptions;
   contextMessages: number;
-  callGatewayTool: GatewayToolCaller;
 }) {
   const maxMessages = Math.min(
     REMINDER_CONTEXT_MESSAGES_MAX,
@@ -107,7 +100,7 @@ async function buildReminderContextLines(params: {
   const { mainKey, alias } = resolveMainSessionAlias(cfg);
   const resolvedKey = resolveInternalSessionKey({ key: sessionKey, alias, mainKey });
   try {
-    const res = await params.callGatewayTool<{ messages: Array<unknown> }>(
+    const res = await callGatewayTool<{ messages: Array<unknown> }>(
       "chat.history",
       params.gatewayOpts,
       {
@@ -149,6 +142,61 @@ function stripThreadSuffixFromSessionKey(sessionKey: string): string {
   }
   const parent = sessionKey.slice(0, idx).trim();
   return parent ? parent : sessionKey;
+}
+
+// Phone number regex that matches:
+// - International format: +1234567890, +62 812 345 6789
+// - With/without spaces, dashes, parentheses
+const PHONE_NUMBER_REGEX = /\+\d[\d\s\-().]{6,18}\d/g;
+
+/**
+ * Extract phone numbers from text, normalizing to digits only (with + prefix)
+ */
+function extractPhoneNumbers(text: string): string[] {
+  const matches = text.match(PHONE_NUMBER_REGEX);
+  if (!matches) {
+    return [];
+  }
+  // Normalize: keep only + and digits
+  return matches.map((m) => m.replace(/[\s\-().]/g, ""));
+}
+
+/**
+ * Extract the explicit delivery target phone number from the payload.
+ * Checks both agentTurn.message and systemEvent.text for phone numbers.
+ * Returns the first phone number found that differs from the sender (inferred from session key).
+ */
+function extractDeliveryTargetFromPayload(params: {
+  payload?: { kind?: string; text?: string; message?: string };
+  senderPhone?: string;
+}): string | null {
+  const { payload, senderPhone } = params;
+  if (!payload) {
+    return null;
+  }
+
+  // Get text from payload (message for agentTurn, text for systemEvent)
+  const text = payload.message || payload.text || "";
+  if (!text.trim()) {
+    return null;
+  }
+
+  const phoneNumbers = extractPhoneNumbers(text);
+  if (phoneNumbers.length === 0) {
+    return null;
+  }
+
+  // Normalize sender phone for comparison (if provided)
+  const normalizedSender = senderPhone?.replace(/[\s\-().]/g, "") || "";
+
+  // Find the first phone number that's different from the sender
+  for (const phone of phoneNumbers) {
+    if (phone !== normalizedSender) {
+      return phone;
+    }
+  }
+
+  return null;
 }
 
 function inferDeliveryFromSessionKey(agentSessionKey?: string): CronDelivery | null {
@@ -193,23 +241,82 @@ function inferDeliveryFromSessionKey(agentSessionKey?: string): CronDelivery | n
   }
 
   let channel: CronMessageChannel | undefined;
+  let accountId: string | undefined;
   if (markerIndex >= 1) {
     channel = parts[0]?.trim().toLowerCase() as CronMessageChannel;
+  }
+  // Extract accountId when present (format: <channel>:<accountId>:direct:<peerId>)
+  if (markerIndex >= 2) {
+    accountId = parts[1]?.trim();
   }
 
   const delivery: CronDelivery = { mode: "announce", to: peerId };
   if (channel) {
     delivery.channel = channel;
   }
+  if (accountId) {
+    delivery.accountId = accountId;
+  }
   return delivery;
 }
 
-export function createCronTool(opts?: CronToolOptions, deps?: CronToolDeps): AnyAgentTool {
-  const callGateway = deps?.callGatewayTool ?? callGatewayTool;
+/**
+ * Fallback: look up delivery context from the session store when the session key
+ * doesn't encode delivery info (e.g., agent:persona-xxx:unified format).
+ */
+function inferDeliveryFromSessionStore(agentSessionKey?: string): CronDelivery | null {
+  const rawSessionKey = agentSessionKey?.trim();
+  if (!rawSessionKey) {
+    return null;
+  }
+  const parsed = parseAgentSessionKey(rawSessionKey);
+  if (!parsed || !parsed.agentId) {
+    return null;
+  }
+  try {
+    const cfg = loadConfig();
+    const storePath = resolveStorePath(cfg.session?.store, { agentId: parsed.agentId });
+    const store = loadSessionStore(storePath);
+
+    // Try the exact session key first
+    const sessionEntry = store[rawSessionKey];
+    if (sessionEntry?.lastChannel && sessionEntry?.lastTo) {
+      const delivery: CronDelivery = {
+        mode: "announce",
+        channel: sessionEntry.lastChannel as CronMessageChannel,
+        to: sessionEntry.lastTo,
+      };
+      if (sessionEntry.lastAccountId) {
+        delivery.accountId = sessionEntry.lastAccountId;
+      }
+      return delivery;
+    }
+
+    // Also try looking up :main session (cron often routes there)
+    const mainSessionKey = `agent:${parsed.agentId}:main`;
+    const mainEntry = store[mainSessionKey];
+    if (mainEntry?.lastChannel && mainEntry?.lastTo) {
+      const delivery: CronDelivery = {
+        mode: "announce",
+        channel: mainEntry.lastChannel as CronMessageChannel,
+        to: mainEntry.lastTo,
+      };
+      if (mainEntry.lastAccountId) {
+        delivery.accountId = mainEntry.lastAccountId;
+      }
+      return delivery;
+    }
+
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export function createCronTool(opts?: CronToolOptions): AnyAgentTool {
   return {
     label: "Cron",
     name: "cron",
-    ownerOnly: true,
     description: `Manage Gateway cron jobs (status/list/add/update/remove/run/runs) and send wake events.
 
 ACTIONS:
@@ -227,9 +334,10 @@ JOB SCHEMA (for add action):
   "name": "string (optional)",
   "schedule": { ... },      // Required: when to run
   "payload": { ... },       // Required: what to execute
-  "delivery": { ... },      // Optional: announce summary or webhook POST
+  "delivery": { ... },      // Optional: announce summary (isolated only)
   "sessionTarget": "main" | "isolated",  // Required
-  "enabled": true | false   // Optional, default true
+  "enabled": true | false,  // Optional, default true
+  "notify": true | false    // Optional webhook opt-in; set true for user-facing reminders
 }
 
 SCHEDULE TYPES (schedule.kind):
@@ -246,19 +354,17 @@ PAYLOAD TYPES (payload.kind):
 - "systemEvent": Injects text as system event into session
   { "kind": "systemEvent", "text": "<message>" }
 - "agentTurn": Runs agent with message (isolated sessions only)
-  { "kind": "agentTurn", "message": "<prompt>", "model": "<optional>", "thinking": "<optional>", "timeoutSeconds": <optional, 0 means no timeout> }
+  { "kind": "agentTurn", "message": "<prompt>", "model": "<optional>", "thinking": "<optional>", "timeoutSeconds": <optional> }
 
-DELIVERY (top-level):
-  { "mode": "none|announce|webhook", "channel": "<optional>", "to": "<optional>", "bestEffort": <optional-bool> }
+DELIVERY (isolated-only, top-level):
+  { "mode": "none|announce", "channel": "<optional>", "to": "<optional>", "bestEffort": <optional-bool> }
   - Default for isolated agentTurn jobs (when delivery omitted): "announce"
-  - announce: send to chat channel (optional channel/to target)
-  - webhook: send finished-run event as HTTP POST to delivery.to (URL required)
-  - If the task needs to send to a specific chat/recipient, set announce delivery.channel/to; do not call messaging tools inside the run.
+  - If the task needs to send to a specific chat/recipient, set delivery.channel/to here; do not call messaging tools inside the run.
 
 CRITICAL CONSTRAINTS:
 - sessionTarget="main" REQUIRES payload.kind="systemEvent"
 - sessionTarget="isolated" REQUIRES payload.kind="agentTurn"
-- For webhook callbacks, use delivery.mode="webhook" with delivery.to set to a URL.
+- For reminders users should be notified about, set notify=true.
 Default: prefer isolated agentTurn jobs unless the user explicitly wants a main-session system event.
 
 WAKE MODES (for wake action):
@@ -271,22 +377,26 @@ Use jobId as the canonical identifier; id is accepted for compatibility. Use con
       const params = args as Record<string, unknown>;
       const action = readStringParam(params, "action", { required: true });
       const gatewayOpts: GatewayCallOptions = {
-        ...readGatewayCallOptions(params),
-        timeoutMs:
-          typeof params.timeoutMs === "number" && Number.isFinite(params.timeoutMs)
-            ? params.timeoutMs
-            : 60_000,
+        gatewayUrl: readStringParam(params, "gatewayUrl", { trim: false }),
+        gatewayToken: readStringParam(params, "gatewayToken", { trim: false }),
+        timeoutMs: typeof params.timeoutMs === "number" ? params.timeoutMs : 60_000,
       };
 
       switch (action) {
         case "status":
-          return jsonResult(await callGateway("cron.status", gatewayOpts, {}));
-        case "list":
+          return jsonResult(await callGatewayTool("cron.status", gatewayOpts, {}));
+        case "list": {
+          const cfg = loadConfig();
+          const agentId = opts?.agentSessionKey
+            ? resolveSessionAgentId({ sessionKey: opts.agentSessionKey, config: cfg })
+            : undefined;
           return jsonResult(
-            await callGateway("cron.list", gatewayOpts, {
+            await callGatewayTool("cron.list", gatewayOpts, {
               includeDisabled: Boolean(params.includeDisabled),
+              agentId,
             }),
           );
+        }
         case "add": {
           // Flat-params recovery: non-frontier models (e.g. Grok) sometimes flatten
           // job properties to the top level alongside `action` instead of nesting
@@ -307,10 +417,10 @@ Use jobId as the canonical identifier; id is accepted for compatibility. Use con
               "payload",
               "delivery",
               "enabled",
+              "notify",
               "description",
               "deleteAfterRun",
               "agentId",
-              "sessionKey",
               "message",
               "text",
               "model",
@@ -344,62 +454,95 @@ Use jobId as the canonical identifier; id is accepted for compatibility. Use con
             throw new Error("job required");
           }
           const job = normalizeCronJobCreate(params.job) ?? params.job;
-          if (job && typeof job === "object") {
+          if (job && typeof job === "object" && !("agentId" in job)) {
             const cfg = loadConfig();
-            const { mainKey, alias } = resolveMainSessionAlias(cfg);
-            const resolvedSessionKey = opts?.agentSessionKey
-              ? resolveInternalSessionKey({ key: opts.agentSessionKey, alias, mainKey })
+            const agentId = opts?.agentSessionKey
+              ? resolveSessionAgentId({ sessionKey: opts.agentSessionKey, config: cfg })
               : undefined;
-            if (!("agentId" in job)) {
-              const agentId = opts?.agentSessionKey
-                ? resolveSessionAgentId({ sessionKey: opts.agentSessionKey, config: cfg })
-                : undefined;
-              if (agentId) {
-                (job as { agentId?: string }).agentId = agentId;
-              }
-            }
-            if (!("sessionKey" in job) && resolvedSessionKey) {
-              (job as { sessionKey?: string }).sessionKey = resolvedSessionKey;
+            if (agentId) {
+              (job as { agentId?: string }).agentId = agentId;
             }
           }
 
+          // Infer delivery for both agentTurn and systemEvent jobs
+          // When delivery is inferred for systemEvent jobs, convert to agentTurn with isolated target
+          // because delivery config only works with sessionTarget="isolated"
+          const payloadKind = (
+            job as { payload?: { kind?: string; text?: string; message?: string } }
+          ).payload?.kind;
           if (
             opts?.agentSessionKey &&
             job &&
             typeof job === "object" &&
             "payload" in job &&
-            (job as { payload?: { kind?: string } }).payload?.kind === "agentTurn"
+            (payloadKind === "agentTurn" || payloadKind === "systemEvent")
           ) {
             const deliveryValue = (job as { delivery?: unknown }).delivery;
             const delivery = isRecord(deliveryValue) ? deliveryValue : undefined;
             const modeRaw = typeof delivery?.mode === "string" ? delivery.mode : "";
             const mode = modeRaw.trim().toLowerCase();
-            if (mode === "webhook") {
-              const webhookUrl = normalizeHttpWebhookUrl(delivery?.to);
-              if (!webhookUrl) {
-                throw new Error(
-                  'delivery.mode="webhook" requires delivery.to to be a valid http(s) URL',
-                );
-              }
-              if (delivery) {
-                delivery.to = webhookUrl;
-              }
-            }
-
-            const hasTarget =
-              (typeof delivery?.channel === "string" && delivery.channel.trim()) ||
-              (typeof delivery?.to === "string" && delivery.to.trim());
-            const shouldInfer =
+            const hasExplicitChannel =
+              typeof delivery?.channel === "string" && delivery.channel.trim();
+            const hasExplicitTo = typeof delivery?.to === "string" && delivery.to.trim();
+            const hasExplicitAccountId =
+              typeof delivery?.accountId === "string" && delivery.accountId.trim();
+            const shouldInferTarget =
               (deliveryValue == null || delivery) &&
-              (mode === "" || mode === "announce") &&
-              !hasTarget;
-            if (shouldInfer) {
-              const inferred = inferDeliveryFromSessionKey(opts.agentSessionKey);
+              mode !== "none" &&
+              !hasExplicitChannel &&
+              !hasExplicitTo;
+            // Always try to get accountId from session even if channel/to are explicit
+            const shouldInferAccountId = !hasExplicitAccountId && mode !== "none";
+
+            if (shouldInferTarget || shouldInferAccountId) {
+              // Try to infer from session key format first, then fall back to session store
+              const inferred =
+                inferDeliveryFromSessionKey(opts.agentSessionKey) ??
+                inferDeliveryFromSessionStore(opts.agentSessionKey);
               if (inferred) {
-                (job as { delivery?: unknown }).delivery = {
-                  ...delivery,
-                  ...inferred,
-                } satisfies CronDelivery;
+                if (shouldInferTarget) {
+                  // Check if the payload contains an explicit target phone number
+                  // This handles cases where the user says "send reminder to +1234567890"
+                  // and the LLM doesn't explicitly set delivery.to
+                  const payload = (
+                    job as { payload?: { kind?: string; text?: string; message?: string } }
+                  ).payload;
+                  const targetFromPayload = extractDeliveryTargetFromPayload({
+                    payload,
+                    senderPhone: inferred.to, // The inferred 'to' is the sender from session key
+                  });
+
+                  // Full inference: use inferred channel and accountId, but prefer payload target
+                  (job as { delivery?: unknown }).delivery = {
+                    ...delivery,
+                    ...inferred,
+                    // Override 'to' if we found a target in the payload
+                    ...(targetFromPayload ? { to: targetFromPayload } : {}),
+                  } satisfies CronDelivery;
+                } else if (shouldInferAccountId && inferred.accountId) {
+                  // Only add accountId to existing delivery config
+                  const existingMode = delivery?.mode as CronDelivery["mode"] | undefined;
+                  (job as { delivery?: unknown }).delivery = {
+                    ...delivery,
+                    mode: existingMode ?? "announce",
+                    accountId: inferred.accountId,
+                  } satisfies CronDelivery;
+                }
+
+                // Convert systemEvent to agentTurn for delivery support
+                // Delivery config only works with sessionTarget="isolated"
+                if (payloadKind === "systemEvent" && shouldInferTarget) {
+                  const payload = (job as { payload: { kind: string; text?: string } }).payload;
+                  const reminderText =
+                    payload.text?.replace(/^Reminder:\s*/i, "").trim() || payload.text || "";
+                  const deliveryMessage = `⏰ SCHEDULED REMINDER: Deliver this to the user now: "${reminderText}"`;
+                  (job as { payload: { kind: string; message?: string; text?: string } }).payload =
+                    {
+                      kind: "agentTurn",
+                      message: deliveryMessage,
+                    };
+                  (job as { sessionTarget?: string }).sessionTarget = "isolated";
+                }
               }
             }
           }
@@ -420,7 +563,6 @@ Use jobId as the canonical identifier; id is accepted for compatibility. Use con
                 agentSessionKey: opts?.agentSessionKey,
                 gatewayOpts,
                 contextMessages,
-                callGatewayTool: callGateway,
               });
               if (contextLines.length > 0) {
                 const baseText = stripExistingContext(payload.text);
@@ -428,7 +570,7 @@ Use jobId as the canonical identifier; id is accepted for compatibility. Use con
               }
             }
           }
-          return jsonResult(await callGateway("cron.add", gatewayOpts, job));
+          return jsonResult(await callGatewayTool("cron.add", gatewayOpts, job));
         }
         case "update": {
           const id = readStringParam(params, "jobId") ?? readStringParam(params, "id");
@@ -439,10 +581,15 @@ Use jobId as the canonical identifier; id is accepted for compatibility. Use con
             throw new Error("patch required");
           }
           const patch = normalizeCronJobPatch(params.patch) ?? params.patch;
+          const cfg = loadConfig();
+          const agentId = opts?.agentSessionKey
+            ? resolveSessionAgentId({ sessionKey: opts.agentSessionKey, config: cfg })
+            : undefined;
           return jsonResult(
-            await callGateway("cron.update", gatewayOpts, {
+            await callGatewayTool("cron.update", gatewayOpts, {
               id,
               patch,
+              agentId,
             }),
           );
         }
@@ -451,7 +598,11 @@ Use jobId as the canonical identifier; id is accepted for compatibility. Use con
           if (!id) {
             throw new Error("jobId required (id accepted for backward compatibility)");
           }
-          return jsonResult(await callGateway("cron.remove", gatewayOpts, { id }));
+          const cfg = loadConfig();
+          const agentId = opts?.agentSessionKey
+            ? resolveSessionAgentId({ sessionKey: opts.agentSessionKey, config: cfg })
+            : undefined;
+          return jsonResult(await callGatewayTool("cron.remove", gatewayOpts, { id, agentId }));
         }
         case "run": {
           const id = readStringParam(params, "jobId") ?? readStringParam(params, "id");
@@ -460,14 +611,14 @@ Use jobId as the canonical identifier; id is accepted for compatibility. Use con
           }
           const runMode =
             params.runMode === "due" || params.runMode === "force" ? params.runMode : "force";
-          return jsonResult(await callGateway("cron.run", gatewayOpts, { id, mode: runMode }));
+          return jsonResult(await callGatewayTool("cron.run", gatewayOpts, { id, mode: runMode }));
         }
         case "runs": {
           const id = readStringParam(params, "jobId") ?? readStringParam(params, "id");
           if (!id) {
             throw new Error("jobId required (id accepted for backward compatibility)");
           }
-          return jsonResult(await callGateway("cron.runs", gatewayOpts, { id }));
+          return jsonResult(await callGatewayTool("cron.runs", gatewayOpts, { id }));
         }
         case "wake": {
           const text = readStringParam(params, "text", { required: true });
@@ -476,7 +627,7 @@ Use jobId as the canonical identifier; id is accepted for compatibility. Use con
               ? params.mode
               : "next-heartbeat";
           return jsonResult(
-            await callGateway("wake", gatewayOpts, { mode, text }, { expectFinal: false }),
+            await callGatewayTool("wake", gatewayOpts, { mode, text }, { expectFinal: false }),
           );
         }
         default:

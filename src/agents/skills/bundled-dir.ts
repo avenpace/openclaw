@@ -38,6 +38,10 @@ export function resolveBundledSkillsDir(
 ): string | undefined {
   const override = process.env.OPENCLAW_BUNDLED_SKILLS_DIR?.trim();
   if (override) {
+    // Allow explicitly disabling bundled skills with "none" or "disabled"
+    if (override.toLowerCase() === "none" || override.toLowerCase() === "disabled") {
+      return undefined;
+    }
     return override;
   }
 

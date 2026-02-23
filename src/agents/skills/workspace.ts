@@ -1,12 +1,19 @@
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
 import {
   formatSkillsForPrompt,
   loadSkillsFromDir,
   type Skill,
 } from "@mariozechner/pi-coding-agent";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import type { OpenClawConfig } from "../../config/config.js";
+import type {
+  ParsedSkillFrontmatter,
+  SkillEligibilityContext,
+  SkillCommandSpec,
+  SkillEntry,
+  SkillSnapshot,
+} from "./types.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
 import { CONFIG_DIR, resolveUserPath } from "../../utils.js";
 import { resolveSandboxPath } from "../sandbox-paths.js";
@@ -20,13 +27,6 @@ import {
 } from "./frontmatter.js";
 import { resolvePluginSkillDirs } from "./plugin-skills.js";
 import { serializeByKey } from "./serialize.js";
-import type {
-  ParsedSkillFrontmatter,
-  SkillEligibilityContext,
-  SkillCommandSpec,
-  SkillEntry,
-  SkillSnapshot,
-} from "./types.js";
 
 const fsp = fs.promises;
 const skillsLogger = createSubsystemLogger("skills");
@@ -321,17 +321,29 @@ function loadSkillEntries(
     return loadedSkills;
   };
 
-  const managedSkillsDir = opts?.managedSkillsDir ?? path.join(CONFIG_DIR, "skills");
+  // OPENCLAW_WORKSPACE_SKILLS_ONLY: When set to "1" or "true", only load skills from workspace directory.
+  // This is used for multi-tenant platforms where each user should only see their own installed skills.
+  const workspaceSkillsOnly =
+    process.env.OPENCLAW_WORKSPACE_SKILLS_ONLY === "1" ||
+    process.env.OPENCLAW_WORKSPACE_SKILLS_ONLY?.toLowerCase() === "true";
+
+  const managedSkillsDir = workspaceSkillsOnly
+    ? undefined
+    : (opts?.managedSkillsDir ?? path.join(CONFIG_DIR, "skills"));
   const workspaceSkillsDir = path.resolve(workspaceDir, "skills");
-  const bundledSkillsDir = opts?.bundledSkillsDir ?? resolveBundledSkillsDir();
-  const extraDirsRaw = opts?.config?.skills?.load?.extraDirs ?? [];
+  const bundledSkillsDir = workspaceSkillsOnly
+    ? undefined
+    : (opts?.bundledSkillsDir ?? resolveBundledSkillsDir());
+  const extraDirsRaw = workspaceSkillsOnly ? [] : (opts?.config?.skills?.load?.extraDirs ?? []);
   const extraDirs = extraDirsRaw
     .map((d) => (typeof d === "string" ? d.trim() : ""))
     .filter(Boolean);
-  const pluginSkillDirs = resolvePluginSkillDirs({
-    workspaceDir,
-    config: opts?.config,
-  });
+  const pluginSkillDirs = workspaceSkillsOnly
+    ? []
+    : resolvePluginSkillDirs({
+        workspaceDir,
+        config: opts?.config,
+      });
   const mergedExtraDirs = [...extraDirs, ...pluginSkillDirs];
 
   const bundledSkills = bundledSkillsDir
@@ -347,15 +359,21 @@ function loadSkillEntries(
       source: "openclaw-extra",
     });
   });
-  const managedSkills = loadSkills({
-    dir: managedSkillsDir,
-    source: "openclaw-managed",
-  });
-  const personalAgentsSkillsDir = path.resolve(os.homedir(), ".agents", "skills");
-  const personalAgentsSkills = loadSkills({
-    dir: personalAgentsSkillsDir,
-    source: "agents-skills-personal",
-  });
+  const managedSkills = managedSkillsDir
+    ? loadSkills({
+        dir: managedSkillsDir,
+        source: "openclaw-managed",
+      })
+    : [];
+  const personalAgentsSkillsDir = workspaceSkillsOnly
+    ? undefined
+    : path.resolve(os.homedir(), ".agents", "skills");
+  const personalAgentsSkills = personalAgentsSkillsDir
+    ? loadSkills({
+        dir: personalAgentsSkillsDir,
+        source: "agents-skills-personal",
+      })
+    : [];
   const projectAgentsSkillsDir = path.resolve(workspaceDir, ".agents", "skills");
   const projectAgentsSkills = loadSkills({
     dir: projectAgentsSkillsDir,

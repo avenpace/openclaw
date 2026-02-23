@@ -1,13 +1,12 @@
 import type { OpenClawConfig, SkillConfig } from "../../config/config.js";
+import type { SkillEligibilityContext, SkillEntry } from "./types.js";
 import {
-  evaluateRuntimeEligibility,
   hasBinary,
   isConfigPathTruthyWithDefaults,
   resolveConfigPath,
   resolveRuntimePlatform,
 } from "../../shared/config-eval.js";
 import { resolveSkillKey } from "./frontmatter.js";
-import type { SkillEligibilityContext, SkillEntry } from "./types.js";
 
 const DEFAULT_CONFIG_VALUES: Record<string, boolean> = {
   "browser.enabled": true,
@@ -76,27 +75,89 @@ export function shouldIncludeSkill(params: {
   const skillKey = resolveSkillKey(entry.skill, entry);
   const skillConfig = resolveSkillConfig(config, skillKey);
   const allowBundled = normalizeAllowlist(config?.skills?.allowBundled);
+  const osList = entry.metadata?.os ?? [];
+  const remotePlatforms = eligibility?.remote?.platforms ?? [];
+
+  // Debug logging for skill eligibility (TEMP - remove after debugging)
+  const debugLog = (msg: string) => {
+    console.log(`[Skills Eligibility] ${skillKey}: ${msg}`);
+  };
+  debugLog(`checking eligibility, source=${entry.skill.source}`);
 
   if (skillConfig?.enabled === false) {
+    debugLog("excluded: explicitly disabled");
     return false;
   }
   if (!isBundledSkillAllowed(entry, allowBundled)) {
+    debugLog("excluded: bundled skill not in allowlist");
     return false;
   }
-  return evaluateRuntimeEligibility({
-    os: entry.metadata?.os,
-    remotePlatforms: eligibility?.remote?.platforms,
-    always: entry.metadata?.always,
-    requires: entry.metadata?.requires,
-    hasBin: hasBinary,
-    hasRemoteBin: eligibility?.remote?.hasBin,
-    hasAnyRemoteBin: eligibility?.remote?.hasAnyBin,
-    hasEnv: (envName) =>
-      Boolean(
-        process.env[envName] ||
-        skillConfig?.env?.[envName] ||
-        (skillConfig?.apiKey && entry.metadata?.primaryEnv === envName),
-      ),
-    isConfigPathTruthy: (configPath) => isConfigPathTruthy(config, configPath),
-  });
+  if (
+    osList.length > 0 &&
+    !osList.includes(resolveRuntimePlatform()) &&
+    !remotePlatforms.some((platform) => osList.includes(platform))
+  ) {
+    debugLog(
+      `excluded: OS mismatch (requires ${osList.join(",")}, got ${resolveRuntimePlatform()})`,
+    );
+    return false;
+  }
+  if (entry.metadata?.always === true) {
+    debugLog("included: always=true");
+    return true;
+  }
+
+  const requiredBins = entry.metadata?.requires?.bins ?? [];
+  if (requiredBins.length > 0) {
+    for (const bin of requiredBins) {
+      if (hasBinary(bin)) {
+        continue;
+      }
+      if (eligibility?.remote?.hasBin?.(bin)) {
+        continue;
+      }
+      debugLog(`excluded: missing binary '${bin}'`);
+      return false;
+    }
+  }
+  const requiredAnyBins = entry.metadata?.requires?.anyBins ?? [];
+  if (requiredAnyBins.length > 0) {
+    const anyFound =
+      requiredAnyBins.some((bin) => hasBinary(bin)) ||
+      eligibility?.remote?.hasAnyBin?.(requiredAnyBins);
+    if (!anyFound) {
+      debugLog(`excluded: missing any of required binaries [${requiredAnyBins.join(",")}]`);
+      return false;
+    }
+  }
+
+  const requiredEnv = entry.metadata?.requires?.env ?? [];
+  if (requiredEnv.length > 0) {
+    for (const envName of requiredEnv) {
+      if (process.env[envName]) {
+        continue;
+      }
+      if (skillConfig?.env?.[envName]) {
+        continue;
+      }
+      if (skillConfig?.apiKey && entry.metadata?.primaryEnv === envName) {
+        continue;
+      }
+      debugLog(`excluded: missing env var '${envName}'`);
+      return false;
+    }
+  }
+
+  const requiredConfig = entry.metadata?.requires?.config ?? [];
+  if (requiredConfig.length > 0) {
+    for (const configPath of requiredConfig) {
+      if (!isConfigPathTruthy(config, configPath)) {
+        debugLog(`excluded: config path '${configPath}' not truthy`);
+        return false;
+      }
+    }
+  }
+
+  debugLog("included: all checks passed");
+  return true;
 }
