@@ -6,6 +6,19 @@ import { splitShellArgs } from "../utils/shell-argv.js";
 
 export const DEFAULT_SAFE_BINS = ["jq", "grep", "cut", "sort", "uniq", "head", "tail", "tr", "wc"];
 
+// Safe binaries allowed for external channels (WhatsApp/Telegram)
+// These are read-only network/data tools that can't compromise the system
+// Note: safe-curl and safe-wget are restricted wrappers that:
+// - Block internal/private URLs (localhost, 10.x, 192.168.x, etc.)
+// - Limit response size to 1MB
+// - Only allow text/*, application/json, application/xml content types
+// - Block file output, POST/PUT methods, and data upload
+export const EXTERNAL_CHANNEL_SAFE_BINS = [
+  "safe-curl", "safe-wget", "jq", "grep", "cut", "sort", "uniq", "head", "tail", "tr", "wc",
+  // ClawHub skill binaries (read-only, LLM-based tools)
+  "summarize", // steipete/summarize - URL/file summarization via LLM
+];
+
 function expandHome(value: string): string {
   if (!value) {
     return value;
