@@ -2,8 +2,7 @@ import type { CronDeliveryMode, CronJob, CronMessageChannel } from "./types.js";
 
 export type CronDeliveryPlan = {
   mode: CronDeliveryMode;
-  channel: CronMessageChannel;
-  accountId?: string;
+  channel?: CronMessageChannel;
   to?: string;
   source: "delivery" | "payload";
   requested: boolean;
@@ -37,11 +36,13 @@ export function resolveCronDeliveryPlan(job: CronJob): CronDeliveryPlan {
   const mode =
     normalizedMode === "announce"
       ? "announce"
-      : normalizedMode === "none"
-        ? "none"
-        : normalizedMode === "deliver"
-          ? "announce"
-          : undefined;
+      : normalizedMode === "webhook"
+        ? "webhook"
+        : normalizedMode === "none"
+          ? "none"
+          : normalizedMode === "deliver"
+            ? "announce"
+            : undefined;
 
   const payloadChannel = normalizeChannel(payload?.channel);
   const payloadTo = normalizeTo(payload?.to);
@@ -49,9 +50,6 @@ export function resolveCronDeliveryPlan(job: CronJob): CronDeliveryPlan {
     (delivery as { channel?: unknown } | undefined)?.channel,
   );
   const deliveryTo = normalizeTo((delivery as { to?: unknown } | undefined)?.to);
-  const deliveryAccountId = normalizeTo(
-    (delivery as { accountId?: unknown } | undefined)?.accountId,
-  );
 
   const channel = deliveryChannel ?? payloadChannel ?? "last";
   const to = deliveryTo ?? payloadTo;
@@ -59,8 +57,7 @@ export function resolveCronDeliveryPlan(job: CronJob): CronDeliveryPlan {
     const resolvedMode = mode ?? "announce";
     return {
       mode: resolvedMode,
-      channel,
-      accountId: deliveryAccountId,
+      channel: resolvedMode === "announce" ? channel : undefined,
       to,
       source: "delivery",
       requested: resolvedMode === "announce",

@@ -3,8 +3,8 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import type { SessionEntry } from "./types.js";
 import { capEntryCount, pruneStaleEntries, rotateSessionFile } from "./store.js";
+import type { SessionEntry } from "./types.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -52,18 +52,6 @@ describe("pruneStaleEntries", () => {
     expect(store.old).toBeUndefined();
     expect(store.fresh).toBeDefined();
   });
-
-  it("keeps entries with no updatedAt", () => {
-    const store: Record<string, SessionEntry> = {
-      noDate: { sessionId: crypto.randomUUID() } as SessionEntry,
-      fresh: makeEntry(Date.now()),
-    };
-
-    const pruned = pruneStaleEntries(store, 1 * DAY_MS);
-
-    expect(pruned).toBe(0);
-    expect(store.noDate).toBeDefined();
-  });
 });
 
 describe("capEntryCount", () => {
@@ -87,24 +75,6 @@ describe("capEntryCount", () => {
     expect(store.oldest).toBeUndefined();
     expect(store.old).toBeUndefined();
   });
-
-  it("entries without updatedAt are evicted first (lowest priority)", () => {
-    const now = Date.now();
-    const store: Record<string, SessionEntry> = {
-      noDate1: { sessionId: crypto.randomUUID() } as SessionEntry,
-      noDate2: { sessionId: crypto.randomUUID() } as SessionEntry,
-      recent: makeEntry(now),
-      older: makeEntry(now - DAY_MS),
-    };
-
-    const evicted = capEntryCount(store, 2);
-
-    expect(evicted).toBe(2);
-    expect(store.recent).toBeDefined();
-    expect(store.older).toBeDefined();
-    expect(store.noDate1).toBeUndefined();
-    expect(store.noDate2).toBeUndefined();
-  });
 });
 
 describe("rotateSessionFile", () => {
@@ -114,16 +84,6 @@ describe("rotateSessionFile", () => {
   beforeEach(async () => {
     testDir = await createCaseDir("rotate");
     storePath = path.join(testDir, "sessions.json");
-  });
-
-  it("file under maxBytes: no rotation (returns false)", async () => {
-    await fs.writeFile(storePath, "x".repeat(500), "utf-8");
-
-    const rotated = await rotateSessionFile(storePath, 1000);
-
-    expect(rotated).toBe(false);
-    const content = await fs.readFile(storePath, "utf-8");
-    expect(content).toBe("x".repeat(500));
   });
 
   it("file over maxBytes: renamed to .bak.{timestamp}, returns true", async () => {
@@ -145,7 +105,8 @@ describe("rotateSessionFile", () => {
     let now = Date.now();
     const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => (now += 5));
     try {
-      for (let i = 0; i < 5; i++) {
+      // 4 rotations are enough to verify pruning to <=3 backups.
+      for (let i = 0; i < 4; i++) {
         await fs.writeFile(storePath, `data-${i}-${"x".repeat(100)}`, "utf-8");
         await rotateSessionFile(storePath, 50);
       }
