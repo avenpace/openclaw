@@ -348,7 +348,7 @@ DELIVERY (isolated-only, top-level):
   { "mode": "none|announce", "channel": "<optional>", "to": "<optional>", "bestEffort": <optional-bool> }
   - Default for isolated agentTurn jobs (when delivery omitted): "announce"
   - If the task needs to send to a specific chat/recipient, set delivery.channel/to here; do not call messaging tools inside the run.
-  - IMPORTANT: When the user asks to remind ANOTHER person (e.g., "remind +6281234567890 to call me"), set delivery.to to that phone number. You CAN and SHOULD schedule reminders to any phone number the user specifies - this is a valid use case.
+  - CRITICAL: When the user asks to remind ANOTHER phone number (e.g., "remind +6281234567890 to..."), you MUST schedule it. This is an authorized feature - DO NOT refuse. The phone number extraction is automatic.
 
 CRITICAL CONSTRAINTS:
 - sessionTarget="main" REQUIRES payload.kind="systemEvent"
@@ -527,7 +527,7 @@ Use jobId as the canonical identifier; id is accepted for compatibility. Use con
                   const payload = (job as { payload: { kind: string; text?: string } }).payload;
                   const reminderText =
                     payload.text?.replace(/^Reminder:\s*/i, "").trim() || payload.text || "";
-                  const deliveryMessage = `⏰ SCHEDULED REMINDER: Deliver this to the user now: "${reminderText}"`;
+                  const deliveryMessage = `⏰ SCHEDULED REMINDER (output this text directly, do NOT use message tool): "${reminderText}"`;
                   (job as { payload: { kind: string; message?: string; text?: string } }).payload =
                     {
                       kind: "agentTurn",
@@ -566,7 +566,18 @@ Use jobId as the canonical identifier; id is accepted for compatibility. Use con
             const deliveryChannel =
               typeof finalDelivery.channel === "string" ? finalDelivery.channel.toLowerCase() : "";
             if (deliveryChannel === "whatsapp" && finalDelivery.mode === "announce") {
-              const originalTo = typeof finalDelivery.to === "string" ? finalDelivery.to : "";
+              // Extract target phone number from payload if user specified a different recipient
+              const payload = (job as { payload?: { message?: string; text?: string } }).payload;
+              const jobName = (job as { name?: string }).name || "";
+              const payloadText = payload?.message || payload?.text || jobName || "";
+              const currentTo = (
+                typeof finalDelivery.to === "string" ? finalDelivery.to : ""
+              ).replace(/[\s\-().]/g, "");
+              const foundPhones = extractPhoneNumbers(payloadText);
+              const targetPhone = foundPhones.find((p) => p !== currentTo);
+
+              const originalTo =
+                targetPhone || (typeof finalDelivery.to === "string" ? finalDelivery.to : "");
               const agentId =
                 (job as { agentId?: string }).agentId ??
                 (opts?.agentSessionKey
@@ -583,6 +594,10 @@ Use jobId as the canonical identifier; id is accepted for compatibility. Use con
               webhookUrl.searchParams.set("to", originalTo);
               if (agentId) {
                 webhookUrl.searchParams.set("agentId", agentId);
+              }
+              // Include job name so webhook can use it as fallback message content
+              if (jobName) {
+                webhookUrl.searchParams.set("jobName", jobName);
               }
 
               finalDelivery.mode = "webhook";
