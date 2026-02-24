@@ -8,6 +8,14 @@ import {
 } from "../../shared/config-eval.js";
 import { resolveSkillKey } from "./frontmatter.js";
 
+const VERBOSE_LOGS = process.env.VERBOSE_LOGS === "true" || process.env.NODE_ENV === "development";
+
+function debugLog(skillKey: string, msg: string): void {
+  if (VERBOSE_LOGS) {
+    console.log(`[Skills Eligibility] ${skillKey}: ${msg}`);
+  }
+}
+
 const DEFAULT_CONFIG_VALUES: Record<string, boolean> = {
   "browser.enabled": true,
   "browser.evaluateEnabled": true,
@@ -78,18 +86,14 @@ export function shouldIncludeSkill(params: {
   const osList = entry.metadata?.os ?? [];
   const remotePlatforms = eligibility?.remote?.platforms ?? [];
 
-  // Debug logging for skill eligibility (TEMP - remove after debugging)
-  const debugLog = (msg: string) => {
-    console.log(`[Skills Eligibility] ${skillKey}: ${msg}`);
-  };
-  debugLog(`checking eligibility, source=${entry.skill.source}`);
+  debugLog(skillKey, `checking eligibility, source=${entry.skill.source}`);
 
   if (skillConfig?.enabled === false) {
-    debugLog("excluded: explicitly disabled");
+    debugLog(skillKey, "excluded: disabled in config");
     return false;
   }
   if (!isBundledSkillAllowed(entry, allowBundled)) {
-    debugLog("excluded: bundled skill not in allowlist");
+    debugLog(skillKey, "excluded: not in bundled allowlist");
     return false;
   }
   if (
@@ -98,12 +102,13 @@ export function shouldIncludeSkill(params: {
     !remotePlatforms.some((platform) => osList.includes(platform))
   ) {
     debugLog(
+      skillKey,
       `excluded: OS mismatch (requires ${osList.join(",")}, got ${resolveRuntimePlatform()})`,
     );
     return false;
   }
   if (entry.metadata?.always === true) {
-    debugLog("included: always=true");
+    debugLog(skillKey, "included: always=true");
     return true;
   }
 
@@ -116,7 +121,7 @@ export function shouldIncludeSkill(params: {
       if (eligibility?.remote?.hasBin?.(bin)) {
         continue;
       }
-      debugLog(`excluded: missing binary '${bin}'`);
+      debugLog(skillKey, `excluded: missing binary '${bin}'`);
       return false;
     }
   }
@@ -126,7 +131,10 @@ export function shouldIncludeSkill(params: {
       requiredAnyBins.some((bin) => hasBinary(bin)) ||
       eligibility?.remote?.hasAnyBin?.(requiredAnyBins);
     if (!anyFound) {
-      debugLog(`excluded: missing any of required binaries [${requiredAnyBins.join(",")}]`);
+      debugLog(
+        skillKey,
+        `excluded: missing any of required binaries [${requiredAnyBins.join(",")}]`,
+      );
       return false;
     }
   }
@@ -143,7 +151,7 @@ export function shouldIncludeSkill(params: {
       if (skillConfig?.apiKey && entry.metadata?.primaryEnv === envName) {
         continue;
       }
-      debugLog(`excluded: missing env var '${envName}'`);
+      debugLog(skillKey, `excluded: missing env var '${envName}'`);
       return false;
     }
   }
@@ -152,12 +160,12 @@ export function shouldIncludeSkill(params: {
   if (requiredConfig.length > 0) {
     for (const configPath of requiredConfig) {
       if (!isConfigPathTruthy(config, configPath)) {
-        debugLog(`excluded: config path '${configPath}' not truthy`);
+        debugLog(skillKey, `excluded: config path '${configPath}' not truthy`);
         return false;
       }
     }
   }
 
-  debugLog("included: all checks passed");
+  debugLog(skillKey, "included: all checks passed");
   return true;
 }

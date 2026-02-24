@@ -427,10 +427,8 @@ export function createOpenClawCodingTools(options?: {
     // Devices tools: list devices, run commands on devices, check job status
     ...(() => {
       if (options?.devicesHandler) {
-        console.log("[pi-tools] Creating devices tools - handler provided");
         return createDevicesTools(options.devicesHandler);
       }
-      console.log("[pi-tools] No devicesHandler - skipping devices tools");
       return [];
     })(),
   ];
@@ -519,14 +517,8 @@ export function createOpenClawCodingTools(options?: {
     // - 'read' is restricted to workspace in attempt.ts via wrapToolWorkspaceRootGuard
     // - 'exec' is restricted to safe commands (curl, wget, jq) in bash-tools.exec.ts
     const filtered = withAbort.filter((tool) => !blockedToolsForExternalChannels.has(tool.name));
-    console.log(
-      `[pi-tools] External channel (${messageProvider}) - tools after filter: ${filtered.map((t) => t.name).join(", ")}`,
-    );
     return filtered;
   }
 
-  console.log(
-    `[pi-tools] Non-external channel - tools: ${withAbort.map((t) => t.name).join(", ")}`,
-  );
   return withAbort;
 }
