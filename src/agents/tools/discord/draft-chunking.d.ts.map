@@ -1,1 +1,0 @@
-{"version":3,"file":"draft-chunking.d.ts","sourceRoot":"","sources":["../../../discord/draft-chunking.ts"],"names":[],"mappings":"AAEA,OAAO,KAAK,EAAE,cAAc,EAAE,MAAM,qBAAqB,CAAC;AAM1D,wBAAgB,oCAAoC,CAClD,GAAG,EAAE,cAAc,GAAG,SAAS,EAC/B,SAAS,CAAC,EAAE,MAAM,GAAG,IAAI,GACxB;IACD,QAAQ,EAAE,MAAM,CAAC;IACjB,QAAQ,EAAE,MAAM,CAAC;IACjB,eAAe,EAAE,WAAW,GAAG,SAAS,GAAG,UAAU,CAAC;CACvD,CAyBA"}

@@ -1,1 +1,0 @@
-{"version":3,"file":"batch-upload.d.ts","sourceRoot":"","sources":["../../../memory/batch-upload.ts"],"names":[],"mappings":"AAAA,OAAO,EAGL,KAAK,qBAAqB,EAC3B,MAAM,kBAAkB,CAAC;AAI1B,wBAAsB,oBAAoB,CAAC,MAAM,EAAE;IACjD,MAAM,EAAE,qBAAqB,CAAC;IAC9B,QAAQ,EAAE,OAAO,EAAE,CAAC;IACpB,WAAW,EAAE,MAAM,CAAC;CACrB,GAAG,OAAO,CAAC,MAAM,CAAC,CA+BlB"}

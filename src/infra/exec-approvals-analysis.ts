@@ -15,6 +15,32 @@ export {
   type ExecArgvToken,
 } from "./exec-command-resolution.js";
 
+/**
+ * Safe binaries that can be executed locally for external channel requests
+ * (e.g., skills triggered from WhatsApp/Telegram) without requiring device pairing.
+ * These are read-only or data-processing commands that don't modify the system.
+ */
+export const EXTERNAL_CHANNEL_SAFE_BINS = [
+  "curl",
+  "wget",
+  "jq",
+  "cut",
+  "head",
+  "tail",
+  "tr",
+  "wc",
+  "sort",
+  "uniq",
+  "grep",
+  "awk",
+  "sed",
+  "cat",
+  "echo",
+  "date",
+  "basename",
+  "dirname",
+];
+
 export type ExecCommandSegment = {
   raw: string;
   argv: string[];

@@ -143,6 +143,23 @@ export type CloudStorageHandler = {
     filename: string;
     mimeType: string;
   }>;
+
+  /** Convert a document from one format to another */
+  convertDocument: (params: {
+    fileId: string;
+    targetType: "docx" | "xlsx" | "pptx" | "pdf" | "txt" | "csv";
+    filename?: string;
+    folderId?: string;
+    isPublic?: boolean;
+  }) => Promise<{
+    id: string;
+    publicUrl?: string;
+    sizeBytes: string;
+    filename: string;
+    mimeType: string;
+    sourceFileId: string;
+    sourceFilename: string;
+  }>;
 };
 
 // Tool Schemas
@@ -235,6 +252,21 @@ const CloudDeleteFolderSchema = Type.Object({
 
 const CloudShareFileSchema = Type.Object({
   fileId: Type.String({ description: "The file ID to share" }),
+});
+
+const CloudConvertDocumentSchema = Type.Object({
+  fileId: Type.String({ description: "The ID of the file to convert" }),
+  targetType: Type.Union([
+    Type.Literal("docx"),
+    Type.Literal("xlsx"),
+    Type.Literal("pptx"),
+    Type.Literal("pdf"),
+    Type.Literal("txt"),
+    Type.Literal("csv"),
+  ]),
+  filename: Type.Optional(Type.String({ description: "Filename for the converted file (extension optional)" })),
+  folderId: Type.Optional(Type.String({ description: "Folder ID to save converted file (omit for root)" })),
+  isPublic: Type.Optional(Type.Boolean({ description: "Make converted file publicly accessible (default: false)" })),
 });
 
 /**
@@ -779,6 +811,62 @@ The returned URL can be shared via messaging, email, etc.`,
 }
 
 /**
+ * Create the cloud_convert_document tool
+ */
+export function createCloudConvertDocumentTool(handler: CloudStorageHandler): AnyAgentTool {
+  return {
+    label: "Convert Document",
+    name: "cloud_convert_document",
+    description: `Convert a document from one format to another.
+
+Supported conversions:
+- PDF → docx, txt
+- DOCX → pdf, txt
+- XLSX → csv, pdf, txt
+- PPTX → pdf, txt
+- CSV → xlsx
+- TXT → docx, pdf
+
+Use this when users want to convert files between formats (e.g., "convert this PDF to Word").`,
+    parameters: CloudConvertDocumentSchema,
+    execute: async (_toolCallId, params) => {
+      try {
+        const fileId = readStringParam(params, "fileId", { required: true });
+        const targetType = readStringParam(params, "targetType", { required: true }) as "docx" | "xlsx" | "pptx" | "pdf" | "txt" | "csv";
+        const filename = readStringParam(params, "filename");
+        const folderId = readStringParam(params, "folderId");
+        const isPublic = params.isPublic === true;
+
+        const result = await handler.convertDocument({
+          fileId,
+          targetType,
+          filename,
+          folderId,
+          isPublic,
+        });
+
+        return jsonResult({
+          success: true,
+          fileId: result.id,
+          filename: result.filename,
+          mimeType: result.mimeType,
+          size: result.sizeBytes,
+          publicUrl: result.publicUrl,
+          sourceFileId: result.sourceFileId,
+          sourceFilename: result.sourceFilename,
+          message: isPublic
+            ? `Document converted and available at: ${result.publicUrl}`
+            : `Converted ${result.sourceFilename} to ${result.filename}`,
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return jsonResult({ error: message });
+      }
+    },
+  };
+}
+
+/**
  * Create all cloud storage tools
  */
 export function createCloudStorageTools(handler: CloudStorageHandler): AnyAgentTool[] {
@@ -792,6 +880,7 @@ export function createCloudStorageTools(handler: CloudStorageHandler): AnyAgentT
     createCloudUploadBase64Tool(handler),
     createCloudExtractTextTool(handler),
     createCloudCreateDocumentTool(handler),
+    createCloudConvertDocumentTool(handler),
     createCloudUpdateFileTool(handler),
     createCloudDeleteFileTool(handler),
     createCloudCreateFolderTool(handler),

@@ -1,1 +1,0 @@
-{"version":3,"file":"slash.d.ts","sourceRoot":"","sources":["slash.ts"],"names":[],"mappings":"AAaA,OAAO,KAAK,EAAE,oBAAoB,EAAE,MAAM,gBAAgB,CAAC;AAS3D,OAAO,KAAK,EAAE,mBAAmB,EAAE,MAAM,cAAc,CAAC;AA6PxD,wBAAsB,iCAAiC,CAAC,MAAM,EAAE;IAC9D,GAAG,EAAE,mBAAmB,CAAC;IACzB,OAAO,EAAE,oBAAoB,CAAC;CAC/B,GAAG,OAAO,CAAC,IAAI,CAAC,CAskBhB"}

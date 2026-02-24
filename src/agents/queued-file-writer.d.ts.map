@@ -1,1 +1,0 @@
-{"version":3,"file":"queued-file-writer.d.ts","sourceRoot":"","sources":["queued-file-writer.ts"],"names":[],"mappings":"AAGA,MAAM,MAAM,gBAAgB,GAAG;IAC7B,QAAQ,EAAE,MAAM,CAAC;IACjB,KAAK,EAAE,CAAC,IAAI,EAAE,MAAM,KAAK,IAAI,CAAC;CAC/B,CAAC;AAEF,wBAAgB,mBAAmB,CACjC,OAAO,EAAE,GAAG,CAAC,MAAM,EAAE,gBAAgB,CAAC,EACtC,QAAQ,EAAE,MAAM,GACf,gBAAgB,CAsBlB"}

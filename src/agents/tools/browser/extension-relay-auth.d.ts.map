@@ -1,1 +1,0 @@
-{"version":3,"file":"extension-relay-auth.d.ts","sourceRoot":"","sources":["../../../browser/extension-relay-auth.ts"],"names":[],"mappings":"AA6BA,wBAAgB,4BAA4B,CAAC,IAAI,EAAE,MAAM,GAAG,MAAM,CAQjE;AAED,wBAAsB,+BAA+B,CAAC,MAAM,EAAE;IAC5D,OAAO,EAAE,MAAM,CAAC;IAChB,eAAe,EAAE,MAAM,CAAC;IACxB,cAAc,EAAE,MAAM,CAAC;IACvB,SAAS,CAAC,EAAE,MAAM,CAAC;CACpB,GAAG,OAAO,CAAC,OAAO,CAAC,CAoBnB"}

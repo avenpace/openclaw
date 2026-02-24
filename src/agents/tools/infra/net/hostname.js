@@ -1,8 +1,0 @@
-export function normalizeHostname(hostname) {
-    const normalized = hostname.trim().toLowerCase().replace(/\.$/, "");
-    if (normalized.startsWith("[") && normalized.endsWith("]")) {
-        return normalized.slice(1, -1);
-    }
-    return normalized;
-}
-//# sourceMappingURL=hostname.js.map

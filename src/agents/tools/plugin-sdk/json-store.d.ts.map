@@ -1,1 +1,0 @@
-{"version":3,"file":"json-store.d.ts","sourceRoot":"","sources":["../../../plugin-sdk/json-store.ts"],"names":[],"mappings":"AAKA,wBAAsB,wBAAwB,CAAC,CAAC,EAC9C,QAAQ,EAAE,MAAM,EAChB,QAAQ,EAAE,CAAC,GACV,OAAO,CAAC;IAAE,KAAK,EAAE,CAAC,CAAC;IAAC,MAAM,EAAE,OAAO,CAAA;CAAE,CAAC,CAexC;AAED,wBAAsB,uBAAuB,CAAC,QAAQ,EAAE,MAAM,EAAE,KAAK,EAAE,OAAO,GAAG,OAAO,CAAC,IAAI,CAAC,CAS7F"}
