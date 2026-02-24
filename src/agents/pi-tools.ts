@@ -55,6 +55,7 @@ import {
   mergeAlsoAllowPolicy,
   resolveToolProfilePolicy,
 } from "./tool-policy.js";
+import { createCloudStorageTools, type CloudStorageHandler } from "./tools/cloud-storage-tool.js";
 import { createDevicesTools, type DevicesHandler } from "./tools/devices-tool.js";
 import { resolveWorkspaceRoot } from "./workspace-dir.js";
 
@@ -188,6 +189,8 @@ export function createOpenClawCodingTools(options?: {
   senderIsOwner?: boolean;
   /** Handler for devices tools (list, run command, check status). */
   devicesHandler?: DevicesHandler;
+  /** Handler for cloud storage tools (list, read, write, delete files). */
+  cloudStorageHandler?: CloudStorageHandler;
 }): AnyAgentTool[] {
   const execToolName = "exec";
   const sandbox = options?.sandbox?.enabled ? options.sandbox : undefined;
@@ -428,6 +431,13 @@ export function createOpenClawCodingTools(options?: {
     ...(() => {
       if (options?.devicesHandler) {
         return createDevicesTools(options.devicesHandler);
+      }
+      return [];
+    })(),
+    // Cloud storage tools: list, read, write, delete files in user's cloud storage
+    ...(() => {
+      if (options?.cloudStorageHandler) {
+        return createCloudStorageTools(options.cloudStorageHandler);
       }
       return [];
     })(),

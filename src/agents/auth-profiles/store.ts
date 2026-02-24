@@ -1,12 +1,12 @@
-import fs from "node:fs";
 import type { OAuthCredentials } from "@mariozechner/pi-ai";
+import fs from "node:fs";
+import type { AuthProfileCredential, AuthProfileStore, ProfileUsageStats } from "./types.js";
 import { resolveOAuthPath } from "../../config/paths.js";
 import { withFileLock } from "../../infra/file-lock.js";
 import { loadJsonFile, saveJsonFile } from "../../infra/json-file.js";
 import { AUTH_STORE_LOCK_OPTIONS, AUTH_STORE_VERSION, log } from "./constants.js";
 import { syncExternalCliCredentials } from "./external-cli-sync.js";
 import { ensureAuthStoreFile, resolveAuthStorePath, resolveLegacyAuthStorePath } from "./paths.js";
-import type { AuthProfileCredential, AuthProfileStore, ProfileUsageStats } from "./types.js";
 
 type LegacyAuthStore = Record<string, AuthProfileCredential>;
 
@@ -267,7 +267,8 @@ function loadAuthProfileStoreForAgent(
   }
 
   // Fallback: inherit auth-profiles from main agent if subagent has none
-  if (agentDir) {
+  // Skip this for multi-tenant platforms where each agent should have isolated auth
+  if (agentDir && !process.env.OPENCLAW_SKIP_MAIN_AGENT_FALLBACK) {
     const mainAuthPath = resolveAuthStorePath(); // without agentDir = main
     const mainRaw = loadJsonFile(mainAuthPath);
     const mainStore = coerceAuthStore(mainRaw);

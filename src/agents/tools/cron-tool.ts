@@ -241,21 +241,14 @@ function inferDeliveryFromSessionKey(agentSessionKey?: string): CronDelivery | n
   }
 
   let channel: CronMessageChannel | undefined;
-  let accountId: string | undefined;
   if (markerIndex >= 1) {
     channel = parts[0]?.trim().toLowerCase() as CronMessageChannel;
   }
-  // Extract accountId when present (format: <channel>:<accountId>:direct:<peerId>)
-  if (markerIndex >= 2) {
-    accountId = parts[1]?.trim();
-  }
+  // Note: accountId could be at parts[1] but gateway schema rejects it in delivery
 
   const delivery: CronDelivery = { mode: "announce", to: peerId };
   if (channel) {
     delivery.channel = channel;
-  }
-  if (accountId) {
-    delivery.accountId = accountId;
   }
   return delivery;
 }
@@ -286,9 +279,7 @@ function inferDeliveryFromSessionStore(agentSessionKey?: string): CronDelivery |
         channel: sessionEntry.lastChannel as CronMessageChannel,
         to: sessionEntry.lastTo,
       };
-      if (sessionEntry.lastAccountId) {
-        delivery.accountId = sessionEntry.lastAccountId;
-      }
+      // Note: accountId NOT added - gateway schema rejects it
       return delivery;
     }
 
@@ -301,9 +292,7 @@ function inferDeliveryFromSessionStore(agentSessionKey?: string): CronDelivery |
         channel: mainEntry.lastChannel as CronMessageChannel,
         to: mainEntry.lastTo,
       };
-      if (mainEntry.lastAccountId) {
-        delivery.accountId = mainEntry.lastAccountId;
-      }
+      // Note: accountId NOT added - gateway schema rejects it
       return delivery;
     }
 
@@ -331,13 +320,12 @@ ACTIONS:
 
 JOB SCHEMA (for add action):
 {
-  "name": "string (optional)",
+  "name": "string",
   "schedule": { ... },      // Required: when to run
   "payload": { ... },       // Required: what to execute
-  "delivery": { ... },      // Optional: announce summary (isolated only)
-  "sessionTarget": "main" | "isolated",  // Required
-  "enabled": true | false,  // Optional, default true
-  "notify": true | false    // Optional webhook opt-in; set true for user-facing reminders
+  "delivery": { "mode": "announce" },  // For reminders: use mode "announce" to notify user
+  "sessionTarget": "isolated",  // Use "isolated" for reminders
+  "enabled": true
 }
 
 SCHEDULE TYPES (schedule.kind):
@@ -360,11 +348,12 @@ DELIVERY (isolated-only, top-level):
   { "mode": "none|announce", "channel": "<optional>", "to": "<optional>", "bestEffort": <optional-bool> }
   - Default for isolated agentTurn jobs (when delivery omitted): "announce"
   - If the task needs to send to a specific chat/recipient, set delivery.channel/to here; do not call messaging tools inside the run.
+  - IMPORTANT: When the user asks to remind ANOTHER person (e.g., "remind +6281234567890 to call me"), set delivery.to to that phone number. You CAN and SHOULD schedule reminders to any phone number the user specifies - this is a valid use case.
 
 CRITICAL CONSTRAINTS:
 - sessionTarget="main" REQUIRES payload.kind="systemEvent"
 - sessionTarget="isolated" REQUIRES payload.kind="agentTurn"
-- For reminders users should be notified about, set notify=true.
+- For reminders: use sessionTarget="isolated" with delivery.mode="announce" to notify the recipient (either the current user OR another phone number if specified).
 Default: prefer isolated agentTurn jobs unless the user explicitly wants a main-session system event.
 
 WAKE MODES (for wake action):
@@ -454,6 +443,10 @@ Use jobId as the canonical identifier; id is accepted for compatibility. Use con
             throw new Error("job required");
           }
           const job = normalizeCronJobCreate(params.job) ?? params.job;
+          // Strip 'notify' property - gateway schema rejects it (model may send from old training)
+          if (job && typeof job === "object" && "notify" in job) {
+            delete (job as { notify?: unknown }).notify;
+          }
           if (job && typeof job === "object" && !("agentId" in job)) {
             const cfg = loadConfig();
             const agentId = opts?.agentSessionKey
@@ -484,50 +477,49 @@ Use jobId as the canonical identifier; id is accepted for compatibility. Use con
             const hasExplicitChannel =
               typeof delivery?.channel === "string" && delivery.channel.trim();
             const hasExplicitTo = typeof delivery?.to === "string" && delivery.to.trim();
-            const hasExplicitAccountId =
-              typeof delivery?.accountId === "string" && delivery.accountId.trim();
             const shouldInferTarget =
               (deliveryValue == null || delivery) &&
               mode !== "none" &&
               !hasExplicitChannel &&
               !hasExplicitTo;
-            // Always try to get accountId from session even if channel/to are explicit
-            const shouldInferAccountId = !hasExplicitAccountId && mode !== "none";
 
-            if (shouldInferTarget || shouldInferAccountId) {
+            if (shouldInferTarget) {
               // Try to infer from session key format first, then fall back to session store
               const inferred =
                 inferDeliveryFromSessionKey(opts.agentSessionKey) ??
                 inferDeliveryFromSessionStore(opts.agentSessionKey);
               if (inferred) {
-                if (shouldInferTarget) {
-                  // Check if the payload contains an explicit target phone number
-                  // This handles cases where the user says "send reminder to +1234567890"
-                  // and the LLM doesn't explicitly set delivery.to
-                  const payload = (
-                    job as { payload?: { kind?: string; text?: string; message?: string } }
-                  ).payload;
-                  const targetFromPayload = extractDeliveryTargetFromPayload({
-                    payload,
-                    senderPhone: inferred.to, // The inferred 'to' is the sender from session key
-                  });
+                // Check if the payload contains an explicit target phone number
+                // This handles cases where the user says "send reminder to +1234567890"
+                // and the LLM doesn't explicitly set delivery.to
+                const payload = (
+                  job as { payload?: { kind?: string; text?: string; message?: string } }
+                ).payload;
+                const targetFromPayload = extractDeliveryTargetFromPayload({
+                  payload,
+                  senderPhone: inferred.to, // The inferred 'to' is the sender from session key
+                });
 
-                  // Full inference: use inferred channel and accountId, but prefer payload target
-                  (job as { delivery?: unknown }).delivery = {
-                    ...delivery,
-                    ...inferred,
-                    // Override 'to' if we found a target in the payload
-                    ...(targetFromPayload ? { to: targetFromPayload } : {}),
-                  } satisfies CronDelivery;
-                } else if (shouldInferAccountId && inferred.accountId) {
-                  // Only add accountId to existing delivery config
-                  const existingMode = delivery?.mode as CronDelivery["mode"] | undefined;
-                  (job as { delivery?: unknown }).delivery = {
-                    ...delivery,
-                    mode: existingMode ?? "announce",
-                    accountId: inferred.accountId,
-                  } satisfies CronDelivery;
+                // Full inference: use inferred channel but prefer payload target
+                // Note: accountId NOT added - gateway schema rejects it
+                const mergedDelivery = {
+                  ...delivery,
+                  ...inferred,
+                  // Override 'to' if we found a target in the payload
+                  ...(targetFromPayload ? { to: targetFromPayload } : {}),
+                } as CronDelivery & { accountId?: unknown };
+                // Strip accountId - gateway schema rejects it
+                delete mergedDelivery.accountId;
+                // Ensure mode is a valid literal (model may send invalid values)
+                if (
+                  mergedDelivery.mode &&
+                  mergedDelivery.mode !== "none" &&
+                  mergedDelivery.mode !== "announce" &&
+                  mergedDelivery.mode !== "webhook"
+                ) {
+                  mergedDelivery.mode = "announce";
                 }
+                (job as { delivery?: unknown }).delivery = mergedDelivery satisfies CronDelivery;
 
                 // Convert systemEvent to agentTurn for delivery support
                 // Delivery config only works with sessionTarget="isolated"
@@ -544,6 +536,59 @@ Use jobId as the canonical identifier; id is accepted for compatibility. Use con
                   (job as { sessionTarget?: string }).sessionTarget = "isolated";
                 }
               }
+            }
+          }
+
+          // Final sanitization - strip invalid properties that the model might generate
+          // The gateway's CronDeliverySchema has additionalProperties: false, so we must remove these
+          delete (job as Record<string, unknown>).notify; // Model sometimes adds this at root level
+
+          const finalDelivery = (job as { delivery?: Record<string, unknown> }).delivery;
+          if (finalDelivery && typeof finalDelivery === "object") {
+            delete finalDelivery.accountId;
+            delete finalDelivery.notify; // Also clean from delivery just in case
+            if (
+              finalDelivery.mode &&
+              finalDelivery.mode !== "none" &&
+              finalDelivery.mode !== "announce" &&
+              finalDelivery.mode !== "webhook"
+            ) {
+              finalDelivery.mode = "announce";
+            }
+
+            // Ensure mode is set (default to announce for channel-based delivery)
+            if (!finalDelivery.mode && finalDelivery.channel) {
+              finalDelivery.mode = "announce";
+            }
+
+            // Convert WhatsApp delivery to webhook for platform-side routing
+            // This allows the platform to use its own WhatsApp connection (avoids accountId issues)
+            const deliveryChannel =
+              typeof finalDelivery.channel === "string" ? finalDelivery.channel.toLowerCase() : "";
+            if (deliveryChannel === "whatsapp" && finalDelivery.mode === "announce") {
+              const originalTo = typeof finalDelivery.to === "string" ? finalDelivery.to : "";
+              const agentId =
+                (job as { agentId?: string }).agentId ??
+                (opts?.agentSessionKey
+                  ? resolveSessionAgentId({
+                      sessionKey: opts.agentSessionKey,
+                      config: loadConfig(),
+                    })
+                  : undefined);
+
+              // Use webhook delivery - platform handles WhatsApp routing
+              // Encode routing info in the webhook URL query params
+              const webhookUrl = new URL("http://localhost:3000/internal/cron-delivery");
+              webhookUrl.searchParams.set("channel", deliveryChannel);
+              webhookUrl.searchParams.set("to", originalTo);
+              if (agentId) {
+                webhookUrl.searchParams.set("agentId", agentId);
+              }
+
+              finalDelivery.mode = "webhook";
+              finalDelivery.to = webhookUrl.toString();
+              // Clear channel since webhook handles routing
+              delete finalDelivery.channel;
             }
           }
 
