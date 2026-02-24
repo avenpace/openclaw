@@ -138,6 +138,7 @@ export async function monitorTelegramProvider(opts: MonitorTelegramOpts = {}) {
 
     let lastUpdateId = await readTelegramUpdateOffset({
       accountId: account.accountId,
+      botToken: token,
     });
     const persistUpdateId = async (updateId: number) => {
       if (lastUpdateId !== null && updateId <= lastUpdateId) {
@@ -148,6 +149,7 @@ export async function monitorTelegramProvider(opts: MonitorTelegramOpts = {}) {
         await writeTelegramUpdateOffset({
           accountId: account.accountId,
           updateId,
+          botToken: token,
         });
       } catch (err) {
         (opts.runtime?.error ?? console.error)(
@@ -261,9 +263,18 @@ export async function monitorTelegramProvider(opts: MonitorTelegramOpts = {}) {
 
       const runner = run(bot, runnerOptions);
       activeRunner = runner;
+      let stopPromise: Promise<void> | undefined;
+      const stopRunner = () => {
+        stopPromise ??= Promise.resolve(runner.stop())
+          .then(() => undefined)
+          .catch(() => {
+            // Runner may already be stopped by abort/retry paths.
+          });
+        return stopPromise;
+      };
       const stopOnAbort = () => {
         if (opts.abortSignal?.aborted) {
-          void runner.stop();
+          void stopRunner();
         }
       };
       opts.abortSignal?.addEventListener("abort", stopOnAbort, { once: true });
@@ -308,11 +319,7 @@ export async function monitorTelegramProvider(opts: MonitorTelegramOpts = {}) {
         }
       } finally {
         opts.abortSignal?.removeEventListener("abort", stopOnAbort);
-        try {
-          await runner.stop();
-        } catch {
-          // Runner may already be stopped by abort/retry paths.
-        }
+        await stopRunner();
       }
     }
   } finally {

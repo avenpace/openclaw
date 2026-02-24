@@ -1,0 +1,1 @@
+{"version":3,"file":"button-types.d.ts","sourceRoot":"","sources":["../../../telegram/button-types.ts"],"names":[],"mappings":"AAAA,MAAM,MAAM,mBAAmB,GAAG,QAAQ,GAAG,SAAS,GAAG,SAAS,CAAC;AAEnE,MAAM,MAAM,oBAAoB,GAAG;IACjC,IAAI,EAAE,MAAM,CAAC;IACb,aAAa,EAAE,MAAM,CAAC;IACtB,KAAK,CAAC,EAAE,mBAAmB,CAAC;CAC7B,CAAC;AAEF,MAAM,MAAM,qBAAqB,GAAG,aAAa,CAAC,aAAa,CAAC,oBAAoB,CAAC,CAAC,CAAC"}

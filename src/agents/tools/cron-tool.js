@@ -1,0 +1,554 @@
+import { Type } from "@sinclair/typebox";
+import { loadConfig } from "../../config/config.js";
+import { loadSessionStore, resolveStorePath } from "../../config/sessions.js";
+import { normalizeCronJobCreate, normalizeCronJobPatch } from "../../cron/normalize.js";
+import { parseAgentSessionKey } from "../../sessions/session-key-utils.js";
+import { extractTextFromChatContent } from "../../shared/chat-content.js";
+import { isRecord, truncateUtf16Safe } from "../../utils.js";
+import { resolveSessionAgentId } from "../agent-scope.js";
+import { optionalStringEnum, stringEnum } from "../schema/typebox.js";
+import { jsonResult, readStringParam } from "./common.js";
+import { callGatewayTool } from "./gateway.js";
+import { resolveInternalSessionKey, resolveMainSessionAlias } from "./sessions-helpers.js";
+// NOTE: We use Type.Object({}, { additionalProperties: true }) for job/patch
+// instead of CronAddParamsSchema/CronJobPatchSchema because the gateway schemas
+// contain nested unions. Tool schemas need to stay provider-friendly, so we
+// accept "any object" here and validate at runtime.
+const CRON_ACTIONS = ["status", "list", "add", "update", "remove", "run", "runs", "wake"];
+const CRON_WAKE_MODES = ["now", "next-heartbeat"];
+const CRON_RUN_MODES = ["due", "force"];
+const REMINDER_CONTEXT_MESSAGES_MAX = 10;
+const REMINDER_CONTEXT_PER_MESSAGE_MAX = 220;
+const REMINDER_CONTEXT_TOTAL_MAX = 700;
+const REMINDER_CONTEXT_MARKER = "\n\nRecent context:\n";
+// Flattened schema: runtime validates per-action requirements.
+const CronToolSchema = Type.Object({
+    action: stringEnum(CRON_ACTIONS),
+    gatewayUrl: Type.Optional(Type.String()),
+    gatewayToken: Type.Optional(Type.String()),
+    timeoutMs: Type.Optional(Type.Number()),
+    includeDisabled: Type.Optional(Type.Boolean()),
+    job: Type.Optional(Type.Object({}, { additionalProperties: true })),
+    jobId: Type.Optional(Type.String()),
+    id: Type.Optional(Type.String()),
+    patch: Type.Optional(Type.Object({}, { additionalProperties: true })),
+    text: Type.Optional(Type.String()),
+    mode: optionalStringEnum(CRON_WAKE_MODES),
+    runMode: optionalStringEnum(CRON_RUN_MODES),
+    contextMessages: Type.Optional(Type.Number({ minimum: 0, maximum: REMINDER_CONTEXT_MESSAGES_MAX })),
+});
+function stripExistingContext(text) {
+    const index = text.indexOf(REMINDER_CONTEXT_MARKER);
+    if (index === -1) {
+        return text;
+    }
+    return text.slice(0, index).trim();
+}
+function truncateText(input, maxLen) {
+    if (input.length <= maxLen) {
+        return input;
+    }
+    const truncated = truncateUtf16Safe(input, Math.max(0, maxLen - 3)).trimEnd();
+    return `${truncated}...`;
+}
+function extractMessageText(message) {
+    const role = typeof message.role === "string" ? message.role : "";
+    if (role !== "user" && role !== "assistant") {
+        return null;
+    }
+    const text = extractTextFromChatContent(message.content);
+    return text ? { role, text } : null;
+}
+async function buildReminderContextLines(params) {
+    const maxMessages = Math.min(REMINDER_CONTEXT_MESSAGES_MAX, Math.max(0, Math.floor(params.contextMessages)));
+    if (maxMessages <= 0) {
+        return [];
+    }
+    const sessionKey = params.agentSessionKey?.trim();
+    if (!sessionKey) {
+        return [];
+    }
+    const cfg = loadConfig();
+    const { mainKey, alias } = resolveMainSessionAlias(cfg);
+    const resolvedKey = resolveInternalSessionKey({ key: sessionKey, alias, mainKey });
+    try {
+        const res = await callGatewayTool("chat.history", params.gatewayOpts, {
+            sessionKey: resolvedKey,
+            limit: maxMessages,
+        });
+        const messages = Array.isArray(res?.messages) ? res.messages : [];
+        const parsed = messages
+            .map((msg) => extractMessageText(msg))
+            .filter((msg) => Boolean(msg));
+        const recent = parsed.slice(-maxMessages);
+        if (recent.length === 0) {
+            return [];
+        }
+        const lines = [];
+        let total = 0;
+        for (const entry of recent) {
+            const label = entry.role === "user" ? "User" : "Assistant";
+            const text = truncateText(entry.text, REMINDER_CONTEXT_PER_MESSAGE_MAX);
+            const line = `- ${label}: ${text}`;
+            total += line.length;
+            if (total > REMINDER_CONTEXT_TOTAL_MAX) {
+                break;
+            }
+            lines.push(line);
+        }
+        return lines;
+    }
+    catch {
+        return [];
+    }
+}
+function stripThreadSuffixFromSessionKey(sessionKey) {
+    const normalized = sessionKey.toLowerCase();
+    const idx = normalized.lastIndexOf(":thread:");
+    if (idx <= 0) {
+        return sessionKey;
+    }
+    const parent = sessionKey.slice(0, idx).trim();
+    return parent ? parent : sessionKey;
+}
+// Phone number regex that matches:
+// - International format: +1234567890, +62 812 345 6789
+// - With/without spaces, dashes, parentheses
+const PHONE_NUMBER_REGEX = /\+\d[\d\s\-().]{6,18}\d/g;
+/**
+ * Extract phone numbers from text, normalizing to digits only (with + prefix)
+ */
+function extractPhoneNumbers(text) {
+    const matches = text.match(PHONE_NUMBER_REGEX);
+    if (!matches) {
+        return [];
+    }
+    // Normalize: keep only + and digits
+    return matches.map((m) => m.replace(/[\s\-().]/g, ""));
+}
+/**
+ * Extract the explicit delivery target phone number from the payload.
+ * Checks both agentTurn.message and systemEvent.text for phone numbers.
+ * Returns the first phone number found that differs from the sender (inferred from session key).
+ */
+function extractDeliveryTargetFromPayload(params) {
+    const { payload, senderPhone } = params;
+    if (!payload) {
+        return null;
+    }
+    // Get text from payload (message for agentTurn, text for systemEvent)
+    const text = payload.message || payload.text || "";
+    if (!text.trim()) {
+        return null;
+    }
+    const phoneNumbers = extractPhoneNumbers(text);
+    if (phoneNumbers.length === 0) {
+        return null;
+    }
+    // Normalize sender phone for comparison (if provided)
+    const normalizedSender = senderPhone?.replace(/[\s\-().]/g, "") || "";
+    // Find the first phone number that's different from the sender
+    for (const phone of phoneNumbers) {
+        if (phone !== normalizedSender) {
+            return phone;
+        }
+    }
+    return null;
+}
+function inferDeliveryFromSessionKey(agentSessionKey) {
+    const rawSessionKey = agentSessionKey?.trim();
+    if (!rawSessionKey) {
+        return null;
+    }
+    const parsed = parseAgentSessionKey(stripThreadSuffixFromSessionKey(rawSessionKey));
+    if (!parsed || !parsed.rest) {
+        return null;
+    }
+    const parts = parsed.rest.split(":").filter(Boolean);
+    if (parts.length === 0) {
+        return null;
+    }
+    const head = parts[0]?.trim().toLowerCase();
+    if (!head || head === "main" || head === "subagent" || head === "acp") {
+        return null;
+    }
+    // buildAgentPeerSessionKey encodes peers as:
+    // - direct:<peerId>
+    // - <channel>:direct:<peerId>
+    // - <channel>:<accountId>:direct:<peerId>
+    // - <channel>:group:<peerId>
+    // - <channel>:channel:<peerId>
+    // Note: legacy keys may use "dm" instead of "direct".
+    // Threaded sessions append :thread:<id>, which we strip so delivery targets the parent peer.
+    // NOTE: Telegram forum topics encode as <chatId>:topic:<topicId> and should be preserved.
+    const markerIndex = parts.findIndex((part) => part === "direct" || part === "dm" || part === "group" || part === "channel");
+    if (markerIndex === -1) {
+        return null;
+    }
+    const peerId = parts
+        .slice(markerIndex + 1)
+        .join(":")
+        .trim();
+    if (!peerId) {
+        return null;
+    }
+    let channel;
+    let accountId;
+    if (markerIndex >= 1) {
+        channel = parts[0]?.trim().toLowerCase();
+    }
+    // Extract accountId when present (format: <channel>:<accountId>:direct:<peerId>)
+    if (markerIndex >= 2) {
+        accountId = parts[1]?.trim();
+    }
+    const delivery = { mode: "announce", to: peerId };
+    if (channel) {
+        delivery.channel = channel;
+    }
+    if (accountId) {
+        delivery.accountId = accountId;
+    }
+    return delivery;
+}
+/**
+ * Fallback: look up delivery context from the session store when the session key
+ * doesn't encode delivery info (e.g., agent:persona-xxx:unified format).
+ */
+function inferDeliveryFromSessionStore(agentSessionKey) {
+    const rawSessionKey = agentSessionKey?.trim();
+    if (!rawSessionKey) {
+        return null;
+    }
+    const parsed = parseAgentSessionKey(rawSessionKey);
+    if (!parsed || !parsed.agentId) {
+        return null;
+    }
+    try {
+        const cfg = loadConfig();
+        const storePath = resolveStorePath(cfg.session?.store, { agentId: parsed.agentId });
+        const store = loadSessionStore(storePath);
+        // Try the exact session key first
+        const sessionEntry = store[rawSessionKey];
+        if (sessionEntry?.lastChannel && sessionEntry?.lastTo) {
+            const delivery = {
+                mode: "announce",
+                channel: sessionEntry.lastChannel,
+                to: sessionEntry.lastTo,
+            };
+            if (sessionEntry.lastAccountId) {
+                delivery.accountId = sessionEntry.lastAccountId;
+            }
+            return delivery;
+        }
+        // Also try looking up :main session (cron often routes there)
+        const mainSessionKey = `agent:${parsed.agentId}:main`;
+        const mainEntry = store[mainSessionKey];
+        if (mainEntry?.lastChannel && mainEntry?.lastTo) {
+            const delivery = {
+                mode: "announce",
+                channel: mainEntry.lastChannel,
+                to: mainEntry.lastTo,
+            };
+            if (mainEntry.lastAccountId) {
+                delivery.accountId = mainEntry.lastAccountId;
+            }
+            return delivery;
+        }
+        return null;
+    }
+    catch {
+        return null;
+    }
+}
+export function createCronTool(opts) {
+    return {
+        label: "Cron",
+        name: "cron",
+        description: `Manage Gateway cron jobs (status/list/add/update/remove/run/runs) and send wake events.
+
+ACTIONS:
+- status: Check cron scheduler status
+- list: List jobs (use includeDisabled:true to include disabled)
+- add: Create job (requires job object, see schema below)
+- update: Modify job (requires jobId + patch object)
+- remove: Delete job (requires jobId)
+- run: Trigger job immediately (requires jobId)
+- runs: Get job run history (requires jobId)
+- wake: Send wake event (requires text, optional mode)
+
+JOB SCHEMA (for add action):
+{
+  "name": "string (optional)",
+  "schedule": { ... },      // Required: when to run
+  "payload": { ... },       // Required: what to execute
+  "delivery": { ... },      // Optional: announce summary (isolated only)
+  "sessionTarget": "main" | "isolated",  // Required
+  "enabled": true | false,  // Optional, default true
+  "notify": true | false    // Optional webhook opt-in; set true for user-facing reminders
+}
+
+SCHEDULE TYPES (schedule.kind):
+- "at": One-shot at absolute time
+  { "kind": "at", "at": "<ISO-8601 timestamp>" }
+- "every": Recurring interval
+  { "kind": "every", "everyMs": <interval-ms>, "anchorMs": <optional-start-ms> }
+- "cron": Cron expression
+  { "kind": "cron", "expr": "<cron-expression>", "tz": "<optional-timezone>" }
+
+ISO timestamps without an explicit timezone are treated as UTC.
+
+PAYLOAD TYPES (payload.kind):
+- "systemEvent": Injects text as system event into session
+  { "kind": "systemEvent", "text": "<message>" }
+- "agentTurn": Runs agent with message (isolated sessions only)
+  { "kind": "agentTurn", "message": "<prompt>", "model": "<optional>", "thinking": "<optional>", "timeoutSeconds": <optional> }
+
+DELIVERY (isolated-only, top-level):
+  { "mode": "none|announce", "channel": "<optional>", "to": "<optional>", "bestEffort": <optional-bool> }
+  - Default for isolated agentTurn jobs (when delivery omitted): "announce"
+  - If the task needs to send to a specific chat/recipient, set delivery.channel/to here; do not call messaging tools inside the run.
+
+CRITICAL CONSTRAINTS:
+- sessionTarget="main" REQUIRES payload.kind="systemEvent"
+- sessionTarget="isolated" REQUIRES payload.kind="agentTurn"
+- For reminders users should be notified about, set notify=true.
+Default: prefer isolated agentTurn jobs unless the user explicitly wants a main-session system event.
+
+WAKE MODES (for wake action):
+- "next-heartbeat" (default): Wake on next heartbeat
+- "now": Wake immediately
+
+Use jobId as the canonical identifier; id is accepted for compatibility. Use contextMessages (0-10) to add previous messages as context to the job text.`,
+        parameters: CronToolSchema,
+        execute: async (_toolCallId, args) => {
+            const params = args;
+            const action = readStringParam(params, "action", { required: true });
+            const gatewayOpts = {
+                gatewayUrl: readStringParam(params, "gatewayUrl", { trim: false }),
+                gatewayToken: readStringParam(params, "gatewayToken", { trim: false }),
+                timeoutMs: typeof params.timeoutMs === "number" ? params.timeoutMs : 60_000,
+            };
+            switch (action) {
+                case "status":
+                    return jsonResult(await callGatewayTool("cron.status", gatewayOpts, {}));
+                case "list": {
+                    const cfg = loadConfig();
+                    const agentId = opts?.agentSessionKey
+                        ? resolveSessionAgentId({ sessionKey: opts.agentSessionKey, config: cfg })
+                        : undefined;
+                    return jsonResult(await callGatewayTool("cron.list", gatewayOpts, {
+                        includeDisabled: Boolean(params.includeDisabled),
+                        agentId,
+                    }));
+                }
+                case "add": {
+                    // Flat-params recovery: non-frontier models (e.g. Grok) sometimes flatten
+                    // job properties to the top level alongside `action` instead of nesting
+                    // them inside `job`. When `params.job` is missing or empty, reconstruct
+                    // a synthetic job object from any recognised top-level job fields.
+                    // See: https://github.com/openclaw/openclaw/issues/11310
+                    if (!params.job ||
+                        (typeof params.job === "object" &&
+                            params.job !== null &&
+                            Object.keys(params.job).length === 0)) {
+                        const JOB_KEYS = new Set([
+                            "name",
+                            "schedule",
+                            "sessionTarget",
+                            "wakeMode",
+                            "payload",
+                            "delivery",
+                            "enabled",
+                            "notify",
+                            "description",
+                            "deleteAfterRun",
+                            "agentId",
+                            "message",
+                            "text",
+                            "model",
+                            "thinking",
+                            "timeoutSeconds",
+                            "allowUnsafeExternalContent",
+                        ]);
+                        const synthetic = {};
+                        let found = false;
+                        for (const key of Object.keys(params)) {
+                            if (JOB_KEYS.has(key) && params[key] !== undefined) {
+                                synthetic[key] = params[key];
+                                found = true;
+                            }
+                        }
+                        // Only use the synthetic job if at least one meaningful field is present
+                        // (schedule, payload, message, or text are the minimum signals that the
+                        // LLM intended to create a job).
+                        if (found &&
+                            (synthetic.schedule !== undefined ||
+                                synthetic.payload !== undefined ||
+                                synthetic.message !== undefined ||
+                                synthetic.text !== undefined)) {
+                            params.job = synthetic;
+                        }
+                    }
+                    if (!params.job || typeof params.job !== "object") {
+                        throw new Error("job required");
+                    }
+                    const job = normalizeCronJobCreate(params.job) ?? params.job;
+                    if (job && typeof job === "object" && !("agentId" in job)) {
+                        const cfg = loadConfig();
+                        const agentId = opts?.agentSessionKey
+                            ? resolveSessionAgentId({ sessionKey: opts.agentSessionKey, config: cfg })
+                            : undefined;
+                        if (agentId) {
+                            job.agentId = agentId;
+                        }
+                    }
+                    // Infer delivery for both agentTurn and systemEvent jobs
+                    // When delivery is inferred for systemEvent jobs, convert to agentTurn with isolated target
+                    // because delivery config only works with sessionTarget="isolated"
+                    const payloadKind = job.payload?.kind;
+                    if (opts?.agentSessionKey &&
+                        job &&
+                        typeof job === "object" &&
+                        "payload" in job &&
+                        (payloadKind === "agentTurn" || payloadKind === "systemEvent")) {
+                        const deliveryValue = job.delivery;
+                        const delivery = isRecord(deliveryValue) ? deliveryValue : undefined;
+                        const modeRaw = typeof delivery?.mode === "string" ? delivery.mode : "";
+                        const mode = modeRaw.trim().toLowerCase();
+                        const hasExplicitChannel = typeof delivery?.channel === "string" && delivery.channel.trim();
+                        const hasExplicitTo = typeof delivery?.to === "string" && delivery.to.trim();
+                        const hasExplicitAccountId = typeof delivery?.accountId === "string" && delivery.accountId.trim();
+                        const shouldInferTarget = (deliveryValue == null || delivery) &&
+                            mode !== "none" &&
+                            !hasExplicitChannel &&
+                            !hasExplicitTo;
+                        // Always try to get accountId from session even if channel/to are explicit
+                        const shouldInferAccountId = !hasExplicitAccountId && mode !== "none";
+                        if (shouldInferTarget || shouldInferAccountId) {
+                            // Try to infer from session key format first, then fall back to session store
+                            const inferred = inferDeliveryFromSessionKey(opts.agentSessionKey) ??
+                                inferDeliveryFromSessionStore(opts.agentSessionKey);
+                            if (inferred) {
+                                if (shouldInferTarget) {
+                                    // Check if the payload contains an explicit target phone number
+                                    // This handles cases where the user says "send reminder to +1234567890"
+                                    // and the LLM doesn't explicitly set delivery.to
+                                    const payload = job.payload;
+                                    const targetFromPayload = extractDeliveryTargetFromPayload({
+                                        payload,
+                                        senderPhone: inferred.to, // The inferred 'to' is the sender from session key
+                                    });
+                                    // Full inference: use inferred channel and accountId, but prefer payload target
+                                    job.delivery = {
+                                        ...delivery,
+                                        ...inferred,
+                                        // Override 'to' if we found a target in the payload
+                                        ...(targetFromPayload ? { to: targetFromPayload } : {}),
+                                    };
+                                }
+                                else if (shouldInferAccountId && inferred.accountId) {
+                                    // Only add accountId to existing delivery config
+                                    const existingMode = delivery?.mode;
+                                    job.delivery = {
+                                        ...delivery,
+                                        mode: existingMode ?? "announce",
+                                        accountId: inferred.accountId,
+                                    };
+                                }
+                                // Convert systemEvent to agentTurn for delivery support
+                                // Delivery config only works with sessionTarget="isolated"
+                                if (payloadKind === "systemEvent" && shouldInferTarget) {
+                                    const payload = job.payload;
+                                    const reminderText = payload.text?.replace(/^Reminder:\s*/i, "").trim() || payload.text || "";
+                                    const deliveryMessage = `⏰ SCHEDULED REMINDER: Deliver this to the user now: "${reminderText}"`;
+                                    job.payload =
+                                        {
+                                            kind: "agentTurn",
+                                            message: deliveryMessage,
+                                        };
+                                    job.sessionTarget = "isolated";
+                                }
+                            }
+                        }
+                    }
+                    const contextMessages = typeof params.contextMessages === "number" && Number.isFinite(params.contextMessages)
+                        ? params.contextMessages
+                        : 0;
+                    if (job &&
+                        typeof job === "object" &&
+                        "payload" in job &&
+                        job.payload?.kind === "systemEvent") {
+                        const payload = job.payload;
+                        if (typeof payload.text === "string" && payload.text.trim()) {
+                            const contextLines = await buildReminderContextLines({
+                                agentSessionKey: opts?.agentSessionKey,
+                                gatewayOpts,
+                                contextMessages,
+                            });
+                            if (contextLines.length > 0) {
+                                const baseText = stripExistingContext(payload.text);
+                                payload.text = `${baseText}${REMINDER_CONTEXT_MARKER}${contextLines.join("\n")}`;
+                            }
+                        }
+                    }
+                    return jsonResult(await callGatewayTool("cron.add", gatewayOpts, job));
+                }
+                case "update": {
+                    const id = readStringParam(params, "jobId") ?? readStringParam(params, "id");
+                    if (!id) {
+                        throw new Error("jobId required (id accepted for backward compatibility)");
+                    }
+                    if (!params.patch || typeof params.patch !== "object") {
+                        throw new Error("patch required");
+                    }
+                    const patch = normalizeCronJobPatch(params.patch) ?? params.patch;
+                    const cfg = loadConfig();
+                    const agentId = opts?.agentSessionKey
+                        ? resolveSessionAgentId({ sessionKey: opts.agentSessionKey, config: cfg })
+                        : undefined;
+                    return jsonResult(await callGatewayTool("cron.update", gatewayOpts, {
+                        id,
+                        patch,
+                        agentId,
+                    }));
+                }
+                case "remove": {
+                    const id = readStringParam(params, "jobId") ?? readStringParam(params, "id");
+                    if (!id) {
+                        throw new Error("jobId required (id accepted for backward compatibility)");
+                    }
+                    const cfg = loadConfig();
+                    const agentId = opts?.agentSessionKey
+                        ? resolveSessionAgentId({ sessionKey: opts.agentSessionKey, config: cfg })
+                        : undefined;
+                    return jsonResult(await callGatewayTool("cron.remove", gatewayOpts, { id, agentId }));
+                }
+                case "run": {
+                    const id = readStringParam(params, "jobId") ?? readStringParam(params, "id");
+                    if (!id) {
+                        throw new Error("jobId required (id accepted for backward compatibility)");
+                    }
+                    const runMode = params.runMode === "due" || params.runMode === "force" ? params.runMode : "force";
+                    return jsonResult(await callGatewayTool("cron.run", gatewayOpts, { id, mode: runMode }));
+                }
+                case "runs": {
+                    const id = readStringParam(params, "jobId") ?? readStringParam(params, "id");
+                    if (!id) {
+                        throw new Error("jobId required (id accepted for backward compatibility)");
+                    }
+                    return jsonResult(await callGatewayTool("cron.runs", gatewayOpts, { id }));
+                }
+                case "wake": {
+                    const text = readStringParam(params, "text", { required: true });
+                    const mode = params.mode === "now" || params.mode === "next-heartbeat"
+                        ? params.mode
+                        : "next-heartbeat";
+                    return jsonResult(await callGatewayTool("wake", gatewayOpts, { mode, text }, { expectFinal: false }));
+                }
+                default:
+                    throw new Error(`Unknown action: ${action}`);
+            }
+        },
+    };
+}
+//# sourceMappingURL=cron-tool.js.map

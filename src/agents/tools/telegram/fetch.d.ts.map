@@ -1,0 +1,1 @@
+{"version":3,"file":"fetch.d.ts","sourceRoot":"","sources":["../../../telegram/fetch.ts"],"names":[],"mappings":"AAEA,OAAO,KAAK,EAAE,qBAAqB,EAAE,MAAM,6BAA6B,CAAC;AAkDzE,wBAAgB,oBAAoB,CAClC,UAAU,CAAC,EAAE,OAAO,KAAK,EACzB,OAAO,CAAC,EAAE;IAAE,OAAO,CAAC,EAAE,qBAAqB,CAAA;CAAE,GAC5C,OAAO,KAAK,GAAG,SAAS,CAU1B;AAED,wBAAgB,+BAA+B,IAAI,IAAI,CAGtD"}

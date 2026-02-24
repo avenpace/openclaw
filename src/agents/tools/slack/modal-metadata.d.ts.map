@@ -1,0 +1,1 @@
+{"version":3,"file":"modal-metadata.d.ts","sourceRoot":"","sources":["../../../slack/modal-metadata.ts"],"names":[],"mappings":"AAAA,MAAM,MAAM,yBAAyB,GAAG;IACtC,UAAU,CAAC,EAAE,MAAM,CAAC;IACpB,SAAS,CAAC,EAAE,MAAM,CAAC;IACnB,WAAW,CAAC,EAAE,MAAM,CAAC;CACtB,CAAC;AAQF,wBAAgB,8BAA8B,CAAC,GAAG,EAAE,OAAO,GAAG,yBAAyB,CActF;AAED,wBAAgB,+BAA+B,CAAC,KAAK,EAAE,yBAAyB,GAAG,MAAM,CAaxF"}

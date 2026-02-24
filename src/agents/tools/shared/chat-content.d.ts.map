@@ -1,0 +1,1 @@
+{"version":3,"file":"chat-content.d.ts","sourceRoot":"","sources":["../../../shared/chat-content.ts"],"names":[],"mappings":"AAAA,wBAAgB,0BAA0B,CACxC,OAAO,EAAE,OAAO,EAChB,IAAI,CAAC,EAAE;IACL,YAAY,CAAC,EAAE,CAAC,IAAI,EAAE,MAAM,KAAK,MAAM,CAAC;IACxC,QAAQ,CAAC,EAAE,MAAM,CAAC;IAClB,aAAa,CAAC,EAAE,CAAC,IAAI,EAAE,MAAM,KAAK,MAAM,CAAC;CAC1C,GACA,MAAM,GAAG,IAAI,CAkCf"}

@@ -1,0 +1,1 @@
+{"version":3,"file":"model-forward-compat.d.ts","sourceRoot":"","sources":["../../model-forward-compat.ts"],"names":[],"mappings":"AAAA,OAAO,KAAK,EAAE,GAAG,EAAE,KAAK,EAAE,MAAM,qBAAqB,CAAC;AAItD,OAAO,KAAK,EAAE,aAAa,EAAE,MAAM,yBAAyB,CAAC;AAsM7D,wBAAgB,yBAAyB,CACvC,QAAQ,EAAE,MAAM,EAChB,OAAO,EAAE,MAAM,EACf,aAAa,EAAE,aAAa,GAC3B,KAAK,CAAC,GAAG,CAAC,GAAG,SAAS,CAOxB"}

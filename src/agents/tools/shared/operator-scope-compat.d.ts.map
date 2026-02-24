@@ -1,0 +1,1 @@
+{"version":3,"file":"operator-scope-compat.d.ts","sourceRoot":"","sources":["../../../shared/operator-scope-compat.ts"],"names":[],"mappings":"AA8BA,wBAAgB,eAAe,CAAC,MAAM,EAAE;IACtC,IAAI,EAAE,MAAM,CAAC;IACb,eAAe,EAAE,SAAS,MAAM,EAAE,CAAC;IACnC,aAAa,EAAE,SAAS,MAAM,EAAE,CAAC;CAClC,GAAG,OAAO,CAcV"}

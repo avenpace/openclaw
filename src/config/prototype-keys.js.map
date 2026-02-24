@@ -1,0 +1,1 @@
+{"version":3,"file":"prototype-keys.js","sourceRoot":"","sources":["prototype-keys.ts"],"names":[],"mappings":"AAAA,MAAM,mBAAmB,GAAG,IAAI,GAAG,CAAC,CAAC,WAAW,EAAE,WAAW,EAAE,aAAa,CAAC,CAAC,CAAC;AAE/E,MAAM,UAAU,kBAAkB,CAAC,GAAW;IAC5C,OAAO,mBAAmB,CAAC,GAAG,CAAC,GAAG,CAAC,CAAC;AACtC,CAAC"}

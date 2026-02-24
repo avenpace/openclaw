@@ -32,6 +32,7 @@ const WhatsAppAckReactionSchema = z
   .optional();
 
 const WhatsAppSharedSchema = z.object({
+  enabled: z.boolean().optional(),
   mode: z.enum(["inline", "worker"]).optional().default("inline"),
   worker: z
     .object({
