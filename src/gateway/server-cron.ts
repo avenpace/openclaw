@@ -1,5 +1,5 @@
-import { resolveDefaultAgentId } from "../agents/agent-scope.js";
 import type { CliDeps } from "../cli/deps.js";
+import { resolveDefaultAgentId } from "../agents/agent-scope.js";
 import { loadConfig } from "../config/config.js";
 import {
   canonicalizeMainSessionAlias,
@@ -259,6 +259,8 @@ export function buildGatewayCronService(params: {
                   body: JSON.stringify(evt),
                   signal: abortController.signal,
                 },
+                // Allow localhost for internal webhook delivery (e.g., platform-api cron-delivery endpoint)
+                policy: { allowedHostnames: ["localhost", "127.0.0.1"] },
               });
               await result.release();
             } catch (err) {
