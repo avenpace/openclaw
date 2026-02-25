@@ -605,6 +605,12 @@ Use jobId as the canonical identifier; id is accepted for compatibility. Use con
               // Clear channel since webhook handles routing
               delete finalDelivery.channel;
             }
+
+            // Ensure sessionTarget="isolated" for all channel-based delivery (non-webhook)
+            // This is required by the gateway's delivery validation
+            if (finalDelivery.mode !== "webhook" && (finalDelivery.channel || finalDelivery.to)) {
+              (job as { sessionTarget?: string }).sessionTarget = "isolated";
+            }
           }
 
           const contextMessages =
