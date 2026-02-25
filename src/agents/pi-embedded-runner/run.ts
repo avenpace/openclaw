@@ -1,10 +1,10 @@
 import { randomBytes } from "node:crypto";
 import fs from "node:fs/promises";
 import type { ThinkLevel } from "../../auto-reply/thinking.js";
-import { resolveAgentModelFallbackValues } from "../../config/model-input.js";
 import type { PluginHookBeforeAgentStartResult } from "../../plugins/types.js";
 import type { RunEmbeddedPiAgentParams } from "./run/params.js";
 import type { EmbeddedPiAgentMeta, EmbeddedPiRunResult } from "./types.js";
+import { resolveAgentModelFallbackValues } from "../../config/model-input.js";
 import { generateSecureToken } from "../../infra/secure-random.js";
 import { getGlobalHookRunner } from "../../plugins/hook-runner-global.js";
 import { enqueueCommandInLane } from "../../process/command-queue.js";
@@ -630,6 +630,7 @@ export async function runEmbeddedPiAgent(
             ownerNumbers: params.ownerNumbers,
             enforceFinalTag: params.enforceFinalTag,
             devicesHandler: params.devicesHandler,
+            cloudStorageHandler: params.cloudStorageHandler,
           });
 
           const {

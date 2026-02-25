@@ -97,10 +97,7 @@ export type CloudStorageHandler = {
   }>;
 
   /** Extract text from a document stored in cloud storage */
-  extractText: (params: {
-    fileId: string;
-    maxChars?: number;
-  }) => Promise<{
+  extractText: (params: { fileId: string; maxChars?: number }) => Promise<{
     content: string;
     mimeType: string;
     truncated: boolean;
@@ -116,7 +113,7 @@ export type CloudStorageHandler = {
       filename?: string;
       isPublic?: boolean;
       folderId?: string | null;
-    }
+    },
   ) => Promise<void>;
 
   /** Create a folder */
@@ -160,13 +157,22 @@ export type CloudStorageHandler = {
     sourceFileId: string;
     sourceFilename: string;
   }>;
+
+  /** Send a file from cloud storage to the current chat channel */
+  sendFileToChannel?: (params: { fileId: string; caption?: string }) => Promise<{
+    success: boolean;
+    messageId?: string;
+    error?: string;
+  }>;
 };
 
 // Tool Schemas
 const CloudStorageInfoSchema = Type.Object({});
 
 const CloudListFilesSchema = Type.Object({
-  folderId: Type.Optional(Type.String({ description: "Folder ID to list files from (omit for root)" })),
+  folderId: Type.Optional(
+    Type.String({ description: "Folder ID to list files from (omit for root)" }),
+  ),
   limit: Type.Optional(Type.Number({ description: "Max number of files to return (default: 20)" })),
 });
 
@@ -185,22 +191,32 @@ const CloudReadFileSchema = Type.Object({
 const CloudUploadSchema = Type.Object({
   filename: Type.String({ description: "Name for the file (e.g., 'notes.txt', 'data.json')" }),
   content: Type.String({ description: "The text content to upload" }),
-  mimeType: Type.Optional(Type.String({ description: "MIME type (default: auto-detect from filename)" })),
+  mimeType: Type.Optional(
+    Type.String({ description: "MIME type (default: auto-detect from filename)" }),
+  ),
   folderId: Type.Optional(Type.String({ description: "Folder ID to upload to (omit for root)" })),
-  isPublic: Type.Optional(Type.Boolean({ description: "Make file publicly accessible (default: false)" })),
+  isPublic: Type.Optional(
+    Type.Boolean({ description: "Make file publicly accessible (default: false)" }),
+  ),
 });
 
 const CloudUploadBase64Schema = Type.Object({
   filename: Type.String({ description: "Name for the file (e.g., 'report.pdf', 'slides.pptx')" }),
   contentBase64: Type.String({ description: "Base64-encoded file content" }),
-  mimeType: Type.Optional(Type.String({ description: "MIME type (default: auto-detect from filename)" })),
+  mimeType: Type.Optional(
+    Type.String({ description: "MIME type (default: auto-detect from filename)" }),
+  ),
   folderId: Type.Optional(Type.String({ description: "Folder ID to upload to (omit for root)" })),
-  isPublic: Type.Optional(Type.Boolean({ description: "Make file publicly accessible (default: false)" })),
+  isPublic: Type.Optional(
+    Type.Boolean({ description: "Make file publicly accessible (default: false)" }),
+  ),
 });
 
 const CloudExtractTextSchema = Type.Object({
   fileId: Type.String({ description: "The file ID to extract text from" }),
-  maxChars: Type.Optional(Type.Number({ description: "Max characters to return (default: 50000)" })),
+  maxChars: Type.Optional(
+    Type.Number({ description: "Max characters to return (default: 50000)" }),
+  ),
 });
 
 const CloudCreateDocumentSchema = Type.Object({
@@ -214,20 +230,26 @@ const CloudCreateDocumentSchema = Type.Object({
   title: Type.Optional(Type.String({ description: "Document title" })),
   content: Type.Optional(Type.String({ description: "Main document content (docx/pdf)" })),
   csv: Type.Optional(Type.String({ description: "CSV content (xlsx)" })),
-  sheets: Type.Optional(Type.Array(
-    Type.Object({
-      name: Type.Optional(Type.String({ description: "Sheet name" })),
-      rows: Type.Array(Type.Array(Type.String())),
-    })
-  )),
-  slides: Type.Optional(Type.Array(
-    Type.Object({
-      title: Type.Optional(Type.String({ description: "Slide title" })),
-      bullets: Type.Optional(Type.Array(Type.String())),
-    })
-  )),
+  sheets: Type.Optional(
+    Type.Array(
+      Type.Object({
+        name: Type.Optional(Type.String({ description: "Sheet name" })),
+        rows: Type.Array(Type.Array(Type.String())),
+      }),
+    ),
+  ),
+  slides: Type.Optional(
+    Type.Array(
+      Type.Object({
+        title: Type.Optional(Type.String({ description: "Slide title" })),
+        bullets: Type.Optional(Type.Array(Type.String())),
+      }),
+    ),
+  ),
   folderId: Type.Optional(Type.String({ description: "Folder ID to upload to (omit for root)" })),
-  isPublic: Type.Optional(Type.Boolean({ description: "Make file publicly accessible (default: false)" })),
+  isPublic: Type.Optional(
+    Type.Boolean({ description: "Make file publicly accessible (default: false)" }),
+  ),
 });
 
 const CloudDeleteFileSchema = Type.Object({
@@ -238,7 +260,9 @@ const CloudUpdateFileSchema = Type.Object({
   fileId: Type.String({ description: "The file ID to update" }),
   filename: Type.Optional(Type.String({ description: "New filename" })),
   isPublic: Type.Optional(Type.Boolean({ description: "Set public/private" })),
-  folderId: Type.Optional(Type.String({ description: "Move to folder (use 'root' for root folder)" })),
+  folderId: Type.Optional(
+    Type.String({ description: "Move to folder (use 'root' for root folder)" }),
+  ),
 });
 
 const CloudCreateFolderSchema = Type.Object({
@@ -264,9 +288,20 @@ const CloudConvertDocumentSchema = Type.Object({
     Type.Literal("txt"),
     Type.Literal("csv"),
   ]),
-  filename: Type.Optional(Type.String({ description: "Filename for the converted file (extension optional)" })),
-  folderId: Type.Optional(Type.String({ description: "Folder ID to save converted file (omit for root)" })),
-  isPublic: Type.Optional(Type.Boolean({ description: "Make converted file publicly accessible (default: false)" })),
+  filename: Type.Optional(
+    Type.String({ description: "Filename for the converted file (extension optional)" }),
+  ),
+  folderId: Type.Optional(
+    Type.String({ description: "Folder ID to save converted file (omit for root)" }),
+  ),
+  isPublic: Type.Optional(
+    Type.Boolean({ description: "Make converted file publicly accessible (default: false)" }),
+  ),
+});
+
+const CloudSendFileSchema = Type.Object({
+  fileId: Type.String({ description: "The ID of the file to send" }),
+  caption: Type.Optional(Type.String({ description: "Message caption to send with the file" })),
 });
 
 /**
@@ -276,7 +311,8 @@ export function createCloudStorageInfoTool(handler: CloudStorageHandler): AnyAge
   return {
     label: "Cloud Storage Info",
     name: "cloud_storage_info",
-    description: "Get the user's cloud storage quota, usage, and limits. Shows how much space is used and available.",
+    description:
+      "Get the user's cloud storage quota, usage, and limits. Shows how much space is used and available.",
     parameters: CloudStorageInfoSchema,
     execute: async () => {
       try {
@@ -393,7 +429,8 @@ export function createCloudGetFileTool(handler: CloudStorageHandler): AnyAgentTo
   return {
     label: "Get Cloud File Info",
     name: "cloud_get_file",
-    description: "Get detailed information about a specific file in cloud storage, including download URL.",
+    description:
+      "Get detailed information about a specific file in cloud storage, including download URL.",
     parameters: CloudGetFileSchema,
     execute: async (_toolCallId, params) => {
       try {
@@ -611,7 +648,11 @@ Provide content based on the document type.`,
     parameters: CloudCreateDocumentSchema,
     execute: async (_toolCallId, params) => {
       try {
-        const type = readStringParam(params, "type", { required: true }) as "docx" | "xlsx" | "pptx" | "pdf";
+        const type = readStringParam(params, "type", { required: true }) as
+          | "docx"
+          | "xlsx"
+          | "pptx"
+          | "pdf";
         const filename = readStringParam(params, "filename");
         const title = readStringParam(params, "title");
         const content = readStringParam(params, "content", { allowEmpty: true });
@@ -832,7 +873,13 @@ Use this when users want to convert files between formats (e.g., "convert this P
     execute: async (_toolCallId, params) => {
       try {
         const fileId = readStringParam(params, "fileId", { required: true });
-        const targetType = readStringParam(params, "targetType", { required: true }) as "docx" | "xlsx" | "pptx" | "pdf" | "txt" | "csv";
+        const targetType = readStringParam(params, "targetType", { required: true }) as
+          | "docx"
+          | "xlsx"
+          | "pptx"
+          | "pdf"
+          | "txt"
+          | "csv";
         const filename = readStringParam(params, "filename");
         const folderId = readStringParam(params, "folderId");
         const isPublic = params.isPublic === true;
@@ -867,10 +914,55 @@ Use this when users want to convert files between formats (e.g., "convert this P
 }
 
 /**
+ * Create the cloud_send_file tool
+ */
+export function createCloudSendFileTool(handler: CloudStorageHandler): AnyAgentTool | null {
+  // Only create tool if handler supports sendFileToChannel
+  if (!handler.sendFileToChannel) {
+    return null;
+  }
+
+  return {
+    label: "Send File to Chat",
+    name: "cloud_send_file",
+    description: `Send a file from cloud storage directly to the user as a message attachment.
+
+Use this IMMEDIATELY after creating or converting a document to deliver it to the user.
+This sends the actual file as an attachment in the chat - much better than just sharing a URL.
+
+Example workflow:
+1. cloud_convert_document fileId="abc" targetType="docx"
+2. cloud_send_file fileId="<newFileId>" caption="Here's your converted document"`,
+    parameters: CloudSendFileSchema,
+    execute: async (_toolCallId, params) => {
+      try {
+        const fileId = readStringParam(params, "fileId", { required: true });
+        const caption = readStringParam(params, "caption");
+
+        const result = await handler.sendFileToChannel!({ fileId, caption });
+
+        if (!result.success) {
+          return jsonResult({ error: result.error ?? "Failed to send file" });
+        }
+
+        return jsonResult({
+          success: true,
+          messageId: result.messageId,
+          message: "File sent to chat successfully.",
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return jsonResult({ error: message });
+      }
+    },
+  };
+}
+
+/**
  * Create all cloud storage tools
  */
 export function createCloudStorageTools(handler: CloudStorageHandler): AnyAgentTool[] {
-  return [
+  const tools: AnyAgentTool[] = [
     createCloudStorageInfoTool(handler),
     createCloudListFilesTool(handler),
     createCloudListFoldersTool(handler),
@@ -887,4 +979,12 @@ export function createCloudStorageTools(handler: CloudStorageHandler): AnyAgentT
     createCloudDeleteFolderTool(handler),
     createCloudShareFileTool(handler),
   ];
+
+  // Add cloud_send_file if handler supports it
+  const sendFileTool = createCloudSendFileTool(handler);
+  if (sendFileTool) {
+    tools.push(sendFileTool);
+  }
+
+  return tools;
 }

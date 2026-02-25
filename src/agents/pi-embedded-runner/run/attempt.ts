@@ -4,23 +4,20 @@ import { streamSimple } from "@mariozechner/pi-ai";
 import { createAgentSession, SessionManager, SettingsManager } from "@mariozechner/pi-coding-agent";
 import fs from "node:fs/promises";
 import os from "node:os";
-import type { EmbeddedRunAttemptParams, EmbeddedRunAttemptResult } from "./types.js";
-import { resolveHeartbeatPrompt } from "../../../auto-reply/heartbeat.js";
-import { resolveChannelCapabilities } from "../../../config/channel-capabilities.js";
 import type { OpenClawConfig } from "../../../config/config.js";
-import { getMachineDisplayName } from "../../../infra/machine-name.js";
-import { MAX_IMAGE_BYTES } from "../../../media/constants.js";
-import { getGlobalHookRunner } from "../../../plugins/hook-runner-global.js";
 import type { HookRunner } from "../../../plugins/hooks.js";
 import type {
   PluginHookAgentContext,
   PluginHookBeforeAgentStartResult,
   PluginHookBeforePromptBuildResult,
 } from "../../../plugins/types.js";
-import {
-  isSubagentSessionKey,
-  normalizeAgentId,
-} from "../../../routing/session-key.js";
+import type { EmbeddedRunAttemptParams, EmbeddedRunAttemptResult } from "./types.js";
+import { resolveHeartbeatPrompt } from "../../../auto-reply/heartbeat.js";
+import { resolveChannelCapabilities } from "../../../config/channel-capabilities.js";
+import { getMachineDisplayName } from "../../../infra/machine-name.js";
+import { MAX_IMAGE_BYTES } from "../../../media/constants.js";
+import { getGlobalHookRunner } from "../../../plugins/hook-runner-global.js";
+import { isSubagentSessionKey, normalizeAgentId } from "../../../routing/session-key.js";
 import { resolveSignalReactionLevel } from "../../../signal/reaction-level.js";
 import { resolveTelegramInlineButtonsScope } from "../../../telegram/inline-buttons.js";
 import { resolveTelegramReactionLevel } from "../../../telegram/reaction-level.js";
@@ -39,6 +36,7 @@ import {
 } from "../../channel-tools.js";
 import { resolveOpenClawDocsPath } from "../../docs-path.js";
 import { isTimeoutError } from "../../failover-error.js";
+import { resolveImageSanitizationLimits } from "../../image-sanitization.js";
 import { resolveModelAuthMode } from "../../model-auth.js";
 import { resolveDefaultModelForAgent } from "../../model-selection.js";
 import { createOllamaStreamFn, OLLAMA_NATIVE_BASE_URL } from "../../ollama-stream.js";
@@ -392,6 +390,7 @@ export async function runEmbeddedAttempt(
             params.requireExplicitMessageTarget ?? isSubagentSessionKey(params.sessionKey),
           disableMessageTool: params.disableMessageTool,
           devicesHandler: params.devicesHandler,
+          cloudStorageHandler: params.cloudStorageHandler,
         });
     // SECURITY: Filter out dangerous tools for external channels (WhatsApp, Telegram)
     // These tools can leak host info or execute arbitrary commands
@@ -1032,6 +1031,9 @@ export async function runEmbeddedAttempt(
               `runId=${params.runId} sessionId=${params.sessionId}`,
           );
         }
+
+        // Resolve workspace-only setting for image loading
+        const effectiveFsWorkspaceOnly = params.config?.tools?.fs?.workspaceOnly ?? false;
 
         try {
           // Detect and load images referenced in the prompt for vision-capable models.
