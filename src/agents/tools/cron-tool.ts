@@ -565,7 +565,12 @@ Use jobId as the canonical identifier; id is accepted for compatibility. Use con
             // This allows the platform to use its own WhatsApp connection (avoids accountId issues)
             const deliveryChannel =
               typeof finalDelivery.channel === "string" ? finalDelivery.channel.toLowerCase() : "";
-            if (deliveryChannel === "whatsapp" && finalDelivery.mode === "announce") {
+            // Detect phone number in 'to' field - if it looks like a phone number, treat as WhatsApp
+            const toValue = typeof finalDelivery.to === "string" ? finalDelivery.to.trim() : "";
+            const looksLikePhoneNumber = /^\+\d/.test(toValue);
+            const isWhatsAppDelivery =
+              deliveryChannel === "whatsapp" || (looksLikePhoneNumber && !deliveryChannel);
+            if (isWhatsAppDelivery && finalDelivery.mode === "announce") {
               // Extract target phone number from payload if user specified a different recipient
               const payload = (job as { payload?: { message?: string; text?: string } }).payload;
               const jobName = (job as { name?: string }).name || "";
@@ -590,7 +595,7 @@ Use jobId as the canonical identifier; id is accepted for compatibility. Use con
               // Use webhook delivery - platform handles WhatsApp routing
               // Encode routing info in the webhook URL query params
               const webhookUrl = new URL("http://localhost:3000/internal/cron-delivery");
-              webhookUrl.searchParams.set("channel", deliveryChannel);
+              webhookUrl.searchParams.set("channel", deliveryChannel || "whatsapp");
               webhookUrl.searchParams.set("to", originalTo);
               if (agentId) {
                 webhookUrl.searchParams.set("agentId", agentId);
