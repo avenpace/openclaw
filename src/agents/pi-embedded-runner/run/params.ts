@@ -117,4 +117,8 @@ export type RunEmbeddedPiAgentParams = {
   devicesHandler?: DevicesHandler;
   /** Handler for cloud storage tools (list, read, write, convert files). */
   cloudStorageHandler?: CloudStorageHandler;
+  /** Suppress tool error warnings in output. */
+  suppressToolErrorWarnings?: boolean;
+  /** Callback when reasoning/thinking ends. */
+  onReasoningEnd?: () => void | Promise<void>;
 };

@@ -1,4 +1,6 @@
+// @ts-expect-error - no type declarations for qrcode-terminal vendor
 import QRCodeModule from "qrcode-terminal/vendor/QRCode/index.js";
+// @ts-expect-error - no type declarations for qrcode-terminal vendor
 import QRErrorCorrectLevelModule from "qrcode-terminal/vendor/QRCode/QRErrorCorrectLevel.js";
 import { encodePngRgba, fillPixel } from "../media/png-encode.js";
 

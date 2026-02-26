@@ -43,6 +43,7 @@ export async function createPtyAdapter(params: {
   rows?: number;
   name?: string;
 }): Promise<PtyAdapter> {
+  // @ts-expect-error - no type declarations for @lydell/node-pty
   const module = (await import("@lydell/node-pty")) as unknown as PtyModule;
   const spawn = module.spawn ?? module.default?.spawn;
   if (!spawn) {

@@ -101,6 +101,26 @@ export type WhatsAppConfig = WhatsAppConfigCore &
     accounts?: Record<string, WhatsAppAccountConfig>;
     /** Per-action tool gating (default: true for all). */
     actions?: WhatsAppActionConfig;
+    /** WhatsApp mode: "worker" for worker-based session isolation. */
+    mode?: "worker" | "standard";
+    /** Worker configuration for worker mode. */
+    worker?: {
+      poolSize?: number;
+      maxSessionsPerWorker?: number;
+      maxWorkers?: number;
+      docker?: {
+        enabled?: boolean;
+        image?: string;
+        imageByAccount?: Record<string, string>;
+        authMountPath?: string;
+        workerEntry?: string;
+        command?: string[];
+        containerNamePrefix?: string;
+        network?: string;
+        extraArgs?: string[];
+        env?: Record<string, string>;
+      };
+    };
   };
 
 export type WhatsAppAccountConfig = WhatsAppConfigCore &

@@ -1,10 +1,6 @@
 #!/usr/bin/env node
 import process from "node:process";
 import { fileURLToPath } from "node:url";
-import type { DevicesHandler } from "./agents/tools/devices-tool.js";
-import type { MsgContext } from "./auto-reply/templating.js";
-import type { ReplyPayload } from "./auto-reply/types.js";
-import type { WebChannelStatus } from "./web/auto-reply/types.js";
 import { DEFAULT_MODEL, DEFAULT_PROVIDER } from "./agents/defaults.js";
 import { loadModelCatalog, type ModelCatalogEntry } from "./agents/model-catalog.js";
 import { normalizeProviderId, normalizeModelRef, type ModelRef } from "./agents/model-selection.js";
@@ -12,8 +8,11 @@ import { ensureOpenClawModelsJson } from "./agents/models-config.js";
 import { normalizeGoogleModelId } from "./agents/models-config.providers.js";
 import { runEmbeddedPiAgent } from "./agents/pi-embedded.js";
 import { buildWorkspaceSkillStatus } from "./agents/skills-status.js";
+import type { DevicesHandler } from "./agents/tools/devices-tool.js";
 import { getReplyFromConfig } from "./auto-reply/reply.js";
+import type { MsgContext } from "./auto-reply/templating.js";
 import { applyTemplate } from "./auto-reply/templating.js";
+import type { ReplyPayload } from "./auto-reply/types.js";
 import { monitorWebChannel } from "./channel-web.js";
 import { createDefaultDeps } from "./cli/deps.js";
 import { promptYesNo } from "./cli/prompt.js";
@@ -48,7 +47,14 @@ import { applyMediaUnderstanding } from "./media-understanding/apply.js";
 import { transcribeFirstAudio } from "./media-understanding/audio-preflight.js";
 import { runCommandWithTimeout, runExec } from "./process/exec.js";
 import { monitorTelegramProvider } from "./telegram/monitor.js";
+import {
+  maybeApplyTtsToPayload,
+  textToSpeech,
+  resolveTtsConfig,
+  type TtsResult,
+} from "./tts/tts.js";
 import { assertWebChannel, normalizeE164, toWhatsappJid } from "./utils.js";
+import type { WebChannelStatus } from "./web/auto-reply/types.js";
 import { monitorWebInbox } from "./web/inbound/monitor.js";
 import { startWebLoginWithQr, waitForWebLogin } from "./web/login-qr.js";
 import { sendMessageWhatsApp } from "./web/outbound.js";
@@ -110,6 +116,10 @@ export {
   normalizeModelRef,
   DEFAULT_MODEL,
   DEFAULT_PROVIDER,
+  // TTS (text-to-speech)
+  maybeApplyTtsToPayload,
+  textToSpeech,
+  resolveTtsConfig,
 };
 
 // Re-export types for platform integration
@@ -120,6 +130,7 @@ export type {
   ModelCatalogEntry,
   DevicesHandler,
   ModelRef,
+  TtsResult,
 };
 
 const isMain = isMainModule({
