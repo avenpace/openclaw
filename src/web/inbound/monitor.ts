@@ -34,11 +34,14 @@ export async function monitorWebInbox(options: {
   debounceMs?: number;
   /** Optional debounce gating predicate. */
   shouldDebounce?: (msg: WebInboundMessage) => boolean;
+  /** Optional encryption key for encrypted credential storage (AES-256-GCM). */
+  encryptionKey?: Buffer;
 }) {
   const inboundLogger = getChildLogger({ module: "web-inbound" });
   const inboundConsoleLog = createSubsystemLogger("gateway/channels/whatsapp").child("inbound");
   const sock = await createWaSocket(false, options.verbose, {
     authDir: options.authDir,
+    encryptionKey: options.encryptionKey,
   });
   await waitForWaConnection(sock);
   const connectedAtMs = Date.now();

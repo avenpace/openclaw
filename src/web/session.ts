@@ -20,6 +20,7 @@ import {
   resolveWebCredsBackupPath,
   resolveWebCredsPath,
 } from "./auth-store.js";
+import { useEncryptedMultiFileAuthState } from "./encrypted-auth-state.js";
 
 export {
   getWebAuthAgeMs,
@@ -86,11 +87,12 @@ async function safeSaveCreds(
 /**
  * Create a Baileys socket backed by the multi-file auth store we keep on disk.
  * Consumers can opt into QR printing for interactive login flows.
+ * When encryptionKey is provided, credentials are encrypted at rest using AES-256-GCM.
  */
 export async function createWaSocket(
   printQr: boolean,
   verbose: boolean,
-  opts: { authDir?: string; onQr?: (qr: string) => void } = {},
+  opts: { authDir?: string; onQr?: (qr: string) => void; encryptionKey?: Buffer } = {},
 ): Promise<ReturnType<typeof makeWASocket>> {
   const baseLogger = getChildLogger(
     { module: "baileys" },
@@ -102,8 +104,21 @@ export async function createWaSocket(
   const authDir = resolveUserPath(opts.authDir ?? resolveDefaultWebAuthDir());
   await ensureDir(authDir);
   const sessionLogger = getChildLogger({ module: "web-session" });
-  maybeRestoreCredsFromBackup(authDir);
-  const { state, saveCreds } = await useMultiFileAuthState(authDir);
+
+  // Use encrypted auth state when encryption key is provided
+  let state: Awaited<ReturnType<typeof useMultiFileAuthState>>["state"];
+  let saveCreds: () => Promise<void>;
+
+  if (opts.encryptionKey) {
+    const encResult = await useEncryptedMultiFileAuthState(authDir, opts.encryptionKey);
+    state = encResult.state;
+    saveCreds = encResult.saveCreds;
+  } else {
+    maybeRestoreCredsFromBackup(authDir);
+    const plainResult = await useMultiFileAuthState(authDir);
+    state = plainResult.state;
+    saveCreds = plainResult.saveCreds;
+  }
   const { version } = await fetchLatestBaileysVersion();
   const sock = makeWASocket({
     auth: {

@@ -1,5 +1,5 @@
-import { DisconnectReason } from "@whiskeysockets/baileys";
 import { randomUUID } from "node:crypto";
+import { DisconnectReason } from "@whiskeysockets/baileys";
 import { loadConfig } from "../config/config.js";
 import { danger, info, success } from "../globals.js";
 import { logInfo } from "../logger.js";
@@ -33,6 +33,7 @@ type ActiveLogin = {
   waitPromise: Promise<void>;
   restartAttempted: boolean;
   verbose: boolean;
+  encryptionKey?: Buffer;
 };
 
 const ACTIVE_LOGIN_TTL_MS = 3 * 60_000;
@@ -91,6 +92,7 @@ async function restartLoginSocket(login: ActiveLogin, runtime: RuntimeEnv) {
   try {
     const sock = await createWaSocket(false, login.verbose, {
       authDir: login.authDir,
+      encryptionKey: login.encryptionKey,
     });
     login.sock = sock;
     login.connected = false;
@@ -113,6 +115,7 @@ export async function startWebLoginWithQr(
     accountId?: string;
     authDir?: string; // Direct authDir override (bypasses config resolution)
     runtime?: RuntimeEnv;
+    encryptionKey?: Buffer; // Optional encryption key for encrypted credential storage
   } = {},
 ): Promise<{ qrDataUrl?: string; message: string }> {
   const runtime = opts.runtime ?? defaultRuntime;
@@ -158,6 +161,7 @@ export async function startWebLoginWithQr(
   try {
     sock = await createWaSocket(false, Boolean(opts.verbose), {
       authDir: account.authDir,
+      encryptionKey: opts.encryptionKey,
       onQr: (qr: string) => {
         if (pendingQr) {
           return;
@@ -190,6 +194,7 @@ export async function startWebLoginWithQr(
     waitPromise: Promise.resolve(),
     restartAttempted: false,
     verbose: Boolean(opts.verbose),
+    encryptionKey: opts.encryptionKey,
   };
   activeLogins.set(account.accountId, login);
   if (pendingQr && !login.qr) {
@@ -295,4 +300,131 @@ export async function waitForWebLogin(
 
     return { connected: false, message: "Login ended without a connection." };
   }
+}
+
+/**
+ * Start WhatsApp login using phone number + pairing code (alternative to QR).
+ * User enters the returned 8-digit code in WhatsApp → Linked Devices → Link with phone number.
+ */
+export async function startWebLoginWithCode(opts: {
+  phoneNumber: string; // E.164 format: +6281234567890
+  verbose?: boolean;
+  timeoutMs?: number;
+  force?: boolean;
+  accountId?: string;
+  authDir?: string;
+  runtime?: RuntimeEnv;
+  encryptionKey?: Buffer; // Optional encryption key for encrypted credential storage
+}): Promise<{ pairingCode?: string; message: string }> {
+  const runtime = opts.runtime ?? defaultRuntime;
+  const cfg = loadConfig();
+  const resolvedAccount = resolveWhatsAppAccount({ cfg, accountId: opts.accountId });
+  const account = opts.authDir ? { ...resolvedAccount, authDir: opts.authDir } : resolvedAccount;
+  const hasWeb = await webAuthExists(account.authDir);
+  const selfId = readWebSelfId(account.authDir);
+
+  if (hasWeb && !opts.force) {
+    const who = selfId.e164 ?? selfId.jid ?? "unknown";
+    return {
+      message: `WhatsApp is already linked (${who}). Use force=true for fresh pairing.`,
+    };
+  }
+
+  // Clean up any existing login session
+  await resetActiveLogin(account.accountId);
+
+  // Validate phone number format (must be E.164: +countrycode followed by digits)
+  const phoneNumber = opts.phoneNumber.replace(/\s+/g, "");
+  if (!/^\+\d{10,15}$/.test(phoneNumber)) {
+    return {
+      message: "Invalid phone number format. Use E.164 format: +6281234567890",
+    };
+  }
+
+  let sock: WaSocket;
+  let socketReady: () => void;
+  let socketError: (err: Error) => void;
+  const readyPromise = new Promise<void>((resolve, reject) => {
+    socketReady = resolve;
+    socketError = reject;
+  });
+
+  try {
+    // Create socket and wait for it to be ready (indicated by QR request)
+    sock = await createWaSocket(false, Boolean(opts.verbose), {
+      authDir: account.authDir,
+      encryptionKey: opts.encryptionKey,
+      onQr: () => {
+        // Socket is ready for authentication - resolve the promise
+        socketReady();
+      },
+    });
+
+    // Also listen for connection close before we're ready
+    sock.ev.on("connection.update", (update: { connection?: string; lastDisconnect?: unknown }) => {
+      if (update.connection === "close") {
+        socketError(new Error("Connection closed before ready"));
+      }
+    });
+  } catch (err) {
+    return {
+      message: `Failed to start WhatsApp connection: ${String(err)}`,
+    };
+  }
+
+  // Wait for socket to be ready (with timeout)
+  const timeoutMs = opts.timeoutMs ?? 30_000;
+  try {
+    await Promise.race([
+      readyPromise,
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("Timeout waiting for WhatsApp connection")), timeoutMs),
+      ),
+    ]);
+  } catch (err) {
+    closeSocket(sock);
+    return {
+      message: `Failed to connect to WhatsApp: ${formatError(err)}`,
+    };
+  }
+
+  // Request pairing code from WhatsApp
+  let pairingCode: string;
+  try {
+    // Remove '+' prefix for Baileys - it expects just the digits
+    const phoneDigits = phoneNumber.slice(1);
+    pairingCode = await sock.requestPairingCode(phoneDigits);
+    runtime.log(info(`WhatsApp pairing code generated for ${phoneNumber}`));
+  } catch (err) {
+    closeSocket(sock);
+    return {
+      message: `Failed to get pairing code: ${formatError(err)}`,
+    };
+  }
+
+  // Track the login session
+  const login: ActiveLogin = {
+    accountId: account.accountId,
+    authDir: account.authDir,
+    isLegacyAuthDir: account.isLegacyAuthDir,
+    id: randomUUID(),
+    sock,
+    startedAt: Date.now(),
+    connected: false,
+    waitPromise: Promise.resolve(),
+    restartAttempted: false,
+    verbose: Boolean(opts.verbose),
+    encryptionKey: opts.encryptionKey,
+  };
+  activeLogins.set(account.accountId, login);
+  attachLoginWaiter(account.accountId, login);
+
+  // Format code as XXXX-XXXX for easier reading
+  const formattedCode =
+    pairingCode.length === 8 ? `${pairingCode.slice(0, 4)}-${pairingCode.slice(4)}` : pairingCode;
+
+  return {
+    pairingCode: formattedCode,
+    message: "Enter this code in WhatsApp → Linked Devices → Link with phone number.",
+  };
 }
