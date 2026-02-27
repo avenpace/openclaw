@@ -34,6 +34,11 @@ type ActiveLogin = {
   restartAttempted: boolean;
   verbose: boolean;
   encryptionKey?: Buffer;
+  // Code pairing fields
+  pairingCode?: string;
+  phoneNumber?: string;
+  codeRetryCount: number;
+  runtime?: RuntimeEnv;
 };
 
 const ACTIVE_LOGIN_TTL_MS = 3 * 60_000;
@@ -107,6 +112,135 @@ async function restartLoginSocket(login: ActiveLogin, runtime: RuntimeEnv) {
   }
 }
 
+const MAX_CODE_RETRIES = 5;
+
+/**
+ * Auto-retry pairing code when connection fails (like WhatsApp Web does).
+ * This handles the 428 "Precondition Required" error by requesting a fresh code.
+ */
+async function retryPairingCode(login: ActiveLogin): Promise<string | null> {
+  if (!login.phoneNumber) {
+    return null;
+  }
+  if (login.codeRetryCount >= MAX_CODE_RETRIES) {
+    login.runtime?.log(
+      danger(`[CodePairing] Max retries (${MAX_CODE_RETRIES}) reached, giving up`),
+    );
+    return null;
+  }
+
+  login.codeRetryCount++;
+  login.runtime?.log(
+    info(`[CodePairing] Retrying pairing code (attempt ${login.codeRetryCount})...`),
+  );
+
+  // Close existing socket
+  closeSocket(login.sock);
+
+  // Create a new socket
+  let newSock: WaSocket;
+  let socketReady = false;
+
+  try {
+    const readyPromise = new Promise<boolean>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error("Timeout")), 30_000);
+
+      newSock = undefined as unknown as WaSocket;
+      createWaSocket(false, login.verbose, {
+        authDir: login.authDir,
+        encryptionKey: login.encryptionKey,
+        onQr: () => {
+          clearTimeout(timeout);
+          resolve(true);
+        },
+      })
+        .then((sock) => {
+          newSock = sock;
+          sock.ev.on(
+            "connection.update",
+            (update: { connection?: string; lastDisconnect?: unknown }) => {
+              if (update.connection === "close") {
+                clearTimeout(timeout);
+                reject((update.lastDisconnect as Error) ?? new Error("Connection closed"));
+              }
+            },
+          );
+        })
+        .catch((err) => {
+          clearTimeout(timeout);
+          reject(err);
+        });
+    });
+
+    socketReady = await readyPromise;
+  } catch (err) {
+    login.runtime?.log(danger(`[CodePairing] Failed to create new socket: ${formatError(err)}`));
+    return null;
+  }
+
+  if (!newSock! || !socketReady) {
+    return null;
+  }
+
+  // Request new pairing code
+  try {
+    const phoneDigits = login.phoneNumber.slice(1); // Remove '+' prefix
+    const newCode = await newSock.requestPairingCode(phoneDigits);
+    const formattedCode =
+      newCode.length === 8 ? `${newCode.slice(0, 4)}-${newCode.slice(4)}` : newCode;
+
+    login.runtime?.log(info(`[CodePairing] New pairing code: ${formattedCode}`));
+
+    // Update login with new socket and code
+    login.sock = newSock;
+    login.pairingCode = formattedCode;
+    login.error = undefined;
+    login.errorStatus = undefined;
+
+    // Re-attach connection waiter
+    attachLoginWaiter(login.accountId, login);
+
+    // Set up auto-retry for the new socket
+    setupCodePairingRetryHandler(login);
+
+    return formattedCode;
+  } catch (err) {
+    closeSocket(newSock);
+    login.runtime?.log(danger(`[CodePairing] Failed to get new pairing code: ${formatError(err)}`));
+    return null;
+  }
+}
+
+/**
+ * Set up the connection event handler that auto-retries on 428/close.
+ */
+function setupCodePairingRetryHandler(login: ActiveLogin) {
+  login.sock.ev.on(
+    "connection.update",
+    async (update: { connection?: string; lastDisconnect?: unknown }) => {
+      login.runtime?.log(info(`[CodePairing] connection.update: ${JSON.stringify(update)}`));
+
+      if (update.connection === "close" && !login.connected) {
+        const statusCode = getStatusCode(update.lastDisconnect);
+        // 428 = Precondition Required (code expired/invalid)
+        // Also retry on generic connection closed before success
+        if (statusCode === 428 || !login.error) {
+          login.runtime?.log(
+            info(
+              `[CodePairing] Connection closed (${statusCode}), auto-retrying with fresh code...`,
+            ),
+          );
+          const newCode = await retryPairingCode(login);
+          if (!newCode) {
+            login.error = "Failed to get new pairing code after retry";
+            login.errorStatus = statusCode;
+          }
+        }
+      }
+    },
+  );
+}
+
 export async function startWebLoginWithQr(
   opts: {
     verbose?: boolean;
@@ -133,7 +267,7 @@ export async function startWebLoginWithQr(
   }
 
   const existing = activeLogins.get(account.accountId);
-  if (existing && isLoginFresh(existing) && existing.qrDataUrl) {
+  if (!opts.force && existing && isLoginFresh(existing) && existing.qrDataUrl) {
     return {
       qrDataUrl: existing.qrDataUrl,
       message: "QR already active. Scan it in WhatsApp → Linked Devices.",
@@ -195,6 +329,7 @@ export async function startWebLoginWithQr(
     restartAttempted: false,
     verbose: Boolean(opts.verbose),
     encryptionKey: opts.encryptionKey,
+    codeRetryCount: 0,
   };
   activeLogins.set(account.accountId, login);
   if (pendingQr && !login.qr) {
@@ -342,28 +477,42 @@ export async function startWebLoginWithCode(opts: {
   }
 
   let sock: WaSocket;
-  let socketReady: () => void;
-  let socketError: (err: Error) => void;
-  const readyPromise = new Promise<void>((resolve, reject) => {
-    socketReady = resolve;
-    socketError = reject;
-  });
+  let socketReadyPromise: Promise<boolean>;
 
   try {
-    // Create socket and wait for it to be ready (indicated by QR request)
+    // Create socket with QR callback that signals socket readiness
+    // We set up the ready promise BEFORE creating socket so we don't miss the event
+    let resolveReady: (value: boolean) => void;
+    let rejectReady: (err: Error) => void;
+    socketReadyPromise = new Promise<boolean>((resolve, reject) => {
+      resolveReady = resolve;
+      rejectReady = reject;
+    });
+
+    const readyTimeout = setTimeout(
+      () => {
+        rejectReady(new Error("Timeout waiting for WhatsApp connection"));
+      },
+      Math.max(opts.timeoutMs ?? 30_000, 10_000),
+    );
+
     sock = await createWaSocket(false, Boolean(opts.verbose), {
       authDir: account.authDir,
       encryptionKey: opts.encryptionKey,
       onQr: () => {
-        // Socket is ready for authentication - resolve the promise
-        socketReady();
+        // QR received means socket is ready for pairing code
+        clearTimeout(readyTimeout);
+        resolveReady(true);
       },
     });
 
-    // Also listen for connection close before we're ready
+    // Also listen for connection state in case QR doesn't fire
     sock.ev.on("connection.update", (update: { connection?: string; lastDisconnect?: unknown }) => {
       if (update.connection === "close") {
-        socketError(new Error("Connection closed before ready"));
+        clearTimeout(readyTimeout);
+        rejectReady(
+          (update.lastDisconnect as Error) ?? new Error("Connection closed before ready"),
+        );
       }
     });
   } catch (err) {
@@ -372,23 +521,18 @@ export async function startWebLoginWithCode(opts: {
     };
   }
 
-  // Wait for socket to be ready (with timeout)
-  const timeoutMs = opts.timeoutMs ?? 30_000;
+  // Wait for socket to be ready (QR event or timeout)
   try {
-    await Promise.race([
-      readyPromise,
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("Timeout waiting for WhatsApp connection")), timeoutMs),
-      ),
-    ]);
+    await socketReadyPromise;
+    runtime.log(info("WhatsApp socket ready, requesting pairing code..."));
   } catch (err) {
     closeSocket(sock);
     return {
-      message: `Failed to connect to WhatsApp: ${formatError(err)}`,
+      message: `WhatsApp connection failed: ${formatError(err)}`,
     };
   }
 
-  // Request pairing code from WhatsApp
+  // Now request pairing code - socket is ready
   let pairingCode: string;
   try {
     // Remove '+' prefix for Baileys - it expects just the digits
@@ -402,7 +546,11 @@ export async function startWebLoginWithCode(opts: {
     };
   }
 
-  // Track the login session
+  // Format code as XXXX-XXXX for easier reading
+  const formattedCode =
+    pairingCode.length === 8 ? `${pairingCode.slice(0, 4)}-${pairingCode.slice(4)}` : pairingCode;
+
+  // Track the login session with code pairing fields
   const login: ActiveLogin = {
     accountId: account.accountId,
     authDir: account.authDir,
@@ -415,16 +563,52 @@ export async function startWebLoginWithCode(opts: {
     restartAttempted: false,
     verbose: Boolean(opts.verbose),
     encryptionKey: opts.encryptionKey,
+    // Code pairing specific
+    pairingCode: formattedCode,
+    phoneNumber,
+    codeRetryCount: 0,
+    runtime,
   };
   activeLogins.set(account.accountId, login);
   attachLoginWaiter(account.accountId, login);
 
-  // Format code as XXXX-XXXX for easier reading
-  const formattedCode =
-    pairingCode.length === 8 ? `${pairingCode.slice(0, 4)}-${pairingCode.slice(4)}` : pairingCode;
+  // Set up auto-retry handler for 428 errors (like WhatsApp Web does)
+  setupCodePairingRetryHandler(login);
 
   return {
     pairingCode: formattedCode,
     message: "Enter this code in WhatsApp → Linked Devices → Link with phone number.",
+  };
+}
+
+/**
+ * Get the current status of code-based pairing.
+ * Use this to poll for updated pairing codes (auto-retry generates new codes).
+ */
+export function getCodePairingStatus(opts: { accountId?: string }): {
+  active: boolean;
+  pairingCode?: string;
+  connected: boolean;
+  error?: string;
+  retryCount: number;
+} {
+  const cfg = loadConfig();
+  const account = resolveWhatsAppAccount({ cfg, accountId: opts.accountId });
+  const login = activeLogins.get(account.accountId);
+
+  if (!login || !login.pairingCode) {
+    return {
+      active: false,
+      connected: false,
+      retryCount: 0,
+    };
+  }
+
+  return {
+    active: isLoginFresh(login),
+    pairingCode: login.pairingCode,
+    connected: login.connected,
+    error: login.error,
+    retryCount: login.codeRetryCount,
   };
 }
