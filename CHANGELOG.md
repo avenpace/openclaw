@@ -30,6 +30,8 @@ Docs: https://docs.openclaw.ai
 - Feishu/Mobile video media type: treat inbound `message_type: "media"` as video-equivalent for media key extraction, placeholder inference, and media download resolution so mobile-app video sends ingest correctly. (#25502) Thanks @4ier.
 - Feishu/Inbound sender fallback: fall back to `sender_id.user_id` when `sender_id.open_id` is missing on inbound events, and use ID-type-aware sender lookup so mobile-delivered messages keep stable sender identity/routing. (#26703) Thanks @NewdlDewdl.
 - Feishu/Inbound rich-text parsing: preserve `share_chat` payload summaries when available and add explicit parsing for rich-text `code`/`code_block`/`pre` tags so forwarded and code-heavy messages keep useful context in agent input. (#28591) Thanks @kevinWangSheng.
+- Feishu/Post markdown parsing: parse rich-text `post` payloads through a shared markdown-aware parser with locale-wrapper support, preserved mention/image metadata extraction, and inline/fenced code fidelity for agent input rendering. (#12755)
+- Feishu/Post embedded media: extract `media` tags from inbound rich-text (`post`) messages and download embedded video/audio files alongside existing embedded-image handling, with regression coverage. (#21786) Thanks @laopuhuluwa.
 - Feishu/Local media sends: propagate `mediaLocalRoots` through Feishu outbound media sending into `loadWebMedia` so local path attachments work with post-CVE local-root enforcement. (#27884) Thanks @joelnishanth.
 - Feishu/Group sender allowlist fallback: add global `channels.feishu.groupSenderAllowFrom` sender authorization for group chats, with per-group `groups.<id>.allowFrom` precedence and regression coverage for allow/block/precedence behavior. (#29174) Thanks @1MoreBuild.
 - Feishu/Group wildcard policy fallback: honor `channels.feishu.groups["*"]` when no explicit group match exists so unmatched groups inherit wildcard reply-policy settings instead of falling back to global defaults. (#29456) Thanks @WaynePika.
@@ -37,6 +39,7 @@ Docs: https://docs.openclaw.ai
 - Feishu/Docx convert fallback chunking: recursively split oversized markdown chunks (including long no-heading sections) when `document.convert` hits content limits, while keeping fenced-code-aware split boundaries whenever possible. (#14402) Thanks @lml2468.
 - Feishu/Inbound media regression coverage: add explicit tests for message resource type mapping (`image` stays `image`, non-image maps to `file`) to prevent reintroducing unsupported Feishu `type=audio` fetches. (#16311, #8746) Thanks @Yaxuan42.
 - Feishu/API quota controls: add `typingIndicator` and `resolveSenderNames` config flags (top-level and per-account) so operators can disable typing reactions and sender-name lookup requests while keeping default behavior unchanged. (#10513) Thanks @BigUncle.
+- TTS/Voice bubbles: use opus output and enable `audioAsVoice` routing for Feishu and WhatsApp (in addition to Telegram) so supported channels receive voice-bubble playback instead of file-style audio attachments. (#27366) Thanks @smthfoxy.
 - Security/Feishu webhook ingress: bound unauthenticated webhook rate-limit state with stale-window pruning and a hard key cap to prevent unbounded pre-auth memory growth from rotating source keys. (#26050) Thanks @bmendonca3.
 - Security/Compaction audit: remove the post-compaction audit injection message. (#28507) Thanks @fuller-stack-dev and @vincentkoc.
 - Telegram/Reply media context: include replied media files in inbound context when replying to media, defer reply-media downloads to debounce flush, gate reply-media fetch behind DM authorization, and preserve replied media when non-vision sticker fallback runs (including cached-sticker paths). (#28488) Thanks @obviyus.
@@ -44,23 +47,33 @@ Docs: https://docs.openclaw.ai
 - Gateway/WS: close repeated post-handshake `unauthorized role:*` request floods per connection and sample duplicate rejection logs, preventing a single misbehaving client from degrading gateway responsiveness. (#20168) Thanks @acy103, @vibecodooor, and @vincentkoc.
 - Gateway/macOS supervised restart: actively `launchctl kickstart -k` during intentional supervised restarts to bypass LaunchAgent `ThrottleInterval` delays, and fall back to in-process restart when kickstart fails. Landed from contributor PR #29078 by @cathrynlavery. Thanks @cathrynlavery.
 - Gateway/Auth: improve device-auth v2 migration diagnostics so operators get clearer guidance when legacy clients connect. (#28305) Thanks @vincentkoc.
+- Gateway/Control UI CSP: allow required Google Fonts origins in Control UI CSP. (#29279) Thanks @Glucksberg and @vincentkoc.
 - CLI/Install: add an npm-link fallback to fix CLI startup `Permission denied` failures (`exit 127`) on affected installs. (#17151) Thanks @sskyu and @vincentkoc.
+- CLI/Ollama config: allow `config set` for Ollama `apiKey` without predeclared provider config. (#29299) Thanks @vincentkoc.
 - Onboarding/Custom providers: improve verification reliability for slower local endpoints (for example Ollama) during setup. (#27380) Thanks @Sid-Qin.
 - Ollama/Autodiscovery: harden autodiscovery and warning behavior. (#29201) Thanks @marcodelpin and @vincentkoc.
 - Ollama/Context window: unify context window handling across discovery, merge, and OpenAI-compatible transport paths. (#29205) Thanks @Sid-Qin, @jimmielightner, and @vincentkoc.
 - Agents/Ollama: demote empty-discovery logging from `warn` to `debug` to reduce noisy warnings in normal edge-case discovery flows. (#26379) Thanks @byungsker.
 - Install/npm: fix npm global install deprecation warnings. (#28318) Thanks @vincentkoc.
+- fix(model): preserve reasoning in provider fallback resolution. (#29285) Fixes #25636. Thanks @vincentkoc.
 - Browser/Open & navigate: accept `url` as an alias parameter for `open` and `navigate`. (#29260) Thanks @vincentkoc.
 - Codex/Usage window: label weekly usage window as `Week` instead of `Day`. (#26267) Thanks @Sid-Qin.
 - Slack/Native commands: register Slack native status as `/agentstatus` (Slack-reserved `/status`) so manifest slash command registration stays valid while text `/status` still works. Landed from contributor PR #29032 by @maloqab. Thanks @maloqab.
 - Android/Nodes reliability: reject `facing=both` when `deviceId` is set to avoid mislabeled duplicate captures, allow notification `open`/`reply` on non-clearable entries while still gating dismiss, trigger listener rebind before notification actions, and scale invoke-result ack timeout to invoke budget for large clip payloads. (#28260) Thanks @obviyus.
 - Android/Camera clip: remove `camera.clip` HTTP-upload fallback to base64 so clip transport is deterministic and fail-loud, and reject non-positive `maxWidth` values so invalid inputs fall back to the safe resize default. (#28229) Thanks @obviyus.
+- Android/Nodes notification wake flow: enable Android `system.notify` default allowlist, emit `notifications.changed` events for posted/removed notifications (excluding OpenClaw app-owned notifications), canonicalize notification session keys before enqueue/wake routing, and skip heartbeat wakes when consecutive notification summaries dedupe. (#29440) Thanks @obviyus.
 - Android/Gateway canvas capability refresh: send `node.canvas.capability.refresh` with object `params` (`{}`) from Android node runtime so gateway object-schema validation accepts refresh retries and A2UI host recovery works after scoped capability expiry. (#28413) Thanks @obviyus.
 - Daemon/macOS TLS certs: default LaunchAgent service env `NODE_EXTRA_CA_CERTS` to `/etc/ssl/cert.pem` (while preserving explicit overrides) so HTTPS clients no longer fail with local-issuer errors under launchd. (#27915) Thanks @Lukavyi.
 - Update/Global npm: fallback to `--omit=optional` when global `npm update` fails so optional dependency install failures no longer abort update flows. (#24896) Thanks @xinhuagu and @vincentkoc.
 - Plugins/NPM spec install: fix npm-spec plugin installs when `npm pack` output is empty by detecting newly created `.tgz` archives in the pack directory. (#21039) Thanks @graysurf and @vincentkoc.
 - Plugins/Install: clear stale install errors when an npm package is not found so follow-up install attempts report current state correctly. (#25073) Thanks @dalefrieswthat.
 - OpenAI Responses/Compaction: rewrite and unify the OpenAI Responses store patches to treat empty `baseUrl` as non-direct, honor `compat.supportsStore=false`, and auto-inject server-side compaction `context_management` for compatible direct OpenAI models (with per-model opt-out/threshold overrides). Landed from contributor PRs #16930 (@OiPunk), #22441 (@EdwardWu7), and #25088 (@MoerAI). Thanks @OiPunk, @EdwardWu7, and @MoerAI.
+
+## Unreleased
+
+### Fixes
+
+- Config/Doctor group allowlist diagnostics: align `groupPolicy: "allowlist"` warnings with per-channel runtime semantics by excluding Google Chat sender-list checks and by warning when no-fallback channels (for example iMessage) omit `groupAllowFrom`, with regression coverage. (#28477) Thanks @tonydehnke.
 
 ## 2026.2.26
 
