@@ -56,7 +56,12 @@ import {
 import { assertWebChannel, normalizeE164, toWhatsappJid } from "./utils.js";
 import type { WebChannelStatus } from "./web/auto-reply/types.js";
 import { monitorWebInbox } from "./web/inbound/monitor.js";
-import { startWebLoginWithQr, startWebLoginWithCode, waitForWebLogin } from "./web/login-qr.js";
+import {
+  startWebLoginWithQr,
+  startWebLoginWithCode,
+  waitForWebLogin,
+  getCodePairingStatus,
+} from "./web/login-qr.js";
 import { sendMessageWhatsApp } from "./web/outbound.js";
 
 loadDotEnv({ quiet: true });
@@ -112,6 +117,7 @@ export {
   updateLastRoute,
   waitForever,
   waitForWebLogin,
+  getCodePairingStatus,
   // Model selection utilities
   normalizeGoogleModelId,
   normalizeProviderId,
