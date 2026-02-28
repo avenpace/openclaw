@@ -1,6 +1,5 @@
-import type { AgentTool, AgentToolResult } from "@mariozechner/pi-agent-core";
 import crypto from "node:crypto";
-import type { BashSandboxConfig } from "./bash-tools.shared.js";
+import type { AgentTool, AgentToolResult } from "@mariozechner/pi-agent-core";
 import {
   type ExecAsk,
   type ExecHost,
@@ -51,6 +50,7 @@ import {
   type ExecProcessHandle,
   validateHostEnv,
 } from "./bash-tools.exec-runtime.js";
+import type { BashSandboxConfig } from "./bash-tools.shared.js";
 import {
   buildSandboxEnv,
   clampWithDefault,
@@ -218,7 +218,21 @@ export function createExecTool(
       // SECURITY: Platform acts as a proxy - route commands to user's paired device
       // Only whitelisted safe commands (for skills) can run locally on the platform
       const messageProvider = defaults?.messageProvider?.trim()?.toLowerCase();
-      const isExternalChannel = messageProvider === "whatsapp" || messageProvider === "telegram";
+      // All messaging channels are external - they can use EXTERNAL_CHANNEL_SAFE_BINS for local exec
+      const EXTERNAL_CHANNEL_PROVIDERS = new Set([
+        "whatsapp",
+        "telegram",
+        "discord",
+        "slack",
+        "signal",
+        "imessage",
+        "matrix",
+        "msteams",
+        "googlechat",
+        "webchat",
+        "zalo",
+      ]);
+      const isExternalChannel = EXTERNAL_CHANNEL_PROVIDERS.has(messageProvider ?? "");
       const command = (args as { command?: string }).command ?? "";
       const requestedCwd = (args as { workdir?: string }).workdir || defaults?.cwd;
 
