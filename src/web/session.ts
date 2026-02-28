@@ -199,10 +199,22 @@ export async function waitForWaConnection(sock: ReturnType<typeof makeWASocket>)
 }
 
 export function getStatusCode(err: unknown) {
-  return (
+  // Handle Boom error directly
+  const directStatus =
     (err as { output?: { statusCode?: number } })?.output?.statusCode ??
-    (err as { status?: number })?.status
-  );
+    (err as { status?: number })?.status;
+  if (directStatus !== undefined) {
+    return directStatus;
+  }
+  // Handle lastDisconnect structure { error: Boom, date: Date }
+  const nestedErr = (err as { error?: unknown })?.error;
+  if (nestedErr) {
+    return (
+      (nestedErr as { output?: { statusCode?: number } })?.output?.statusCode ??
+      (nestedErr as { status?: number })?.status
+    );
+  }
+  return undefined;
 }
 
 function safeStringify(value: unknown, limit = 800): string {

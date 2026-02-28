@@ -23,6 +23,11 @@ const IV_LENGTH = 12;
 const AUTH_TAG_LENGTH = 16;
 const ENCRYPTED_EXTENSION = ".enc";
 
+// Debug logging - only enabled in development
+const DEBUG = process.env.NODE_ENV !== "production";
+const log = (...args: unknown[]) => DEBUG && console.log(...args);
+const logError = (...args: unknown[]) => DEBUG && console.error(...args);
+
 /**
  * Encrypt data using AES-256-GCM
  */
@@ -55,14 +60,24 @@ function decrypt(encryptedData: Buffer, key: Buffer): Buffer {
  */
 async function readEncryptedJson<T>(filePath: string, key: Buffer): Promise<T | null> {
   const encPath = filePath + ENCRYPTED_EXTENSION;
+  const fileName = filePath.split("/").pop();
 
   // Try encrypted file first
   if (fsSync.existsSync(encPath)) {
     try {
       const encryptedData = await fs.readFile(encPath);
+      log(
+        `[EncryptedAuthState] Reading encrypted file: ${fileName}.enc (${encryptedData.length} bytes)`,
+      );
       const decrypted = decrypt(encryptedData, key);
-      return JSON.parse(decrypted.toString("utf-8"), BufferJSON.reviver);
-    } catch {
+      log(`[EncryptedAuthState] Decrypted ${fileName}: ${decrypted.length} bytes`);
+      const parsed = JSON.parse(decrypted.toString("utf-8"), BufferJSON.reviver);
+      log(
+        `[EncryptedAuthState] Parsed ${fileName}: ${typeof parsed === "object" ? Object.keys(parsed).slice(0, 5).join(", ") + "..." : typeof parsed}`,
+      );
+      return parsed;
+    } catch (err) {
+      logError(`[EncryptedAuthState] Failed to read/decrypt ${fileName}.enc:`, err);
       return null;
     }
   }
@@ -70,13 +85,16 @@ async function readEncryptedJson<T>(filePath: string, key: Buffer): Promise<T | 
   // Fall back to unencrypted (for migration)
   if (fsSync.existsSync(filePath)) {
     try {
+      log(`[EncryptedAuthState] Reading plain file (migration): ${fileName}`);
       const data = await fs.readFile(filePath, "utf-8");
       return JSON.parse(data, BufferJSON.reviver);
-    } catch {
+    } catch (err) {
+      logError(`[EncryptedAuthState] Failed to read plain ${fileName}:`, err);
       return null;
     }
   }
 
+  log(`[EncryptedAuthState] File not found: ${fileName} (neither .enc nor plain)`);
   return null;
 }
 
@@ -124,22 +142,36 @@ async function removeEncryptedFile(filePath: string): Promise<void> {
   }
 }
 
-// BufferJSON helper for Baileys serialization
+// BufferJSON helper for Baileys serialization - must match Baileys' implementation exactly
 const BufferJSON = {
   replacer: (_key: string, value: unknown) => {
-    if (value && typeof value === "object" && (value as { type?: string }).type === "Buffer") {
-      const bufData = value as { type: string; data: number[] };
-      return { type: "Buffer", data: Buffer.from(bufData.data).toString("base64") };
-    }
-    if (Buffer.isBuffer(value)) {
-      return { type: "Buffer", data: value.toString("base64") };
+    // Handle Buffer, Uint8Array, or already-serialized Buffer objects
+    if (
+      Buffer.isBuffer(value) ||
+      value instanceof Uint8Array ||
+      (value && typeof value === "object" && (value as { type?: string }).type === "Buffer")
+    ) {
+      const bufValue = value as Buffer | Uint8Array | { type: string; data: number[] | Buffer };
+      const data = (bufValue as { data?: unknown }).data ?? bufValue;
+      return { type: "Buffer", data: Buffer.from(data as Buffer | number[]).toString("base64") };
     }
     return value;
   },
   reviver: (_key: string, value: unknown) => {
-    if (value && typeof value === "object" && (value as { type?: string }).type === "Buffer") {
-      const bufData = value as { type: string; data: string };
-      return Buffer.from(bufData.data, "base64");
+    // Handle both { type: "Buffer" } and { buffer: true } formats (Baileys uses both)
+    if (
+      value &&
+      typeof value === "object" &&
+      ((value as { type?: string }).type === "Buffer" ||
+        (value as { buffer?: boolean }).buffer === true)
+    ) {
+      const bufData = value as { data: string | number[] };
+      const data = bufData.data;
+      // Handle both base64 string and array formats
+      if (typeof data === "string") {
+        return Buffer.from(data, "base64");
+      }
+      return Buffer.from(data || []);
     }
     return value;
   },
@@ -153,6 +185,8 @@ export async function useEncryptedMultiFileAuthState(
   authDir: string,
   encryptionKey: Buffer,
 ): Promise<{ state: AuthenticationState; saveCreds: () => Promise<void> }> {
+  log(`[EncryptedAuthState] Using encrypted auth state for: ${authDir}`);
+
   // Ensure directory exists
   await fs.mkdir(authDir, { recursive: true });
 
@@ -161,10 +195,19 @@ export async function useEncryptedMultiFileAuthState(
   // Read or initialize credentials
   let creds = await readEncryptedJson<AuthenticationCreds>(credsPath, encryptionKey);
   if (!creds) {
+    log(`[EncryptedAuthState] No existing creds, initializing fresh credentials`);
     creds = initAuthCreds();
+  } else {
+    log(`[EncryptedAuthState] Loaded existing creds, me.id: ${creds.me?.id ?? "not set"}`);
   }
 
+  // Verify creds has required fields for Baileys
+  log(
+    `[EncryptedAuthState] Creds validation: noiseKey=${!!creds.noiseKey}, signedIdentityKey=${!!creds.signedIdentityKey}, registrationId=${creds.registrationId}`,
+  );
+
   const saveCreds = async () => {
+    log(`[EncryptedAuthState] Writing encrypted file: ${credsPath}.enc`);
     await writeEncryptedJson(credsPath, creds, encryptionKey);
   };
 
