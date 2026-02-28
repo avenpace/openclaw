@@ -23,6 +23,7 @@ export type CronDelivery = {
   channel?: CronMessageChannel;
   accountId?: string;
   to?: string;
+  accountId?: string;
   bestEffort?: boolean;
 };
 

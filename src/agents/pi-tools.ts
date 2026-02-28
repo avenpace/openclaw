@@ -1,12 +1,7 @@
-import {
-  codingTools,
-  createEditTool,
-  createReadTool,
-  createWriteTool,
-  readTool,
-} from "@mariozechner/pi-coding-agent";
+import { codingTools, createReadTool, readTool } from "@mariozechner/pi-coding-agent";
 import type { OpenClawConfig } from "../config/config.js";
 import type { ToolLoopDetectionConfig } from "../config/types.tools.js";
+import { resolveMergedSafeBinProfileFixtures } from "../infra/exec-safe-bin-runtime-policy.js";
 import { logWarn } from "../logger.js";
 import { getPluginToolMeta } from "../plugins/tools.js";
 import { isSubagentSessionKey } from "../routing/session-key.js";
@@ -20,6 +15,7 @@ import {
   type ProcessToolDefaults,
 } from "./bash-tools.js";
 import { listChannelAgentTools } from "./channel-tools.js";
+import { resolveImageSanitizationLimits } from "./image-sanitization.js";
 import type { ModelAuthMode } from "./model-auth.js";
 import { createOpenClawTools } from "./openclaw-tools.js";
 import { wrapToolWithAbortSignal } from "./pi-tools.abort.js";
@@ -32,7 +28,8 @@ import {
 } from "./pi-tools.policy.js";
 import {
   assertRequiredParams,
-  CLAUDE_PARAM_GROUPS,
+  createHostWorkspaceEditTool,
+  createHostWorkspaceWriteTool,
   createOpenClawReadTool,
   createSandboxedEditTool,
   createSandboxedReadTool,
@@ -40,6 +37,7 @@ import {
   normalizeToolParams,
   patchToolSchemaForClaudeCompatibility,
   wrapToolWorkspaceRootGuard,
+  wrapToolWorkspaceRootGuardWithOptions,
   wrapToolParamNormalization,
 } from "./pi-tools.read.js";
 import { cleanToolSchemaForGemini, normalizeToolParameters } from "./pi-tools.schema.js";
@@ -57,13 +55,36 @@ import {
   mergeAlsoAllowPolicy,
   resolveToolProfilePolicy,
 } from "./tool-policy.js";
-import { createCloudStorageTools, type CloudStorageHandler } from "./tools/cloud-storage-tool.js";
-import { createDevicesTools, type DevicesHandler } from "./tools/devices-tool.js";
 import { resolveWorkspaceRoot } from "./workspace-dir.js";
 
 function isOpenAIProvider(provider?: string) {
   const normalized = provider?.trim().toLowerCase();
   return normalized === "openai" || normalized === "openai-codex";
+}
+
+const TOOL_DENY_BY_MESSAGE_PROVIDER: Readonly<Record<string, readonly string[]>> = {
+  voice: ["tts"],
+};
+
+function normalizeMessageProvider(messageProvider?: string): string | undefined {
+  const normalized = messageProvider?.trim().toLowerCase();
+  return normalized && normalized.length > 0 ? normalized : undefined;
+}
+
+function applyMessageProviderToolPolicy(
+  tools: AnyAgentTool[],
+  messageProvider?: string,
+): AnyAgentTool[] {
+  const normalizedProvider = normalizeMessageProvider(messageProvider);
+  if (!normalizedProvider) {
+    return tools;
+  }
+  const deniedTools = TOOL_DENY_BY_MESSAGE_PROVIDER[normalizedProvider];
+  if (!deniedTools || deniedTools.length === 0) {
+    return tools;
+  }
+  const deniedSet = new Set(deniedTools);
+  return tools.filter((tool) => !deniedSet.has(tool.name));
 }
 
 function isApplyPatchAllowedForModel(params: {
@@ -106,6 +127,11 @@ function resolveExecConfig(params: { cfg?: OpenClawConfig; agentId?: string }) {
     node: agentExec?.node ?? globalExec?.node,
     pathPrepend: agentExec?.pathPrepend ?? globalExec?.pathPrepend,
     safeBins: agentExec?.safeBins ?? globalExec?.safeBins,
+    safeBinTrustedDirs: agentExec?.safeBinTrustedDirs ?? globalExec?.safeBinTrustedDirs,
+    safeBinProfiles: resolveMergedSafeBinProfileFixtures({
+      global: globalExec,
+      local: agentExec,
+    }),
     backgroundMs: agentExec?.backgroundMs ?? globalExec?.backgroundMs,
     timeoutSec: agentExec?.timeoutSec ?? globalExec?.timeoutSec,
     approvalRunningNoticeMs:
@@ -154,9 +180,9 @@ export const __testing = {
 } as const;
 
 export function createOpenClawCodingTools(options?: {
+  agentId?: string;
   exec?: ExecToolDefaults & ProcessToolDefaults;
   messageProvider?: string;
-  installedSkillCount?: number; // For skill-based exec gating on external channels
   agentAccountId?: string;
   messageTo?: string;
   messageThreadId?: string | number;
@@ -173,6 +199,8 @@ export function createOpenClawCodingTools(options?: {
   modelProvider?: string;
   /** Model id for the current provider (used for model-specific tool gating). */
   modelId?: string;
+  /** Model context window in tokens (used to scale read-tool output budget). */
+  modelContextWindowTokens?: number;
   /**
    * Auth mode for the current provider. We only need this for Anthropic OAuth
    * tool-name blocking quirks.
@@ -208,14 +236,6 @@ export function createOpenClawCodingTools(options?: {
   disableMessageTool?: boolean;
   /** Whether the sender is an owner (required for owner-only tools). */
   senderIsOwner?: boolean;
-  /** Handler for devices tools (list, run command, check status). */
-  devicesHandler?: DevicesHandler;
-  /** Handler for cloud storage tools (list, read, write, delete files). */
-  cloudStorageHandler?: CloudStorageHandler;
-  /** Model context window size in tokens. */
-  modelContextWindowTokens?: number;
-  /** Agent ID for tool policy resolution. */
-  agentId?: string;
 }): AnyAgentTool[] {
   const execToolName = "exec";
   const sandbox = options?.sandbox?.enabled ? options.sandbox : undefined;
@@ -232,6 +252,7 @@ export function createOpenClawCodingTools(options?: {
   } = resolveEffectiveToolPolicy({
     config: options?.config,
     sessionKey: options?.sessionKey,
+    agentId: options?.agentId,
     modelProvider: options?.modelProvider,
     modelId: options?.modelId,
   });
@@ -305,6 +326,7 @@ export function createOpenClawCodingTools(options?: {
   if (sandboxRoot && !sandboxFsBridge) {
     throw new Error("Sandbox filesystem bridge is unavailable.");
   }
+  const imageSanitization = resolveImageSanitizationLimits(options?.config);
 
   const base = (codingTools as unknown as AnyAgentTool[]).flatMap((tool) => {
     if (tool.name === readTool.name) {
@@ -312,11 +334,22 @@ export function createOpenClawCodingTools(options?: {
         const sandboxed = createSandboxedReadTool({
           root: sandboxRoot,
           bridge: sandboxFsBridge!,
+          modelContextWindowTokens: options?.modelContextWindowTokens,
+          imageSanitization,
         });
-        return [workspaceOnly ? wrapToolWorkspaceRootGuard(sandboxed, sandboxRoot) : sandboxed];
+        return [
+          workspaceOnly
+            ? wrapToolWorkspaceRootGuardWithOptions(sandboxed, sandboxRoot, {
+                containerWorkdir: sandbox.containerWorkdir,
+              })
+            : sandboxed,
+        ];
       }
       const freshReadTool = createReadTool(workspaceRoot);
-      const wrapped = createOpenClawReadTool(freshReadTool);
+      const wrapped = createOpenClawReadTool(freshReadTool, {
+        modelContextWindowTokens: options?.modelContextWindowTokens,
+        imageSanitization,
+      });
       return [workspaceOnly ? wrapToolWorkspaceRootGuard(wrapped, workspaceRoot) : wrapped];
     }
     if (tool.name === "bash" || tool.name === execToolName) {
@@ -326,22 +359,14 @@ export function createOpenClawCodingTools(options?: {
       if (sandboxRoot) {
         return [];
       }
-      // Wrap with param normalization for Claude Code compatibility
-      const wrapped = wrapToolParamNormalization(
-        createWriteTool(workspaceRoot),
-        CLAUDE_PARAM_GROUPS.write,
-      );
+      const wrapped = createHostWorkspaceWriteTool(workspaceRoot, { workspaceOnly });
       return [workspaceOnly ? wrapToolWorkspaceRootGuard(wrapped, workspaceRoot) : wrapped];
     }
     if (tool.name === "edit") {
       if (sandboxRoot) {
         return [];
       }
-      // Wrap with param normalization for Claude Code compatibility
-      const wrapped = wrapToolParamNormalization(
-        createEditTool(workspaceRoot),
-        CLAUDE_PARAM_GROUPS.edit,
-      );
+      const wrapped = createHostWorkspaceEditTool(workspaceRoot, { workspaceOnly });
       return [workspaceOnly ? wrapToolWorkspaceRootGuard(wrapped, workspaceRoot) : wrapped];
     }
     return [tool];
@@ -355,13 +380,17 @@ export function createOpenClawCodingTools(options?: {
     node: options?.exec?.node ?? execConfig.node,
     pathPrepend: options?.exec?.pathPrepend ?? execConfig.pathPrepend,
     safeBins: options?.exec?.safeBins ?? execConfig.safeBins,
+    safeBinTrustedDirs: options?.exec?.safeBinTrustedDirs ?? execConfig.safeBinTrustedDirs,
+    safeBinProfiles: options?.exec?.safeBinProfiles ?? execConfig.safeBinProfiles,
     agentId,
     cwd: workspaceRoot,
     allowBackground,
     scopeKey,
     sessionKey: options?.sessionKey,
     messageProvider: options?.messageProvider,
-    installedSkillCount: options?.installedSkillCount,
+    currentChannelId: options?.currentChannelId,
+    currentThreadTs: options?.currentThreadTs,
+    accountId: options?.agentAccountId,
     backgroundMs: options?.exec?.backgroundMs ?? execConfig.backgroundMs,
     timeoutSec: options?.exec?.timeoutSec ?? execConfig.timeoutSec,
     approvalRunningNoticeMs:
@@ -399,15 +428,21 @@ export function createOpenClawCodingTools(options?: {
       ? allowWorkspaceWrites
         ? [
             workspaceOnly
-              ? wrapToolWorkspaceRootGuard(
+              ? wrapToolWorkspaceRootGuardWithOptions(
                   createSandboxedEditTool({ root: sandboxRoot, bridge: sandboxFsBridge! }),
                   sandboxRoot,
+                  {
+                    containerWorkdir: sandbox.containerWorkdir,
+                  },
                 )
               : createSandboxedEditTool({ root: sandboxRoot, bridge: sandboxFsBridge! }),
             workspaceOnly
-              ? wrapToolWorkspaceRootGuard(
+              ? wrapToolWorkspaceRootGuardWithOptions(
                   createSandboxedWriteTool({ root: sandboxRoot, bridge: sandboxFsBridge! }),
                   sandboxRoot,
+                  {
+                    containerWorkdir: sandbox.containerWorkdir,
+                  },
                 )
               : createSandboxedWriteTool({ root: sandboxRoot, bridge: sandboxFsBridge! }),
           ]
@@ -456,25 +491,14 @@ export function createOpenClawCodingTools(options?: {
       requireExplicitMessageTarget: options?.requireExplicitMessageTarget,
       disableMessageTool: options?.disableMessageTool,
       requesterAgentIdOverride: agentId,
+      requesterSenderId: options?.senderId,
+      senderIsOwner: options?.senderIsOwner,
     }),
-    // Devices tools: list devices, run commands on devices, check job status
-    ...(() => {
-      if (options?.devicesHandler) {
-        return createDevicesTools(options.devicesHandler);
-      }
-      return [];
-    })(),
-    // Cloud storage tools: list, read, write, delete files in user's cloud storage
-    ...(() => {
-      if (options?.cloudStorageHandler) {
-        return createCloudStorageTools(options.cloudStorageHandler);
-      }
-      return [];
-    })(),
   ];
+  const toolsForMessageProvider = applyMessageProviderToolPolicy(tools, options?.messageProvider);
   // Security: treat unknown/undefined as unauthorized (opt-in, not opt-out)
   const senderIsOwner = options?.senderIsOwner === true;
-  const toolsByAuthorization = applyOwnerOnlyToolPolicy(tools, senderIsOwner);
+  const toolsByAuthorization = applyOwnerOnlyToolPolicy(toolsForMessageProvider, senderIsOwner);
   const subagentFiltered = applyToolPolicyPipeline({
     tools: toolsByAuthorization,
     toolMeta: (tool) => getPluginToolMeta(tool),
@@ -498,11 +522,15 @@ export function createOpenClawCodingTools(options?: {
   });
   // Always normalize tool JSON Schemas before handing them to pi-agent/pi-ai.
   // Without this, some providers (notably OpenAI) will reject root-level union schemas.
-  const normalized = subagentFiltered.map((tool) => normalizeToolParameters(tool));
+  // Provider-specific cleaning: Gemini needs constraint keywords stripped, but Anthropic expects them.
+  const normalized = subagentFiltered.map((tool) =>
+    normalizeToolParameters(tool, { modelProvider: options?.modelProvider }),
+  );
   const withHooks = normalized.map((tool) =>
     wrapToolWithBeforeToolCallHook(tool, {
       agentId,
       sessionKey: options?.sessionKey,
+      loopDetection: resolveToolLoopDetectionConfig({ cfg: options?.config, agentId }),
     }),
   );
   const withAbort = options?.abortSignal
@@ -512,53 +540,5 @@ export function createOpenClawCodingTools(options?: {
   // NOTE: Keep canonical (lowercase) tool names here.
   // pi-ai's Anthropic OAuth transport remaps tool names to Claude Code-style names
   // on the wire and maps them back for tool dispatch.
-
-  // SECURITY: Hard filter for external channels - remove dangerous system access tools
-  // This prevents prompt injection attacks from executing arbitrary commands or accessing files.
-  // Web tools (web_search, web_fetch) are ALLOWED for information retrieval.
-  //
-  // ALLOWED with restrictions (for skills to work):
-  // - 'read' - allowed but restricted to workspace directory in attempt.ts (wrapToolWorkspaceRootGuard)
-  // - 'exec' - allowed but restricted to safe commands in bash-tools.exec.ts (EXTERNAL_CHANNEL_SAFE_BINS)
-  //
-  // BLOCKED completely:
-  // - write/edit - prevents saving malicious files
-  // - process - background shell management (dangerous)
-  // - browser/canvas/camera - hardware/UI control
-  // - cron/gateway - system scheduling
-  // - sessions_spawn/subagents - privilege escalation
-  const messageProvider = options?.messageProvider?.trim()?.toLowerCase();
-  const isExternalChannel = messageProvider === "whatsapp" || messageProvider === "telegram";
-  if (isExternalChannel) {
-    const blockedToolsForExternalChannels = new Set([
-      // Command management (process allows shell control - dangerous)
-      "process",
-      // File system write access (blocks downloading/saving files)
-      "write",
-      "edit",
-      "ls",
-      "find",
-      "grep",
-      "apply_patch",
-      "file",
-      // Browser/UI control
-      "browser",
-      "canvas",
-      // Hardware access (camera, location, screen)
-      "camera",
-      "nodes",
-      // Scheduling/automation (cron allowed for reminders)
-      "gateway",
-      // Subagent spawning (prevent escalation)
-      "sessions_spawn",
-      "subagents",
-    ]);
-    // NOTE: 'read' and 'exec' are intentionally NOT blocked here
-    // - 'read' is restricted to workspace in attempt.ts via wrapToolWorkspaceRootGuard
-    // - 'exec' is restricted to safe commands (curl, wget, jq) in bash-tools.exec.ts
-    const filtered = withAbort.filter((tool) => !blockedToolsForExternalChannels.has(tool.name));
-    return filtered;
-  }
-
   return withAbort;
 }

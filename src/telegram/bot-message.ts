@@ -42,6 +42,7 @@ export const createTelegramMessageProcessor = (deps: TelegramMessageProcessorDep
     resolveGroupActivation,
     resolveGroupRequireMention,
     resolveTelegramGroupConfig,
+    sendChatActionHandler,
     runtime,
     replyToMode,
     streamMode,
@@ -55,10 +56,12 @@ export const createTelegramMessageProcessor = (deps: TelegramMessageProcessorDep
     allMedia: TelegramMediaRef[],
     storeAllowFrom: string[],
     options?: { messageIdOverride?: string; forceWasMentioned?: boolean },
+    replyMedia?: TelegramMediaRef[],
   ) => {
     const context = await buildTelegramMessageContext({
       primaryCtx,
       allMedia,
+      replyMedia,
       storeAllowFrom,
       options,
       bot,
@@ -74,6 +77,7 @@ export const createTelegramMessageProcessor = (deps: TelegramMessageProcessorDep
       resolveGroupActivation,
       resolveGroupRequireMention,
       resolveTelegramGroupConfig,
+      sendChatActionHandler,
     });
     if (!context) {
       return;

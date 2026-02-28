@@ -21,9 +21,26 @@ export type ExecToolDefaults = {
   scopeKey?: string;
   sessionKey?: string;
   messageProvider?: string;
+  currentChannelId?: string;
+  currentThreadTs?: string;
+  accountId?: string;
   notifyOnExit?: boolean;
   notifyOnExitEmptySuccess?: boolean;
   cwd?: string;
+  // Platform: device proxy for external channel command routing
+  proxy?: {
+    createJob: (params: {
+      command: string;
+      cwd?: string;
+      envPreview?: Record<string, string>;
+      requestedBy?: string;
+    }) => Promise<{ jobId: string }>;
+    requestedBy?: string;
+    allowList?: string[];
+    denyList?: string[];
+  };
+  // Platform: count of installed skills for skill-based gating
+  installedSkillCount?: number;
 };
 
 export type ExecElevatedDefaults = {
