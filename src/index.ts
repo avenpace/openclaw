@@ -56,7 +56,7 @@ import {
 import { assertWebChannel, normalizeE164, toWhatsappJid } from "./utils.js";
 import type { WebChannelStatus } from "./web/auto-reply/types.js";
 import { monitorWebInbox } from "./web/inbound/monitor.js";
-import { startWebLoginWithQr, waitForWebLogin } from "./web/login-qr.js";
+import { startWebLoginWithQr, startWebLoginWithCode, waitForWebLogin } from "./web/login-qr.js";
 import { sendMessageWhatsApp } from "./web/outbound.js";
 
 loadDotEnv({ quiet: true });
@@ -104,6 +104,7 @@ export {
   setConfigOverride,
   startGatewayServer,
   startWebLoginWithQr,
+  startWebLoginWithCode,
   toWhatsappJid,
   transcribeFirstAudio,
   applyMediaUnderstanding,
