@@ -74,4 +74,12 @@ export type ExecToolDetails =
       command: string;
       cwd?: string;
       nodeId?: string;
+    }
+  | {
+      // Platform: command sent to user's paired device
+      status: "device-pending";
+      jobId: string;
+      host: "device";
+      command: string;
+      cwd?: string;
     };
