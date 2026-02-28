@@ -54,10 +54,9 @@ function resolveRuntimeAuthProfileStore(agentDir?: string): AuthProfileStore | n
   if (requestedStore) {
     return cloneAuthProfileStore(requestedStore);
   }
-  if (mainStore) {
-    return cloneAuthProfileStore(mainStore);
-  }
 
+  // Don't return main store when persona store doesn't exist in cache.
+  // Let it fall through to loadAuthProfileStoreForAgent to load from disk.
   return null;
 }
 
