@@ -39,6 +39,14 @@ export const EXTERNAL_CHANNEL_SAFE_BINS = [
   "date",
   "basename",
   "dirname",
+  "base64",
+  "file",
+  "xxd",
+  "od",
+  "hexdump",
+  "strings",
+  "pdftotext",
+  "pdfinfo",
 ];
 
 export type ExecCommandSegment = {
