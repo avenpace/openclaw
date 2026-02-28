@@ -1,4 +1,3 @@
-import type { WebChannelStatus, WebInboundMsg, WebMonitorTuning } from "./types.js";
 import { hasControlCommand } from "../../auto-reply/command-detection.js";
 import { resolveInboundDebounceMs } from "../../auto-reply/inbound-debounce.js";
 import { getReplyFromConfig } from "../../auto-reply/reply.js";
@@ -23,12 +22,13 @@ import {
   resolveReconnectPolicy,
   sleepWithAbort,
 } from "../reconnect.js";
-import { formatError, getWebAuthAgeMs, readWebSelfId } from "../session.js";
+import { formatError, getWebAuthAgeMs } from "../session.js";
 import { DEFAULT_WEB_MEDIA_BYTES } from "./constants.js";
 import { whatsappHeartbeatLog, whatsappLog } from "./loggers.js";
 import { buildMentionConfig } from "./mentions.js";
 import { createEchoTracker } from "./monitor/echo.js";
 import { createWebOnMessageHandler } from "./monitor/on-message.js";
+import type { WebChannelStatus, WebInboundMsg, WebMonitorTuning } from "./types.js";
 import { isLikelyWhatsAppCryptoError } from "./util.js";
 
 function isNonRetryableWebCloseStatus(statusCode: unknown): boolean {
@@ -229,10 +229,12 @@ export async function monitorWebChannel(
     status.lastConnectedAt = Date.now();
     status.lastEventAt = status.lastConnectedAt;
     status.lastError = null;
+    // Get selfE164 from the listener (sock.user.id) - works for encrypted creds too
+    status.selfE164 = (listener as { selfE164?: string | null }).selfE164 ?? null;
     emitStatus();
 
     // Surface a concise connection event for the next main-session turn/heartbeat.
-    const { e164: selfE164 } = readWebSelfId(account.authDir);
+    const selfE164 = status.selfE164;
     const connectRoute = resolveAgentRoute({
       cfg,
       channel: "whatsapp",

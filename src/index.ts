@@ -17,7 +17,7 @@ import { monitorWebChannel } from "./channel-web.js";
 import { createDefaultDeps } from "./cli/deps.js";
 import { promptYesNo } from "./cli/prompt.js";
 import { waitForever } from "./cli/wait.js";
-import { loadConfig } from "./config/config.js";
+import { loadConfig, clearConfigCache } from "./config/config.js";
 import { setConfigOverride } from "./config/runtime-overrides.js";
 import {
   deriveSessionKey,
@@ -77,9 +77,10 @@ export {
   assertWebChannel,
   applyTemplate,
   buildWorkspaceSkillStatus,
+  clearConfigCache,
+  createDefaultDeps,
   ensureOpenClawModelsJson,
   loadModelCatalog,
-  createDefaultDeps,
   deriveSessionKey,
   describePortOwner,
   ensureBinary,

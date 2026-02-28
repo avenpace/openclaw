@@ -21,6 +21,8 @@ export type WebChannelStatus = {
   lastMessageAt?: number | null;
   lastEventAt?: number | null;
   lastError?: string | null;
+  /** Phone number (E.164 format) when connected, from sock.user.id */
+  selfE164?: string | null;
 };
 
 export type WhatsAppWorkerDockerOptions = {

@@ -376,6 +376,8 @@ export async function monitorWebInbox(options: {
   });
 
   return {
+    /** Phone number (E.164 format) from sock.user.id */
+    selfE164,
     close: async () => {
       try {
         const ev = sock.ev as unknown as {
