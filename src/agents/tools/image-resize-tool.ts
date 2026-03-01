@@ -73,6 +73,14 @@ export type ImageResizeHandler = {
     messageId?: string;
     error?: string;
   }>;
+
+  /** Remove background from an image (AI-powered) */
+  removeBackground?: (params: {
+    imageSource: string;
+    sourceType: "path" | "base64" | "fileId";
+    filename?: string;
+    isPublic?: boolean;
+  }) => Promise<ImageResizeResult>;
 };
 
 // Tool Schemas
@@ -137,6 +145,14 @@ const ImageThumbnailSchema = Type.Object({
 const ImageSendSchema = Type.Object({
   fileId: Type.String({ description: "The ID of the processed image to send" }),
   caption: Type.Optional(Type.String({ description: "Message caption to send with the image" })),
+});
+
+const ImageBackgroundRemoveSchema = Type.Object({
+  imagePath: Type.Optional(Type.String({ description: "Path to the image file" })),
+  imageBase64: Type.Optional(Type.String({ description: "Base64-encoded image data" })),
+  fileId: Type.Optional(Type.String({ description: "Cloud storage file ID" })),
+  filename: Type.Optional(Type.String({ description: "Output filename" })),
+  isPublic: Type.Optional(Type.Boolean({ description: "Make output publicly accessible" })),
 });
 
 function resolveSourceType(params: Record<string, unknown>): {
@@ -489,6 +505,64 @@ Example workflow:
 }
 
 /**
+ * Create the background_remove tool
+ */
+export function createBackgroundRemoveTool(handler: ImageResizeHandler): AnyAgentTool | null {
+  if (!handler.removeBackground) {
+    return null;
+  }
+
+  return {
+    label: "Remove Background",
+    name: "background_remove",
+    description: `Remove the background from an image using AI.
+
+Use this to:
+- Create transparent PNGs from photos
+- Remove backgrounds for product images
+- Isolate subjects from their backgrounds
+
+The output is always a PNG with transparency.`,
+    parameters: ImageBackgroundRemoveSchema,
+    execute: async (_toolCallId, params) => {
+      try {
+        const record =
+          params && typeof params === "object" ? (params as Record<string, unknown>) : {};
+        const sourceInfo = resolveSourceType(record);
+
+        if (!sourceInfo) {
+          return jsonResult({ error: "Provide imagePath, imageBase64, or fileId" });
+        }
+
+        const filename = readStringParam(record, "filename");
+        const isPublic = record.isPublic === true;
+
+        const result = await handler.removeBackground!({
+          imageSource: sourceInfo.source,
+          sourceType: sourceInfo.type,
+          filename,
+          isPublic,
+        });
+
+        return jsonResult({
+          success: true,
+          fileId: result.id,
+          filename: result.filename,
+          dimensions: `${result.width}x${result.height}`,
+          size: result.sizeFormatted,
+          mimeType: result.mimeType,
+          publicUrl: result.publicUrl,
+          message: "Background removed successfully. Use image_send to deliver the image.",
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return jsonResult({ error: message });
+      }
+    },
+  };
+}
+
+/**
  * Create all image resize tools
  */
 export function createImageResizeTools(handler: ImageResizeHandler): AnyAgentTool[] {
@@ -502,6 +576,11 @@ export function createImageResizeTools(handler: ImageResizeHandler): AnyAgentToo
   const sendTool = createImageSendTool(handler);
   if (sendTool) {
     tools.push(sendTool);
+  }
+
+  const bgRemoveTool = createBackgroundRemoveTool(handler);
+  if (bgRemoveTool) {
+    tools.push(bgRemoveTool);
   }
 
   return tools;
