@@ -44,6 +44,8 @@ type ActiveLogin = {
   codeGeneratedAt?: number; // Timestamp when current code was generated
   runtime?: RuntimeEnv;
   codeRetryInProgress?: boolean; // Prevents waitForWebLogin from returning error during retry
+  // Socket tracking to prevent race conditions during retry
+  currentSocketId: number; // Incremented on each new socket to track which is current
 };
 
 const ACTIVE_LOGIN_TTL_MS = 3 * 60_000;
@@ -141,6 +143,14 @@ async function retryPairingCode(login: ActiveLogin): Promise<string | null> {
 
   login.codeRetryCount++;
 
+  // CRITICAL: Increment socket ID FIRST to invalidate any pending handlers on the old socket
+  // This prevents race conditions where the old socket generates a code during retry
+  login.currentSocketId++;
+  const thisSocketId = login.currentSocketId;
+  console.log(
+    `[CodePairing] Retry: Incremented socketId to ${thisSocketId}, old handlers will be ignored`,
+  );
+
   // Add delay before retry to avoid WhatsApp rate limiting
   const retryDelay = login.codeRetryCount * 2000; // 2s, 4s, 6s, etc.
   console.log(`[CodePairing] Waiting ${retryDelay / 1000}s before retry to avoid rate limiting...`);
@@ -188,6 +198,16 @@ async function retryPairingCode(login: ActiveLogin): Promise<string | null> {
       const timeout = setTimeout(() => reject(new Error("Timeout")), 30_000);
 
       const handler = async (update: { connection?: string; qr?: string }) => {
+        // Check if this socket is still the current one (prevents race conditions)
+        if (login.currentSocketId !== thisSocketId) {
+          console.log(
+            `[CodePairing:Retry] Socket ${thisSocketId} superseded by ${login.currentSocketId}, ignoring event`,
+          );
+          newSock.ev.off("connection.update", handler);
+          clearTimeout(timeout);
+          return;
+        }
+
         console.log(
           `[CodePairing:Retry] connection.update: connection=${update.connection}, qr=${!!update.qr}`,
         );
@@ -265,11 +285,22 @@ async function retryPairingCode(login: ActiveLogin): Promise<string | null> {
  * - 515 = Restart required - WhatsApp wants us to reconnect.
  */
 function setupCodePairingRetryHandler(login: ActiveLogin) {
+  // Capture the socket ID at setup time to detect when socket is superseded
+  const setupSocketId = login.currentSocketId;
+
   login.sock.ev.on(
     "connection.update",
     async (update: { connection?: string; lastDisconnect?: unknown }) => {
       // Only handle code pairing mode
       if (login.pairingMode !== "code") {
+        return;
+      }
+
+      // Check if this handler's socket is still the current one
+      if (login.currentSocketId !== setupSocketId) {
+        console.log(
+          `[CodePairing] Retry handler for socket ${setupSocketId} superseded by ${login.currentSocketId}, ignoring`,
+        );
         return;
       }
 
@@ -402,6 +433,7 @@ export async function startWebLoginWithQr(
     verbose: Boolean(opts.verbose),
     encryptionKey: opts.encryptionKey,
     codeRetryCount: 0,
+    currentSocketId: 0, // Not used for QR pairing but required for type
   };
   activeLogins.set(account.accountId, login);
   if (pendingQr && !login.qr) {
@@ -548,7 +580,22 @@ export async function startWebLoginWithCode(opts: {
     };
   }
 
+  // CRITICAL: For code pairing, always clear auth dir to start fresh
+  // This prevents issues where stale creds from a previous session cause immediate 428 errors
+  // or where the socket connects with existing creds instead of requiring new pairing
+  try {
+    const { rm, mkdir } = await import("node:fs/promises");
+    await rm(account.authDir, { recursive: true, force: true });
+    await mkdir(account.authDir, { recursive: true });
+    console.log(`[CodePairing] Cleared auth dir for fresh pairing: ${account.authDir}`);
+  } catch (err) {
+    console.log(`[CodePairing] Could not clear auth dir:`, err);
+  }
+
   let sock: WaSocket;
+  // Track socket ID to prevent race conditions during retry
+  // This is initialized here and passed to the login object later
+  let initialSocketId = 0;
 
   try {
     // Create socket - NO QR callback for code pairing
@@ -570,8 +617,14 @@ export async function startWebLoginWithCode(opts: {
   // Wait for "connecting" state, then 500ms for WS handshake, then request code
   const codePromise = new Promise<string>((resolve, reject) => {
     const timeout = setTimeout(() => reject(new Error("Timeout getting pairing code")), 30_000);
+    let resolved = false; // Track if we've already resolved to prevent double handling
 
     const handler = async (update: { connection?: string; qr?: string }) => {
+      // Check if already resolved (prevents race conditions)
+      if (resolved) {
+        return;
+      }
+
       console.log(
         `[CodePairing] connection.update: connection=${update.connection}, qr=${!!update.qr}`,
       );
@@ -586,10 +639,12 @@ export async function startWebLoginWithCode(opts: {
         try {
           const code = await sock.requestPairingCode(phoneDigits);
           console.log(`[CodePairing] Got pairing code: ${code}`);
+          resolved = true;
           // Keep handler attached to monitor connection
           resolve(code);
         } catch (err) {
           console.log(`[CodePairing] Failed:`, err);
+          resolved = true;
           sock.ev.off("connection.update", handler);
           reject(err);
         }
@@ -601,6 +656,7 @@ export async function startWebLoginWithCode(opts: {
       }
 
       if (update.connection === "close") {
+        resolved = true;
         sock.ev.off("connection.update", handler);
         clearTimeout(timeout);
         reject(new Error("Connection closed"));
@@ -646,6 +702,8 @@ export async function startWebLoginWithCode(opts: {
     codeRetryCount: 0,
     codeGeneratedAt: Date.now(),
     runtime,
+    // Socket tracking for race condition prevention
+    currentSocketId: initialSocketId,
   };
   activeLogins.set(account.accountId, login);
   attachLoginWaiter(account.accountId, login);
