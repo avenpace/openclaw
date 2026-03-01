@@ -1,11 +1,11 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { AgentTool, AgentToolResult } from "@mariozechner/pi-agent-core";
-import { type ExecHost, maxAsk, minSecurity } from "../infra/exec-approvals.js";
 import {
   EXTERNAL_CHANNEL_SAFE_BINS,
   analyzeShellCommand,
 } from "../infra/exec-approvals-analysis.js";
+import { type ExecHost, maxAsk, minSecurity } from "../infra/exec-approvals.js";
 import { resolveExecSafeBinRuntimePolicy } from "../infra/exec-safe-bin-runtime-policy.js";
 import {
   getShellPathFromLoginShell,
@@ -261,7 +261,11 @@ export function createExecTool(
         }
       }
 
-      if (isExternalChannel && execProxy) {
+      // STRICT COMMAND ROUTING for external channels:
+      // - Safe commands (curl, jq, etc.) run locally
+      // - Unsafe commands MUST go to user's paired device
+      // - If no device connected, block unsafe commands entirely
+      if (isExternalChannel) {
         // Analyze command to determine if it's safe for local execution
         const analysis = analyzeShellCommand({ command: params.command });
         const safeSet = new Set(EXTERNAL_CHANNEL_SAFE_BINS.map((b) => b.toLowerCase()));
@@ -274,10 +278,18 @@ export function createExecTool(
           });
 
         if (!isSafeCommand) {
-          // Command is NOT in safe whitelist - route to user's paired device
-          console.log(
-            `[Security] Routing command to user device: ${params.command.slice(0, 100)}`,
-          );
+          // Command is NOT in safe whitelist - MUST route to user's paired device
+          if (!execProxy) {
+            // No device connected - block the command
+            console.log(
+              `[Security] Blocked unsafe command for external channel - no device paired: ${params.command.slice(0, 100)}`,
+            );
+            throw new Error(
+              "This command requires a paired device to execute. Please connect your device using the Clawku desktop app, then try again.",
+            );
+          }
+
+          console.log(`[Security] Routing command to user device: ${params.command.slice(0, 100)}`);
 
           const job = await execProxy.createJob({
             command: params.command,
@@ -303,7 +315,9 @@ export function createExecTool(
           };
         }
         // Safe command - continue with local execution
-        console.log(`[Security] Allowed safe command for local execution: ${params.command.slice(0, 100)}`);
+        console.log(
+          `[Security] Allowed safe command for local execution: ${params.command.slice(0, 100)}`,
+        );
       }
 
       const maxOutput = DEFAULT_MAX_OUTPUT;
