@@ -36,6 +36,8 @@ export async function monitorWebInbox(options: {
   shouldDebounce?: (msg: WebInboundMessage) => boolean;
   /** Optional encryption key for encrypted credential storage (AES-256-GCM). */
   encryptionKey?: Buffer;
+  /** Override DM policy - bypasses config resolution. Use 'allowlist' to silently ignore unauthorized senders. */
+  dmPolicy?: "pairing" | "allowlist" | "open" | "disabled";
 }) {
   const inboundLogger = getChildLogger({ module: "web-inbound" });
   const inboundConsoleLog = createSubsystemLogger("gateway/channels/whatsapp").child("inbound");
@@ -214,6 +216,7 @@ export async function monitorWebInbox(options: {
         connectedAtMs,
         sock: { sendMessage: (jid, content) => sock.sendMessage(jid, content) },
         remoteJid,
+        dmPolicyOverride: options.dmPolicy,
       });
       if (!access.allowed) {
         continue;

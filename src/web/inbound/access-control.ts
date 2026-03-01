@@ -53,13 +53,16 @@ export async function checkInboundAccessControl(params: {
     sendMessage: (jid: string, content: { text: string }) => Promise<unknown>;
   };
   remoteJid: string;
+  /** Override DM policy - bypasses config resolution. */
+  dmPolicyOverride?: "pairing" | "allowlist" | "open" | "disabled";
 }): Promise<InboundAccessControlResult> {
   const cfg = loadConfig();
   const account = resolveWhatsAppAccount({
     cfg,
     accountId: params.accountId,
   });
-  const dmPolicy = account.dmPolicy ?? "pairing";
+  // Use override if provided (platform-level control), otherwise fall back to config
+  const dmPolicy = params.dmPolicyOverride ?? account.dmPolicy ?? "pairing";
   const configuredAllowFrom = account.allowFrom ?? [];
   const storeAllowFrom = await readStoreAllowFromForDmPolicy({
     provider: "whatsapp",
