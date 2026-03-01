@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import fsSync from "node:fs";
 import {
+  Browsers,
   DisconnectReason,
   fetchLatestBaileysVersion,
   makeCacheableSignalKeyStore,
@@ -92,7 +93,12 @@ async function safeSaveCreds(
 export async function createWaSocket(
   printQr: boolean,
   verbose: boolean,
-  opts: { authDir?: string; onQr?: (qr: string) => void; encryptionKey?: Buffer } = {},
+  opts: {
+    authDir?: string;
+    onQr?: (qr: string) => void;
+    encryptionKey?: Buffer;
+    codePairing?: boolean;
+  } = {},
 ): Promise<ReturnType<typeof makeWASocket>> {
   const baseLogger = getChildLogger(
     { module: "baileys" },
@@ -120,6 +126,19 @@ export async function createWaSocket(
     saveCreds = plainResult.saveCreds;
   }
   const { version } = await fetchLatestBaileysVersion();
+  // For code pairing, Baileys requires a valid browser config (e.g. Browsers.macOS("Google Chrome"))
+  // See: https://baileys.wiki/docs/socket/configuration
+  // For QR pairing, the custom browser string works fine
+  // Try Windows + Edge which is more commonly accepted for code pairing
+  const browserConfig = opts.codePairing
+    ? Browsers.windows("Edge")
+    : (["openclaw", "cli", VERSION] as [string, string, string]);
+
+  if (opts.codePairing) {
+    console.log(`[CodePairing:Socket] Using browser config:`, JSON.stringify(browserConfig));
+    console.log(`[CodePairing:Socket] Baileys version:`, version);
+  }
+
   const sock = makeWASocket({
     auth: {
       creds: state.creds,
@@ -128,7 +147,7 @@ export async function createWaSocket(
     version,
     logger,
     printQRInTerminal: false,
-    browser: ["openclaw", "cli", VERSION],
+    browser: browserConfig,
     syncFullHistory: false,
     markOnlineOnConnect: false,
   });
@@ -139,6 +158,14 @@ export async function createWaSocket(
     (update: Partial<import("@whiskeysockets/baileys").ConnectionState>) => {
       try {
         const { connection, lastDisconnect, qr } = update;
+
+        // Always log connection events for debugging code pairing
+        if (opts.codePairing) {
+          console.log(
+            `[CodePairing:Socket] connection.update: connection=${connection}, qr=${!!qr}, lastDisconnect=${JSON.stringify(lastDisconnect)}`,
+          );
+        }
+
         if (qr) {
           opts.onQr?.(qr);
           if (printQr) {
@@ -156,8 +183,12 @@ export async function createWaSocket(
             );
           }
         }
-        if (connection === "open" && verbose) {
-          console.log(success("WhatsApp Web connected."));
+        if (connection === "open") {
+          if (opts.codePairing) {
+            console.log(success("[CodePairing:Socket] CONNECTION OPEN - Pairing successful!"));
+          } else if (verbose) {
+            console.log(success("WhatsApp Web connected."));
+          }
         }
       } catch (err) {
         sessionLogger.error({ error: String(err) }, "connection.update handler error");

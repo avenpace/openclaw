@@ -18,6 +18,8 @@ import {
 
 type WaSocket = Awaited<ReturnType<typeof createWaSocket>>;
 
+type PairingMode = "qr" | "code";
+
 type ActiveLogin = {
   accountId: string;
   authDir: string;
@@ -25,6 +27,7 @@ type ActiveLogin = {
   id: string;
   sock: WaSocket;
   startedAt: number;
+  pairingMode: PairingMode; // Track which pairing method user chose
   qr?: string;
   qrDataUrl?: string;
   connected: boolean;
@@ -38,7 +41,9 @@ type ActiveLogin = {
   pairingCode?: string;
   phoneNumber?: string;
   codeRetryCount: number;
+  codeGeneratedAt?: number; // Timestamp when current code was generated
   runtime?: RuntimeEnv;
+  codeRetryInProgress?: boolean; // Prevents waitForWebLogin from returning error during retry
 };
 
 const ACTIVE_LOGIN_TTL_MS = 3 * 60_000;
@@ -78,6 +83,11 @@ function attachLoginWaiter(accountId: string, login: ActiveLogin) {
     .catch((err) => {
       const current = activeLogins.get(accountId);
       if (current?.id !== login.id) {
+        return;
+      }
+      // Don't set error if code pairing retry is in progress
+      if (current.codeRetryInProgress) {
+        console.log(`[CodePairing] Ignoring error during retry: ${formatError(err)}`);
         return;
       }
       current.error = formatError(err);
@@ -130,6 +140,12 @@ async function retryPairingCode(login: ActiveLogin): Promise<string | null> {
   }
 
   login.codeRetryCount++;
+
+  // Add delay before retry to avoid WhatsApp rate limiting
+  const retryDelay = login.codeRetryCount * 2000; // 2s, 4s, 6s, etc.
+  console.log(`[CodePairing] Waiting ${retryDelay / 1000}s before retry to avoid rate limiting...`);
+  await new Promise((r) => setTimeout(r, retryDelay));
+
   login.runtime?.log(
     info(`[CodePairing] Retrying pairing code (attempt ${login.codeRetryCount})...`),
   );
@@ -137,55 +153,78 @@ async function retryPairingCode(login: ActiveLogin): Promise<string | null> {
   // Close existing socket
   closeSocket(login.sock);
 
-  // Create a new socket
+  // Clear auth directory to remove stale/invalidated session data
+  // This is necessary because WhatsApp invalidates the session when code expires
+  try {
+    const { rm, mkdir } = await import("node:fs/promises");
+    await rm(login.authDir, { recursive: true, force: true });
+    await mkdir(login.authDir, { recursive: true });
+    console.log(`[CodePairing] Cleared auth dir for fresh retry`);
+  } catch (err) {
+    console.log(`[CodePairing] Could not clear auth dir:`, err);
+  }
+
+  // Create a new socket - NO QR waiting for code pairing
   let newSock: WaSocket;
-  let socketReady = false;
 
   try {
-    const readyPromise = new Promise<boolean>((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error("Timeout")), 30_000);
-
-      newSock = undefined as unknown as WaSocket;
-      createWaSocket(false, login.verbose, {
-        authDir: login.authDir,
-        encryptionKey: login.encryptionKey,
-        onQr: () => {
-          clearTimeout(timeout);
-          resolve(true);
-        },
-      })
-        .then((sock) => {
-          newSock = sock;
-          sock.ev.on(
-            "connection.update",
-            (update: { connection?: string; lastDisconnect?: unknown }) => {
-              if (update.connection === "close") {
-                clearTimeout(timeout);
-                reject((update.lastDisconnect as Error) ?? new Error("Connection closed"));
-              }
-            },
-          );
-        })
-        .catch((err) => {
-          clearTimeout(timeout);
-          reject(err);
-        });
+    newSock = await createWaSocket(false, login.verbose, {
+      authDir: login.authDir,
+      encryptionKey: login.encryptionKey,
+      codePairing: true, // Use valid browser config for code pairing
+      // NO onQr - request code immediately
     });
-
-    socketReady = await readyPromise;
+    console.log(`[CodePairing] New socket created for retry`);
   } catch (err) {
     login.runtime?.log(danger(`[CodePairing] Failed to create new socket: ${formatError(err)}`));
     return null;
   }
 
-  if (!newSock! || !socketReady) {
-    return null;
-  }
+  const phoneDigits = login.phoneNumber.slice(1);
 
-  // Request new pairing code
+  // Wait for "connecting" state, then 500ms, then request code
   try {
-    const phoneDigits = login.phoneNumber.slice(1); // Remove '+' prefix
-    const newCode = await newSock.requestPairingCode(phoneDigits);
+    const newCode = await new Promise<string>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error("Timeout")), 30_000);
+
+      const handler = async (update: { connection?: string; qr?: string }) => {
+        console.log(
+          `[CodePairing:Retry] connection.update: connection=${update.connection}, qr=${!!update.qr}`,
+        );
+
+        // Wait for QR (session established), then request code
+        if (update.qr) {
+          clearTimeout(timeout);
+
+          console.log(`[CodePairing:Retry] QR received, requesting code...`);
+
+          try {
+            const code = await newSock.requestPairingCode(phoneDigits);
+            console.log(`[CodePairing:Retry] Got code: ${code}`);
+            resolve(code);
+          } catch (err) {
+            console.log(`[CodePairing:Retry] Failed:`, err);
+            newSock.ev.off("connection.update", handler);
+            reject(err);
+          }
+          return;
+        }
+
+        if (update.connection === "connecting") {
+          console.log(`[CodePairing:Retry] Connecting...`);
+        }
+
+        if (update.connection === "close") {
+          newSock.ev.off("connection.update", handler);
+          clearTimeout(timeout);
+          reject(new Error("Connection closed"));
+        }
+      };
+
+      newSock.ev.on("connection.update", handler);
+    });
+    console.log(`[CodePairing:Retry] New code: ${newCode}`);
+
     const formattedCode =
       newCode.length === 8 ? `${newCode.slice(0, 4)}-${newCode.slice(4)}` : newCode;
 
@@ -194,6 +233,7 @@ async function retryPairingCode(login: ActiveLogin): Promise<string | null> {
     // Update login with new socket and code
     login.sock = newSock;
     login.pairingCode = formattedCode;
+    login.codeGeneratedAt = Date.now();
     login.error = undefined;
     login.errorStatus = undefined;
 
@@ -212,30 +252,61 @@ async function retryPairingCode(login: ActiveLogin): Promise<string | null> {
 }
 
 /**
- * Set up the connection event handler that auto-retries on 428/close.
+ * Set up the connection event handler for code pairing.
+ *
+ * IMPORTANT: This is ONLY for code pairing mode (pairingMode: "code").
+ *
+ * Status codes:
+ * - 408 = QR timeout ("QR refs attempts ended") - Baileys' internal QR expired.
+ *         Since we're using code pairing, the socket is dead but we should
+ *         create a new one and get a fresh code.
+ * - 428 = Precondition Required (code expired/invalid) - Code was rejected.
+ *         Get a fresh code.
+ * - 515 = Restart required - WhatsApp wants us to reconnect.
  */
 function setupCodePairingRetryHandler(login: ActiveLogin) {
   login.sock.ev.on(
     "connection.update",
     async (update: { connection?: string; lastDisconnect?: unknown }) => {
+      // Only handle code pairing mode
+      if (login.pairingMode !== "code") {
+        return;
+      }
+
       login.runtime?.log(info(`[CodePairing] connection.update: ${JSON.stringify(update)}`));
 
       if (update.connection === "close" && !login.connected) {
         const statusCode = getStatusCode(update.lastDisconnect);
-        // 428 = Precondition Required (code expired/invalid)
-        // Also retry on generic connection closed before success
-        if (statusCode === 428 || !login.error) {
+
+        // 408 = QR timeout - socket is dead, need new socket + code
+        // 428 = Code expired/invalid - need new code
+        // Both require creating fresh socket and code
+        if (statusCode === 408 || statusCode === 428) {
+          const reason =
+            statusCode === 408 ? "QR timeout (irrelevant but socket died)" : "code expired";
           login.runtime?.log(
-            info(
-              `[CodePairing] Connection closed (${statusCode}), auto-retrying with fresh code...`,
-            ),
+            info(`[CodePairing] ${reason} (${statusCode}), creating fresh socket + code...`),
           );
+
+          // CRITICAL: Set retry flag and clear error so waitForWebLogin doesn't return early
+          login.codeRetryInProgress = true;
+          login.error = undefined;
+          login.errorStatus = undefined;
+
           const newCode = await retryPairingCode(login);
+          login.codeRetryInProgress = false;
+
           if (!newCode) {
             login.error = "Failed to get new pairing code after retry";
             login.errorStatus = statusCode;
           }
+          return;
         }
+
+        // Other close reasons - set error but don't auto-retry
+        login.runtime?.log(info(`[CodePairing] Connection closed (${statusCode}), not retrying`));
+        login.error = `Connection closed: ${statusCode}`;
+        login.errorStatus = statusCode;
       }
     },
   );
@@ -324,6 +395,7 @@ export async function startWebLoginWithQr(
     id: randomUUID(),
     sock,
     startedAt: Date.now(),
+    pairingMode: "qr",
     connected: false,
     waitPromise: Promise.resolve(),
     restartAttempted: false,
@@ -477,67 +549,71 @@ export async function startWebLoginWithCode(opts: {
   }
 
   let sock: WaSocket;
-  let socketReadyPromise: Promise<boolean>;
 
   try {
-    // Create socket with QR callback that signals socket readiness
-    // We set up the ready promise BEFORE creating socket so we don't miss the event
-    let resolveReady: (value: boolean) => void;
-    let rejectReady: (err: Error) => void;
-    socketReadyPromise = new Promise<boolean>((resolve, reject) => {
-      resolveReady = resolve;
-      rejectReady = reject;
-    });
-
-    const readyTimeout = setTimeout(
-      () => {
-        rejectReady(new Error("Timeout waiting for WhatsApp connection"));
-      },
-      Math.max(opts.timeoutMs ?? 30_000, 10_000),
-    );
-
+    // Create socket - NO QR callback for code pairing
     sock = await createWaSocket(false, Boolean(opts.verbose), {
       authDir: account.authDir,
       encryptionKey: opts.encryptionKey,
-      onQr: () => {
-        // QR received means socket is ready for pairing code
-        clearTimeout(readyTimeout);
-        resolveReady(true);
-      },
+      codePairing: true, // Use valid browser config for code pairing
+      // NO onQr - we don't want QR mode at all
     });
-
-    // Also listen for connection state in case QR doesn't fire
-    sock.ev.on("connection.update", (update: { connection?: string; lastDisconnect?: unknown }) => {
-      if (update.connection === "close") {
-        clearTimeout(readyTimeout);
-        rejectReady(
-          (update.lastDisconnect as Error) ?? new Error("Connection closed before ready"),
-        );
-      }
-    });
+    runtime.log(info("[CodePairing] Socket created, waiting for WebSocket to connect..."));
   } catch (err) {
     return {
       message: `Failed to start WhatsApp connection: ${String(err)}`,
     };
   }
 
-  // Wait for socket to be ready (QR event or timeout)
-  try {
-    await socketReadyPromise;
-    runtime.log(info("WhatsApp socket ready, requesting pairing code..."));
-  } catch (err) {
-    closeSocket(sock);
-    return {
-      message: `WhatsApp connection failed: ${formatError(err)}`,
-    };
-  }
+  const phoneDigits = phoneNumber.slice(1); // Remove '+' prefix
 
-  // Now request pairing code - socket is ready
+  // Wait for "connecting" state, then 500ms for WS handshake, then request code
+  const codePromise = new Promise<string>((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error("Timeout getting pairing code")), 30_000);
+
+    const handler = async (update: { connection?: string; qr?: string }) => {
+      console.log(
+        `[CodePairing] connection.update: connection=${update.connection}, qr=${!!update.qr}`,
+      );
+
+      // Wait for QR (session fully established), then request code
+      // DON'T detach handler - keep listening for connection events
+      if (update.qr) {
+        clearTimeout(timeout);
+
+        console.log(`[CodePairing] QR received - session established, requesting code...`);
+
+        try {
+          const code = await sock.requestPairingCode(phoneDigits);
+          console.log(`[CodePairing] Got pairing code: ${code}`);
+          // Keep handler attached to monitor connection
+          resolve(code);
+        } catch (err) {
+          console.log(`[CodePairing] Failed:`, err);
+          sock.ev.off("connection.update", handler);
+          reject(err);
+        }
+        return;
+      }
+
+      if (update.connection === "connecting") {
+        console.log(`[CodePairing] Connecting, waiting for QR...`);
+      }
+
+      if (update.connection === "close") {
+        sock.ev.off("connection.update", handler);
+        clearTimeout(timeout);
+        reject(new Error("Connection closed"));
+        return;
+      }
+    };
+
+    sock.ev.on("connection.update", handler);
+  });
+
   let pairingCode: string;
   try {
-    // Remove '+' prefix for Baileys - it expects just the digits
-    const phoneDigits = phoneNumber.slice(1);
-    pairingCode = await sock.requestPairingCode(phoneDigits);
+    pairingCode = await codePromise;
     runtime.log(info(`WhatsApp pairing code generated for ${phoneNumber}`));
   } catch (err) {
     closeSocket(sock);
@@ -558,6 +634,7 @@ export async function startWebLoginWithCode(opts: {
     id: randomUUID(),
     sock,
     startedAt: Date.now(),
+    pairingMode: "code", // User chose code pairing - ignore QR events
     connected: false,
     waitPromise: Promise.resolve(),
     restartAttempted: false,
@@ -567,6 +644,7 @@ export async function startWebLoginWithCode(opts: {
     pairingCode: formattedCode,
     phoneNumber,
     codeRetryCount: 0,
+    codeGeneratedAt: Date.now(),
     runtime,
   };
   activeLogins.set(account.accountId, login);
@@ -581,9 +659,13 @@ export async function startWebLoginWithCode(opts: {
   };
 }
 
+// WhatsApp pairing codes expire after ~25 seconds
+const CODE_EXPIRY_MS = 25_000;
+
 /**
  * Get the current status of code-based pairing.
- * Use this to poll for updated pairing codes (auto-retry generates new codes).
+ * Returns codeExpired: true when the code is stale, letting the caller
+ * decide when to request a new code (avoids WhatsApp rate limiting).
  */
 export function getCodePairingStatus(opts: { accountId?: string }): {
   active: boolean;
@@ -591,12 +673,21 @@ export function getCodePairingStatus(opts: { accountId?: string }): {
   connected: boolean;
   error?: string;
   retryCount: number;
+  codeExpired?: boolean;
 } {
   const cfg = loadConfig();
   const account = resolveWhatsAppAccount({ cfg, accountId: opts.accountId });
+
+  // Debug: log all active logins and the resolved accountId
+  console.log(
+    `[getCodePairingStatus] requested accountId: ${opts.accountId}, resolved to: ${account.accountId}`,
+  );
+  console.log(`[getCodePairingStatus] activeLogins keys:`, [...activeLogins.keys()]);
+
   const login = activeLogins.get(account.accountId);
 
   if (!login || !login.pairingCode) {
+    console.log(`[getCodePairingStatus] No login found for ${account.accountId}`);
     return {
       active: false,
       connected: false,
@@ -604,11 +695,45 @@ export function getCodePairingStatus(opts: { accountId?: string }): {
     };
   }
 
+  // Check if connected - no need to check expiry
+  if (login.connected) {
+    return {
+      active: true,
+      pairingCode: login.pairingCode,
+      connected: true,
+      retryCount: login.codeRetryCount,
+    };
+  }
+
+  // Check if code is stale - return codeExpired flag instead of auto-retrying
+  // This avoids WhatsApp rate limiting from rapid reconnection attempts
+  const codeAge = login.codeGeneratedAt ? Date.now() - login.codeGeneratedAt : Infinity;
+  console.log(
+    `[getCodePairingStatus] codeAge=${Math.round(codeAge / 1000)}s, phoneNumber=${login.phoneNumber}, error=${login.error}, codeGeneratedAt=${login.codeGeneratedAt}`,
+  );
+
+  if (codeAge > CODE_EXPIRY_MS && !login.error) {
+    console.log(
+      `[getCodePairingStatus] Code is stale (${Math.round(codeAge / 1000)}s old), marking as expired`,
+    );
+    return {
+      active: false,
+      pairingCode: login.pairingCode, // Still return old code for display
+      connected: false,
+      retryCount: login.codeRetryCount,
+      codeExpired: true,
+    };
+  }
+
+  console.log(
+    `[getCodePairingStatus] Found login: code=${login.pairingCode}, retryCount=${login.codeRetryCount}`,
+  );
   return {
     active: isLoginFresh(login),
     pairingCode: login.pairingCode,
     connected: login.connected,
     error: login.error,
     retryCount: login.codeRetryCount,
+    codeExpired: false,
   };
 }
