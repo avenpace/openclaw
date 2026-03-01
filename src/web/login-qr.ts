@@ -46,6 +46,7 @@ type ActiveLogin = {
   codeRetryInProgress?: boolean; // Prevents waitForWebLogin from returning error during retry
   // Socket tracking to prevent race conditions during retry
   currentSocketId: number; // Incremented on each new socket to track which is current
+  dead?: boolean; // Set when login is reset/replaced - all handlers should stop immediately
 };
 
 const ACTIVE_LOGIN_TTL_MS = 3 * 60_000;
@@ -62,6 +63,8 @@ function closeSocket(sock: WaSocket) {
 async function resetActiveLogin(accountId: string, reason?: string) {
   const login = activeLogins.get(accountId);
   if (login) {
+    // Mark as dead FIRST so all handlers stop processing immediately
+    login.dead = true;
     closeSocket(login.sock);
     activeLogins.delete(accountId);
   }
@@ -131,6 +134,17 @@ const MAX_CODE_RETRIES = 5;
  * This handles the 428 "Precondition Required" error by requesting a fresh code.
  */
 async function retryPairingCode(login: ActiveLogin): Promise<string | null> {
+  // CRITICAL: Check if login is dead or replaced
+  if (login.dead) {
+    console.log(`[CodePairing] Retry aborted - login is dead`);
+    return null;
+  }
+  const currentLogin = activeLogins.get(login.accountId);
+  if (currentLogin !== login) {
+    console.log(`[CodePairing] Retry aborted - login has been replaced by a new attempt`);
+    return null;
+  }
+
   if (!login.phoneNumber) {
     return null;
   }
@@ -287,10 +301,27 @@ async function retryPairingCode(login: ActiveLogin): Promise<string | null> {
 function setupCodePairingRetryHandler(login: ActiveLogin) {
   // Capture the socket ID at setup time to detect when socket is superseded
   const setupSocketId = login.currentSocketId;
+  const accountId = login.accountId;
 
   login.sock.ev.on(
     "connection.update",
     async (update: { connection?: string; lastDisconnect?: unknown }) => {
+      // CRITICAL: Check if login is dead (reset/replaced)
+      if (login.dead) {
+        console.log(`[CodePairing] Retry handler: login is dead, ignoring event`);
+        return;
+      }
+
+      // CRITICAL: Check if this login is still active (not replaced by a new attempt)
+      // This prevents old handlers from interfering with new pairing attempts
+      const currentLogin = activeLogins.get(accountId);
+      if (currentLogin !== login) {
+        console.log(
+          `[CodePairing] Retry handler for old login detected (login replaced), ignoring event`,
+        );
+        return;
+      }
+
       // Only handle code pairing mode
       if (login.pairingMode !== "code") {
         return;
