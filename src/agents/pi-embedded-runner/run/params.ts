@@ -9,6 +9,7 @@ import type { BlockReplyChunking, ToolResultFormat } from "../../pi-embedded-sub
 import type { SkillSnapshot } from "../../skills.js";
 import type { CloudStorageHandler } from "../../tools/cloud-storage-tool.js";
 import type { DevicesHandler } from "../../tools/devices-tool.js";
+import type { ImageResizeHandler } from "../../tools/image-resize-tool.js";
 
 // Simplified tool definition for client-provided tools (OpenResponses hosted tools)
 export type ClientToolDefinition = {
@@ -117,6 +118,8 @@ export type RunEmbeddedPiAgentParams = {
   devicesHandler?: DevicesHandler;
   /** Handler for cloud storage tools (list, read, write, convert files). */
   cloudStorageHandler?: CloudStorageHandler;
+  /** Handler for image resize tools (resize, crop, convert, thumbnail images). */
+  imageResizeHandler?: ImageResizeHandler;
   /** Suppress tool error warnings in output. */
   suppressToolErrorWarnings?: boolean;
   /** Callback when reasoning/thinking ends. */

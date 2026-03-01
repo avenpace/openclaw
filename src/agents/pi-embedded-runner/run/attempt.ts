@@ -74,7 +74,9 @@ import { buildSystemPromptParams } from "../../system-prompt-params.js";
 import { buildSystemPromptReport } from "../../system-prompt-report.js";
 import { sanitizeToolCallIdsForCloudCodeAssist } from "../../tool-call-id.js";
 import { resolveEffectiveToolFsWorkspaceOnly } from "../../tool-fs-policy.js";
+import { createCloudStorageTools } from "../../tools/cloud-storage-tool.js";
 import { createDevicesTools } from "../../tools/devices-tool.js";
+import { createImageResizeTools } from "../../tools/image-resize-tool.js";
 import { resolveTranscriptPolicy } from "../../transcript-policy.js";
 import { DEFAULT_BOOTSTRAP_FILENAME } from "../../workspace.js";
 import { isRunnerAbortError } from "../abort.js";
@@ -548,6 +550,16 @@ export async function runEmbeddedAttempt(
     // Add devices tools if handler is provided (platform-api injects this)
     if (params.devicesHandler) {
       toolsRaw.push(...createDevicesTools(params.devicesHandler));
+    }
+
+    // Add cloud storage tools if handler is provided (platform-api injects this)
+    if (params.cloudStorageHandler) {
+      toolsRaw.push(...createCloudStorageTools(params.cloudStorageHandler));
+    }
+
+    // Add image resize tools if handler is provided (platform-api injects this)
+    if (params.imageResizeHandler) {
+      toolsRaw.push(...createImageResizeTools(params.imageResizeHandler));
     }
 
     const tools = sanitizeToolsForGoogle({ tools: toolsRaw, provider: params.provider });
