@@ -76,6 +76,7 @@ import { sanitizeToolCallIdsForCloudCodeAssist } from "../../tool-call-id.js";
 import { resolveEffectiveToolFsWorkspaceOnly } from "../../tool-fs-policy.js";
 import { createCloudStorageTools } from "../../tools/cloud-storage-tool.js";
 import { createDevicesTools } from "../../tools/devices-tool.js";
+import { getBuiltinImageResizeHandler } from "../../tools/image-resize-handler-builtin.js";
 import { createImageResizeTools } from "../../tools/image-resize-tool.js";
 import { resolveTranscriptPolicy } from "../../transcript-policy.js";
 import { DEFAULT_BOOTSTRAP_FILENAME } from "../../workspace.js";
@@ -557,10 +558,16 @@ export async function runEmbeddedAttempt(
       toolsRaw.push(...createCloudStorageTools(params.cloudStorageHandler));
     }
 
-    // Add image resize tools if handler is provided (platform-api injects this)
-    if (params.imageResizeHandler) {
-      toolsRaw.push(...createImageResizeTools(params.imageResizeHandler));
-    }
+    // Add image resize tools - use provided handler or fall back to built-in Sharp handler
+    const hasProvidedHandler = !!params.imageResizeHandler;
+    const imageResizeHandler = params.imageResizeHandler ?? getBuiltinImageResizeHandler();
+    const hasSendImageToChannel = !!imageResizeHandler.sendImageToChannel;
+    console.log(
+      `[image-resize] handler provided: ${hasProvidedHandler}, hasSendImageToChannel: ${hasSendImageToChannel}`,
+    );
+    const imageTools = createImageResizeTools(imageResizeHandler);
+    console.log(`[image-resize] tools created: ${imageTools.map((t) => t.name).join(", ")}`);
+    toolsRaw.push(...imageTools);
 
     const tools = sanitizeToolsForGoogle({ tools: toolsRaw, provider: params.provider });
     const allowedToolNames = collectAllowedToolNames({

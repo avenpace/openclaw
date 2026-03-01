@@ -632,6 +632,8 @@ export async function runEmbeddedPiAgent(
             ownerNumbers: params.ownerNumbers,
             enforceFinalTag: params.enforceFinalTag,
             devicesHandler: params.devicesHandler,
+            cloudStorageHandler: params.cloudStorageHandler,
+            imageResizeHandler: params.imageResizeHandler,
           });
 
           const {
