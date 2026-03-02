@@ -48,8 +48,13 @@ export async function extractPdfContent(params: {
   onImageExtractionError?: (error: unknown) => void;
 }): Promise<PdfExtractedContent> {
   const { buffer, maxPages, maxPixels, minTextChars, pageNumbers, onImageExtractionError } = params;
-  const { getDocument } = await loadPdfJsModule();
-  const pdf = await getDocument({ data: new Uint8Array(buffer), disableWorker: true }).promise;
+  const pdfJs = await loadPdfJsModule();
+  const { getDocument } = pdfJs;
+  // Disable worker by setting workerSrc to empty (newer pdfjs-dist API)
+  if ("GlobalWorkerOptions" in pdfJs) {
+    (pdfJs as { GlobalWorkerOptions: { workerSrc: string } }).GlobalWorkerOptions.workerSrc = "";
+  }
+  const pdf = await getDocument({ data: new Uint8Array(buffer) }).promise;
 
   const effectivePages: number[] = pageNumbers
     ? pageNumbers.filter((p) => p >= 1 && p <= pdf.numPages).slice(0, maxPages)

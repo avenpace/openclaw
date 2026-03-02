@@ -1,0 +1,27 @@
+import "./config-5NZVrebk.js";
+import "./subsystem-CZjf--pX.js";
+import "./paths-DCNrSyZW.js";
+import "./agent-scope-ScGrwqyV.js";
+import "./path-alias-guards-BLdY2C8K.js";
+import "./fs-safe-DbG7MkZI.js";
+import "./ssrf-BuTqKYS4.js";
+import "./image-ops-D0tvLkR5.js";
+import "./store-Dxq5cXiE.js";
+import "./env-Cm5puq-Z.js";
+import "./accounts-DT0m_BMj.js";
+import "./github-copilot-token-DA_R8Vd-.js";
+import "./plugins-sjvd3vNx.js";
+import "./bindings-BQwg6qpO.js";
+import "./accounts-CssugA8m.js";
+import "./message-channel-CT-AG0Zl.js";
+import "./fetch-guard-DFPItc0w.js";
+import "./local-roots-Ct_z9D74.js";
+import "./chunk-BEdQtXBX.js";
+import "./markdown-tables-DeTFJD1T.js";
+import "./ir-B8YplKEr.js";
+import "./render-B1VqYyvo.js";
+import "./tables-DX0c_UA0.js";
+import "./outbound-attachment-F4Ior5pd.js";
+import { t as sendMessageIMessage } from "./send-BYwVGPNx.js";
+
+export { sendMessageIMessage };

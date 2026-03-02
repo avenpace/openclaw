@@ -126,8 +126,6 @@ export type RunEmbeddedPiAgentParams = {
   cloudStorageHandler?: CloudStorageHandler;
   /** Handler for image resize tools (resize, crop, convert, thumbnail images). */
   imageResizeHandler?: ImageResizeHandler;
-  /** Suppress tool error warnings in output. */
-  suppressToolErrorWarnings?: boolean;
   /** Callback when reasoning/thinking ends. */
   onReasoningEnd?: () => void | Promise<void>;
 };
