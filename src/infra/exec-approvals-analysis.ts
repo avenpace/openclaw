@@ -47,7 +47,88 @@ export const EXTERNAL_CHANNEL_SAFE_BINS = [
   "strings",
   "pdftotext",
   "pdfinfo",
+  // File operations for workspace management (website-builder, etc.)
+  // These require path validation via WORKSPACE_RESTRICTED_BINS
+  "mkdir",
+  "ls",
+  "pwd",
+  "touch",
+  "cp",
+  "mv",
+  "rm",
 ];
+
+/**
+ * Commands that modify filesystem and require workspace path validation.
+ * All path arguments must be within the agent's workspace directory.
+ */
+export const WORKSPACE_RESTRICTED_BINS = new Set([
+  "mkdir",
+  "touch",
+  "cp",
+  "mv",
+  "rm",
+  "ls", // read-only but still restricted to workspace
+]);
+
+/**
+ * Validate that all path arguments in a command are within the workspace.
+ * Returns { ok: true } if valid, { ok: false, reason: string } if invalid.
+ */
+export function validateWorkspacePaths(params: {
+  argv: string[];
+  workspaceRoot: string;
+}): { ok: true } | { ok: false; reason: string } {
+  const { argv, workspaceRoot } = params;
+  if (argv.length === 0) {
+    return { ok: true };
+  }
+
+  const cmd = argv[0]?.toLowerCase() ?? "";
+  if (!WORKSPACE_RESTRICTED_BINS.has(cmd)) {
+    return { ok: true };
+  }
+
+  const pathModule = require("node:path");
+  const normalizedRoot = pathModule.resolve(workspaceRoot);
+
+  // Check each argument (skip flags starting with -)
+  for (let i = 1; i < argv.length; i++) {
+    const arg = argv[i];
+    if (!arg || arg.startsWith("-")) {
+      continue;
+    }
+
+    // Expand ~ to workspace root (not actual home)
+    let resolvedPath = arg;
+    if (arg === "~" || arg.startsWith("~/")) {
+      resolvedPath = pathModule.join(workspaceRoot, arg.slice(1) || "");
+    } else if (!pathModule.isAbsolute(arg)) {
+      // Relative paths are resolved from workspace root
+      resolvedPath = pathModule.join(workspaceRoot, arg);
+    }
+
+    // Normalize and check for path traversal
+    const normalized = pathModule.resolve(resolvedPath);
+
+    // Check if path is within workspace
+    if (!normalized.startsWith(normalizedRoot + pathModule.sep) && normalized !== normalizedRoot) {
+      // Check for path traversal patterns
+      if (arg.includes("..") || normalized.includes("..")) {
+        return {
+          ok: false,
+          reason: `Path traversal detected: "${arg}" - access outside workspace is not allowed`,
+        };
+      }
+      return {
+        ok: false,
+        reason: `Path "${arg}" is outside workspace. File operations are restricted to your workspace directory.`,
+      };
+    }
+  }
+
+  return { ok: true };
+}
 
 export type ExecCommandSegment = {
   raw: string;

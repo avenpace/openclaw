@@ -3,7 +3,9 @@ import path from "node:path";
 import type { AgentTool, AgentToolResult } from "@mariozechner/pi-agent-core";
 import {
   EXTERNAL_CHANNEL_SAFE_BINS,
+  WORKSPACE_RESTRICTED_BINS,
   analyzeShellCommand,
+  validateWorkspacePaths,
 } from "../infra/exec-approvals-analysis.js";
 import { type ExecHost, maxAsk, minSecurity } from "../infra/exec-approvals.js";
 import { resolveExecSafeBinRuntimePolicy } from "../infra/exec-safe-bin-runtime-policy.js";
@@ -314,6 +316,26 @@ export function createExecTool(
             },
           };
         }
+
+        // WORKSPACE PATH VALIDATION for file operation commands
+        // Prevent access outside the agent's workspace directory
+        const workspaceRoot = defaults?.cwd || process.cwd();
+        for (const segment of analysis.segments) {
+          const execName = segment.resolution?.executableName?.toLowerCase() ?? "";
+          if (WORKSPACE_RESTRICTED_BINS.has(execName)) {
+            const pathValidation = validateWorkspacePaths({
+              argv: segment.argv,
+              workspaceRoot,
+            });
+            if (!pathValidation.ok) {
+              console.log(
+                `[Security] Blocked workspace escape attempt: ${params.command.slice(0, 100)} - ${pathValidation.reason}`,
+              );
+              throw new Error(pathValidation.reason);
+            }
+          }
+        }
+
         // Safe command - continue with local execution
         console.log(
           `[Security] Allowed safe command for local execution: ${params.command.slice(0, 100)}`,
