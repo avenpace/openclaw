@@ -55,7 +55,6 @@ export const cronHandlers: GatewayRequestHandlers = {
     }
     const p = params as {
       includeDisabled?: boolean;
-      agentId?: string;
       limit?: number;
       offset?: number;
       query?: string;
@@ -65,7 +64,6 @@ export const cronHandlers: GatewayRequestHandlers = {
     };
     const page = await context.cron.listPage({
       includeDisabled: p.includeDisabled,
-      agentId: p.agentId,
       limit: p.limit,
       offset: p.offset,
       query: p.query,
@@ -114,6 +112,7 @@ export const cronHandlers: GatewayRequestHandlers = {
       return;
     }
     const job = await context.cron.add(jobCreate);
+    context.logGateway.info("cron: job created", { jobId: job.id, schedule: jobCreate.schedule });
     respond(true, job, undefined);
   },
   "cron.update": async ({ params, respond, context }) => {
@@ -137,7 +136,6 @@ export const cronHandlers: GatewayRequestHandlers = {
       id?: string;
       jobId?: string;
       patch: Record<string, unknown>;
-      agentId?: string;
     };
     const jobId = p.id ?? p.jobId;
     if (!jobId) {
@@ -160,7 +158,8 @@ export const cronHandlers: GatewayRequestHandlers = {
         return;
       }
     }
-    const job = await context.cron.update(jobId, patch, { agentId: p.agentId });
+    const job = await context.cron.update(jobId, patch);
+    context.logGateway.info("cron: job updated", { jobId });
     respond(true, job, undefined);
   },
   "cron.remove": async ({ params, respond, context }) => {
@@ -175,7 +174,7 @@ export const cronHandlers: GatewayRequestHandlers = {
       );
       return;
     }
-    const p = params as { id?: string; jobId?: string; agentId?: string };
+    const p = params as { id?: string; jobId?: string };
     const jobId = p.id ?? p.jobId;
     if (!jobId) {
       respond(
@@ -185,7 +184,10 @@ export const cronHandlers: GatewayRequestHandlers = {
       );
       return;
     }
-    const result = await context.cron.remove(jobId, { agentId: p.agentId });
+    const result = await context.cron.remove(jobId);
+    if (result.removed) {
+      context.logGateway.info("cron: job removed", { jobId });
+    }
     respond(true, result, undefined);
   },
   "cron.run": async ({ params, respond, context }) => {
