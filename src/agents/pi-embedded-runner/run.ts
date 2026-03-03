@@ -774,6 +774,7 @@ export async function runEmbeddedPiAgent(
             devicesHandler: params.devicesHandler,
             cloudStorageHandler: params.cloudStorageHandler,
             imageResizeHandler: params.imageResizeHandler,
+            browserHandler: params.browserHandler,
           });
 
           const {
