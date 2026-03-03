@@ -606,6 +606,7 @@ export async function runEmbeddedAttempt(
           requireExplicitMessageTarget:
             params.requireExplicitMessageTarget ?? isSubagentSessionKey(params.sessionKey),
           disableMessageTool: params.disableMessageTool,
+          browserHandler: params.browserHandler,
         });
 
     // Add devices tools if handler is provided (platform-api injects this)

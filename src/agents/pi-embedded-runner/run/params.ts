@@ -7,6 +7,7 @@ import type { InputProvenance } from "../../../sessions/input-provenance.js";
 import type { ExecElevatedDefaults, ExecToolDefaults } from "../../bash-tools.js";
 import type { BlockReplyChunking, ToolResultFormat } from "../../pi-embedded-subscribe.js";
 import type { SkillSnapshot } from "../../skills.js";
+import type { BrowserHandler } from "../../tools/browser-tool.js";
 import type { CloudStorageHandler } from "../../tools/cloud-storage-tool.js";
 import type { DevicesHandler } from "../../tools/devices-tool.js";
 import type { ImageResizeHandler } from "../../tools/image-resize-tool.js";
@@ -126,6 +127,8 @@ export type RunEmbeddedPiAgentParams = {
   cloudStorageHandler?: CloudStorageHandler;
   /** Handler for image resize tools (resize, crop, convert, thumbnail images). */
   imageResizeHandler?: ImageResizeHandler;
+  /** Handler for browser control (via Clawku extension or similar remote browser). */
+  browserHandler?: BrowserHandler;
   /** Callback when reasoning/thinking ends. */
   onReasoningEnd?: () => void | Promise<void>;
 };

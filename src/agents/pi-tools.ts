@@ -18,6 +18,7 @@ import { listChannelAgentTools } from "./channel-tools.js";
 import { resolveImageSanitizationLimits } from "./image-sanitization.js";
 import type { ModelAuthMode } from "./model-auth.js";
 import { createOpenClawTools } from "./openclaw-tools.js";
+import type { BrowserHandler } from "./tools/browser-tool.js";
 import { wrapToolWithAbortSignal } from "./pi-tools.abort.js";
 import { wrapToolWithBeforeToolCallHook } from "./pi-tools.before-tool-call.js";
 import {
@@ -236,6 +237,8 @@ export function createOpenClawCodingTools(options?: {
   disableMessageTool?: boolean;
   /** Whether the sender is an owner (required for owner-only tools). */
   senderIsOwner?: boolean;
+  /** Handler for browser control via remote extension (e.g., Clawku). */
+  browserHandler?: BrowserHandler;
 }): AnyAgentTool[] {
   const execToolName = "exec";
   const sandbox = options?.sandbox?.enabled ? options.sandbox : undefined;
@@ -493,6 +496,7 @@ export function createOpenClawCodingTools(options?: {
       requesterAgentIdOverride: agentId,
       requesterSenderId: options?.senderId,
       senderIsOwner: options?.senderIsOwner,
+      browserHandler: options?.browserHandler,
     }),
   ];
   const toolsForMessageProvider = applyMessageProviderToolPolicy(tools, options?.messageProvider);

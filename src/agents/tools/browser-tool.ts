@@ -36,6 +36,22 @@ import {
   type NodeListNode,
 } from "./nodes-utils.js";
 
+/**
+ * Browser handler interface for platform-provided browser control.
+ * This allows routing browser commands through external services (e.g., Clawku extension)
+ * instead of the local OpenClaw browser relay.
+ */
+export type BrowserHandler = {
+  /** Check if browser extension is connected */
+  isConnected: () => boolean;
+  /** Execute a browser action */
+  execute: (action: string, params: Record<string, unknown>) => Promise<{
+    success: boolean;
+    result?: unknown;
+    error?: string;
+  }>;
+};
+
 function wrapBrowserExternalJson(params: {
   kind: "snapshot" | "console" | "tabs";
   payload: unknown;
@@ -314,25 +330,41 @@ function resolveBrowserBaseUrl(params: {
 export function createBrowserTool(opts?: {
   sandboxBridgeUrl?: string;
   allowHostControl?: boolean;
+  /** Platform-provided browser handler for remote browser control (e.g., Clawku extension) */
+  browserHandler?: BrowserHandler;
 }): AnyAgentTool {
   const targetDefault = opts?.sandboxBridgeUrl ? "sandbox" : "host";
   const hostHint =
     opts?.allowHostControl === false ? "Host target blocked by policy." : "Host target allowed.";
+  const hasBrowserHandler = !!opts?.browserHandler;
+  console.log(`[BrowserTool] createBrowserTool called: hasBrowserHandler=${hasBrowserHandler}`);
+
+  // Adjust description based on whether browser handler is available
+  const browserDescription = hasBrowserHandler
+    ? [
+        "Control the user's browser via the connected browser extension.",
+        "Actions: status, tabs, open, close, focus, navigate, snapshot, screenshot, act.",
+        "The browser extension allows taking screenshots, clicking elements, typing text, and navigating pages.",
+        "Use snapshot to see the current page structure, then use act to interact with elements by their ref (e.g., e12).",
+        "Always check status first to ensure the extension is connected before performing actions.",
+      ]
+    : [
+        "Control the browser via OpenClaw's browser control server (status/start/stop/profiles/tabs/open/snapshot/screenshot/actions).",
+        'Profiles: use profile="chrome" for Chrome extension relay takeover (your existing Chrome tabs). Use profile="openclaw" for the isolated openclaw-managed browser.',
+        'If the user mentions the Chrome extension / Browser Relay / toolbar button / "attach tab", ALWAYS use profile="chrome" (do not ask which profile).',
+        'When a node-hosted browser proxy is available, the tool may auto-route to it. Pin a node with node=<id|name> or target="node".',
+        "Chrome extension relay needs an attached tab: user must click the OpenClaw Browser Relay toolbar icon on the tab (badge ON). If no tab is connected, ask them to attach it.",
+        "When using refs from snapshot (e.g. e12), keep the same tab: prefer passing targetId from the snapshot response into subsequent actions (act/click/type/etc).",
+        'For stable, self-resolving refs across calls, use snapshot with refs="aria" (Playwright aria-ref ids). Default refs="role" are role+name-based.',
+        "Use snapshot+act for UI automation. Avoid act:wait by default; use only in exceptional cases when no reliable UI state exists.",
+        `target selects browser location (sandbox|host|node). Default: ${targetDefault}.`,
+        hostHint,
+      ];
+
   return {
     label: "Browser",
     name: "browser",
-    description: [
-      "Control the browser via OpenClaw's browser control server (status/start/stop/profiles/tabs/open/snapshot/screenshot/actions).",
-      'Profiles: use profile="chrome" for Chrome extension relay takeover (your existing Chrome tabs). Use profile="openclaw" for the isolated openclaw-managed browser.',
-      'If the user mentions the Chrome extension / Browser Relay / toolbar button / “attach tab”, ALWAYS use profile="chrome" (do not ask which profile).',
-      'When a node-hosted browser proxy is available, the tool may auto-route to it. Pin a node with node=<id|name> or target="node".',
-      "Chrome extension relay needs an attached tab: user must click the OpenClaw Browser Relay toolbar icon on the tab (badge ON). If no tab is connected, ask them to attach it.",
-      "When using refs from snapshot (e.g. e12), keep the same tab: prefer passing targetId from the snapshot response into subsequent actions (act/click/type/etc).",
-      'For stable, self-resolving refs across calls, use snapshot with refs="aria" (Playwright aria-ref ids). Default refs="role" are role+name-based.',
-      "Use snapshot+act for UI automation. Avoid act:wait by default; use only in exceptional cases when no reliable UI state exists.",
-      `target selects browser location (sandbox|host|node). Default: ${targetDefault}.`,
-      hostHint,
-    ].join(" "),
+    description: browserDescription.join(" "),
     parameters: BrowserToolSchema,
     execute: async (_toolCallId, args) => {
       const params = args as Record<string, unknown>;
@@ -340,6 +372,26 @@ export function createBrowserTool(opts?: {
       const profile = readStringParam(params, "profile");
       const requestedNode = readStringParam(params, "node");
       let target = readStringParam(params, "target") as "sandbox" | "host" | "node" | undefined;
+
+      console.log(`[BrowserTool] execute called: action=${action}, hasBrowserHandler=${!!opts?.browserHandler}`);
+
+      // If browserHandler is provided, route all commands through it
+      if (opts?.browserHandler) {
+        if (!opts.browserHandler.isConnected()) {
+          throw new Error(
+            "Browser extension not connected. Please pair your browser extension first:\n" +
+            "1. Install the Clawku Browser Extension\n" +
+            "2. Go to your Clawku dashboard → Devices → Browser Extension\n" +
+            "3. Click 'Generate Code' and enter it in the extension popup"
+          );
+        }
+
+        const result = await opts.browserHandler.execute(action, params);
+        if (!result.success) {
+          throw new Error(result.error || "Browser command failed");
+        }
+        return jsonResult(result.result);
+      }
 
       if (requestedNode && target && target !== "node") {
         throw new Error('node is only supported with target="node".');
