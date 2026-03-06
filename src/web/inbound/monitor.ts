@@ -38,6 +38,12 @@ export async function monitorWebInbox(options: {
   encryptionKey?: Buffer;
   /** Override DM policy - bypasses config resolution. Use 'allowlist' to silently ignore unauthorized senders. */
   dmPolicy?: "pairing" | "allowlist" | "open" | "disabled";
+  /** Override group policy - bypasses config resolution. */
+  groupPolicy?: "open" | "allowlist" | "disabled";
+  /** Override groupAllowFrom - bypasses config resolution. */
+  groupAllowFrom?: string[];
+  /** Override groups config - bypasses config resolution. */
+  groups?: Record<string, { requireMention?: boolean }>;
 }) {
   const inboundLogger = getChildLogger({ module: "web-inbound" });
   const inboundConsoleLog = createSubsystemLogger("gateway/channels/whatsapp").child("inbound");
@@ -217,6 +223,9 @@ export async function monitorWebInbox(options: {
         sock: { sendMessage: (jid, content) => sock.sendMessage(jid, content) },
         remoteJid,
         dmPolicyOverride: options.dmPolicy,
+        groupPolicyOverride: options.groupPolicy,
+        groupAllowFromOverride: options.groupAllowFrom,
+        groupsOverride: options.groups,
       });
       if (!access.allowed) {
         continue;
@@ -298,7 +307,13 @@ export async function monitorWebInbox(options: {
         await sock.sendMessage(chatJid, payload);
       };
       const timestamp = messageTimestampMs;
-      const mentionedJids = extractMentionedJids(msg.message as proto.IMessage | undefined);
+      const rawMentionedJids = extractMentionedJids(msg.message as proto.IMessage | undefined);
+      // Resolve @lid JIDs to phone numbers for mention matching
+      const mentionedJids = rawMentionedJids
+        ? await Promise.all(
+            rawMentionedJids.map(async (jid) => (await resolveInboundJid(jid)) ?? jid),
+          )
+        : undefined;
       const senderName = msg.pushName ?? undefined;
 
       inboundLogger.info(
