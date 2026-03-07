@@ -18,7 +18,7 @@ import { createDefaultDeps } from "./cli/deps.js";
 import { promptYesNo } from "./cli/prompt.js";
 import { waitForever } from "./cli/wait.js";
 import { loadConfig, clearConfigCache } from "./config/config.js";
-import { setConfigOverride } from "./config/runtime-overrides.js";
+import { setConfigOverride, getConfigOverrides } from "./config/runtime-overrides.js";
 import {
   deriveSessionKey,
   loadSessionStore,
@@ -45,6 +45,7 @@ import { installUnhandledRejectionHandler } from "./infra/unhandled-rejections.j
 import { enableConsoleCapture } from "./logging.js";
 import { applyMediaUnderstanding } from "./media-understanding/apply.js";
 import { transcribeFirstAudio } from "./media-understanding/audio-preflight.js";
+import { loadOpenClawPlugins } from "./plugins/loader.js";
 import { runCommandWithTimeout, runExec } from "./process/exec.js";
 import { monitorTelegramProvider } from "./telegram/monitor.js";
 import {
@@ -105,9 +106,11 @@ export {
   runCommandWithTimeout,
   runExec,
   runEmbeddedPiAgent,
+  loadOpenClawPlugins,
   saveSessionStore,
   sendMessageWhatsApp,
   setConfigOverride,
+  getConfigOverrides,
   startGatewayServer,
   startWebLoginWithQr,
   startWebLoginWithCode,
