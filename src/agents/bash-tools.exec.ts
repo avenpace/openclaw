@@ -250,23 +250,10 @@ export function createExecTool(
       const isExternalChannel = EXTERNAL_CHANNEL_PROVIDERS.has(messageProvider ?? "");
       const execProxy = defaults?.proxy;
 
-      // SKILL-BASED GATING for external channels: Require skills to be installed
-      if (isExternalChannel) {
-        const installedSkillCount = defaults?.installedSkillCount ?? 0;
-        if (installedSkillCount === 0) {
-          console.log(
-            `[Security] Blocked exec for external channel - no skills installed: ${params.command.slice(0, 100)}`,
-          );
-          throw new Error(
-            "I don't have any skills installed that would allow me to run this command. Please install the appropriate skill from ClawHub.",
-          );
-        }
-      }
-
       // STRICT COMMAND ROUTING for external channels:
-      // - Safe commands (curl, jq, etc.) run locally
-      // - Unsafe commands MUST go to user's paired device
-      // - If no device connected, block unsafe commands entirely
+      // - Safe commands (curl, jq, base64, etc.) run locally - no skill requirement
+      // - Unsafe commands MUST go to user's paired device OR require skills installed
+      // - If no device connected and no skills, block unsafe commands entirely
       if (isExternalChannel) {
         // Analyze command to determine if it's safe for local execution
         const analysis = analyzeShellCommand({ command: params.command });
@@ -280,6 +267,17 @@ export function createExecTool(
           });
 
         if (!isSafeCommand) {
+          // SKILL-BASED GATING: For unsafe commands, require skills to be installed
+          const installedSkillCount = defaults?.installedSkillCount ?? 0;
+          if (installedSkillCount === 0 && !execProxy) {
+            console.log(
+              `[Security] Blocked exec for external channel - no skills installed: ${params.command.slice(0, 100)}`,
+            );
+            throw new Error(
+              "I don't have any skills installed that would allow me to run this command. Please install the appropriate skill from ClawHub.",
+            );
+          }
+
           // Command is NOT in safe whitelist - MUST route to user's paired device
           if (!execProxy) {
             // No device connected - block the command
