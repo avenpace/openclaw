@@ -55,6 +55,12 @@ export async function checkInboundAccessControl(params: {
   remoteJid: string;
   /** Override DM policy - bypasses config resolution. */
   dmPolicyOverride?: "pairing" | "allowlist" | "open" | "disabled";
+  /** Override group policy - bypasses config resolution. */
+  groupPolicyOverride?: "open" | "allowlist" | "disabled";
+  /** Override group allowlist - bypasses config resolution. */
+  groupAllowFromOverride?: string[];
+  /** Override groups config - bypasses config resolution. */
+  groupsOverride?: Record<string, { requireMention?: boolean }>;
 }): Promise<InboundAccessControlResult> {
   const cfg = loadConfig();
   const account = resolveWhatsAppAccount({
@@ -73,8 +79,6 @@ export async function checkInboundAccessControl(params: {
   const defaultAllowFrom =
     configuredAllowFrom.length === 0 && params.selfE164 ? [params.selfE164] : [];
   const dmAllowFrom = configuredAllowFrom.length > 0 ? configuredAllowFrom : defaultAllowFrom;
-  const groupAllowFrom =
-    account.groupAllowFrom ?? (configuredAllowFrom.length > 0 ? configuredAllowFrom : undefined);
   const isSamePhone = params.from === params.selfE164;
   const isSelfChat = account.selfChatMode ?? isSelfChatMode(params.selfE164, configuredAllowFrom);
   const pairingGraceMs =
@@ -91,11 +95,19 @@ export async function checkInboundAccessControl(params: {
   // - "disabled": block all group messages entirely
   // - "allowlist": only allow group messages from senders in groupAllowFrom/allowFrom
   const defaultGroupPolicy = resolveDefaultGroupPolicy(cfg);
-  const { groupPolicy, providerMissingFallbackApplied } = resolveWhatsAppRuntimeGroupPolicy({
-    providerConfigPresent: cfg.channels?.whatsapp !== undefined,
-    groupPolicy: account.groupPolicy,
-    defaultGroupPolicy,
-  });
+  // Use override if provided (platform-level control), otherwise fall back to config
+  const { groupPolicy, providerMissingFallbackApplied } = params.groupPolicyOverride
+    ? { groupPolicy: params.groupPolicyOverride, providerMissingFallbackApplied: false }
+    : resolveWhatsAppRuntimeGroupPolicy({
+        providerConfigPresent: cfg.channels?.whatsapp !== undefined,
+        groupPolicy: account.groupPolicy,
+        defaultGroupPolicy,
+      });
+  // Also use groupAllowFrom override if provided
+  const groupAllowFrom =
+    params.groupAllowFromOverride ??
+    account.groupAllowFrom ??
+    (configuredAllowFrom.length > 0 ? configuredAllowFrom : undefined);
   warnMissingProviderGroupPolicyFallbackOnce({
     providerMissingFallbackApplied,
     providerKey: "whatsapp",
