@@ -1,12 +1,13 @@
 import type { OpenClawConfig, SkillConfig } from "../../config/config.js";
-import type { SkillEligibilityContext, SkillEntry } from "./types.js";
 import {
   hasBinary,
   isConfigPathTruthyWithDefaults,
   resolveConfigPath,
   resolveRuntimePlatform,
 } from "../../shared/config-eval.js";
+import { normalizeStringEntries } from "../../shared/string-normalization.js";
 import { resolveSkillKey } from "./frontmatter.js";
+import type { SkillEligibilityContext, SkillEntry } from "./types.js";
 
 const VERBOSE_LOGS = process.env.VERBOSE_LOGS === "true" || process.env.NODE_ENV === "development";
 
@@ -49,7 +50,7 @@ function normalizeAllowlist(input: unknown): string[] | undefined {
   if (!Array.isArray(input)) {
     return undefined;
   }
-  const normalized = input.map((entry) => String(entry).trim()).filter(Boolean);
+  const normalized = normalizeStringEntries(input);
   return normalized.length > 0 ? normalized : undefined;
 }
 

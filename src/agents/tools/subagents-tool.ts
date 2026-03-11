@@ -7,7 +7,6 @@ import {
   sortSubagentRuns,
   type SubagentTargetResolution,
 } from "../../auto-reply/reply/subagents-utils.js";
-import { DEFAULT_SUBAGENT_MAX_SPAWN_DEPTH } from "../../config/agent-limits.js";
 import { loadConfig } from "../../config/config.js";
 import type { SessionEntry } from "../../config/sessions.js";
 import { loadSessionStore, resolveStorePath, updateSessionStore } from "../../config/sessions.js";
@@ -28,7 +27,6 @@ import { INTERNAL_MESSAGE_CHANNEL } from "../../utils/message-channel.js";
 import { AGENT_LANE_SUBAGENT } from "../lanes.js";
 import { abortEmbeddedPiRun } from "../pi-embedded.js";
 import { optionalStringEnum } from "../schema/typebox.js";
-import { getSubagentDepthFromSessionStore } from "../subagent-depth.js";
 import {
   clearSubagentRunSteerRestart,
   countPendingDescendantRuns,
@@ -71,9 +69,11 @@ type ResolvedRequesterKey = {
   callerIsSubagent: boolean;
 };
 
-function resolveRunStatus(entry: SubagentRunRecord, options?: { hasPendingDescendants?: boolean }) {
-  if (options?.hasPendingDescendants) {
-    return "active";
+function resolveRunStatus(entry: SubagentRunRecord, options?: { pendingDescendants?: number }) {
+  const pendingDescendants = Math.max(0, options?.pendingDescendants ?? 0);
+  if (pendingDescendants > 0) {
+    const childLabel = pendingDescendants === 1 ? "child" : "children";
+    return `active (waiting on ${pendingDescendants} ${childLabel})`;
   }
   if (!entry.endedAt) {
     return "running";
@@ -135,13 +135,14 @@ function resolveModelDisplay(entry?: SessionEntry, fallbackModel?: string) {
 function resolveSubagentTarget(
   runs: SubagentRunRecord[],
   token: string | undefined,
-  options?: { recentMinutes?: number },
+  options?: { recentMinutes?: number; isActive?: (entry: SubagentRunRecord) => boolean },
 ): SubagentTargetResolution {
   return resolveSubagentTargetFromRuns({
     runs,
     token,
     recentWindowMinutes: options?.recentMinutes ?? DEFAULT_RECENT_MINUTES,
     label: (entry) => resolveSubagentLabel(entry),
+    isActive: options?.isActive,
     errors: {
       missingTarget: "Missing subagent target.",
       invalidIndex: (value) => `Invalid subagent index: ${value}`,
@@ -201,34 +202,26 @@ function resolveRequesterKey(params: {
     };
   }
 
-  // Check if this sub-agent can spawn children (orchestrator).
-  // If so, it should see its own children, not its parent's children.
-  const callerDepth = getSubagentDepthFromSessionStore(callerSessionKey, { cfg: params.cfg });
-  const maxSpawnDepth =
-    params.cfg.agents?.defaults?.subagents?.maxSpawnDepth ?? DEFAULT_SUBAGENT_MAX_SPAWN_DEPTH;
-  if (callerDepth < maxSpawnDepth) {
-    // Orchestrator sub-agent: use its own session key as requester
-    // so it sees children it spawned.
-    return {
-      requesterSessionKey: callerSessionKey,
-      callerSessionKey,
-      callerIsSubagent: true,
-    };
-  }
-
-  // Leaf sub-agent: walk up to its parent so it can see sibling runs.
-  const cache = new Map<string, Record<string, SessionEntry>>();
-  const callerEntry = resolveSessionEntryForKey({
-    cfg: params.cfg,
-    key: callerSessionKey,
-    cache,
-  }).entry;
-  const spawnedBy = typeof callerEntry?.spawnedBy === "string" ? callerEntry.spawnedBy.trim() : "";
   return {
-    requesterSessionKey: spawnedBy || callerSessionKey,
+    // Subagents can only control runs spawned from their own session key.
+    // Announce routing still uses SubagentRunRecord.requesterSessionKey elsewhere.
+    requesterSessionKey: callerSessionKey,
     callerSessionKey,
     callerIsSubagent: true,
   };
+}
+
+function ensureSubagentControlsOwnDescendants(params: {
+  requester: ResolvedRequesterKey;
+  entry: SubagentRunRecord;
+}) {
+  if (!params.requester.callerIsSubagent) {
+    return undefined;
+  }
+  if (params.entry.requesterSessionKey === params.requester.callerSessionKey) {
+    return undefined;
+  }
+  return "Subagents can only control runs spawned from their own session.";
 }
 
 async function killSubagentRun(params: {
@@ -363,21 +356,22 @@ export function createSubagentsTool(opts?: { agentSessionKey?: string }): AnyAge
       const recentMinutes = recentMinutesRaw
         ? Math.max(1, Math.min(MAX_RECENT_MINUTES, Math.floor(recentMinutesRaw)))
         : DEFAULT_RECENT_MINUTES;
+      const pendingDescendantCache = new Map<string, number>();
+      const pendingDescendantCount = (sessionKey: string) => {
+        if (pendingDescendantCache.has(sessionKey)) {
+          return pendingDescendantCache.get(sessionKey) ?? 0;
+        }
+        const pending = Math.max(0, countPendingDescendantRuns(sessionKey));
+        pendingDescendantCache.set(sessionKey, pending);
+        return pending;
+      };
+      const isActiveRun = (entry: SubagentRunRecord) =>
+        !entry.endedAt || pendingDescendantCount(entry.childSessionKey) > 0;
 
       if (action === "list") {
         const now = Date.now();
         const recentCutoff = now - recentMinutes * 60_000;
         const cache = new Map<string, Record<string, SessionEntry>>();
-
-        const pendingDescendantCache = new Map<string, boolean>();
-        const hasPendingDescendants = (sessionKey: string) => {
-          if (pendingDescendantCache.has(sessionKey)) {
-            return pendingDescendantCache.get(sessionKey) === true;
-          }
-          const hasPending = countPendingDescendantRuns(sessionKey) > 0;
-          pendingDescendantCache.set(sessionKey, hasPending);
-          return hasPending;
-        };
 
         let index = 1;
         const buildListEntry = (entry: SubagentRunRecord, runtimeMs: number) => {
@@ -388,8 +382,9 @@ export function createSubagentsTool(opts?: { agentSessionKey?: string }): AnyAge
           }).entry;
           const totalTokens = resolveTotalTokens(sessionEntry);
           const usageText = formatTokenUsageDisplay(sessionEntry);
+          const pendingDescendants = pendingDescendantCount(entry.childSessionKey);
           const status = resolveRunStatus(entry, {
-            hasPendingDescendants: hasPendingDescendants(entry.childSessionKey),
+            pendingDescendants,
           });
           const runtime = formatDurationCompact(runtimeMs);
           const label = truncateLine(resolveSubagentLabel(entry), 48);
@@ -402,6 +397,7 @@ export function createSubagentsTool(opts?: { agentSessionKey?: string }): AnyAge
             label,
             task,
             status,
+            pendingDescendants,
             runtime,
             runtimeMs,
             model: resolveModelRef(sessionEntry) || entry.model,
@@ -412,14 +408,12 @@ export function createSubagentsTool(opts?: { agentSessionKey?: string }): AnyAge
           return { line, view: entry.endedAt ? { ...baseView, endedAt: entry.endedAt } : baseView };
         };
         const active = runs
-          .filter((entry) => !entry.endedAt || hasPendingDescendants(entry.childSessionKey))
+          .filter((entry) => isActiveRun(entry))
           .map((entry) => buildListEntry(entry, now - (entry.startedAt ?? entry.createdAt)));
         const recent = runs
           .filter(
             (entry) =>
-              !!entry.endedAt &&
-              !hasPendingDescendants(entry.childSessionKey) &&
-              (entry.endedAt ?? 0) >= recentCutoff,
+              !isActiveRun(entry) && !!entry.endedAt && (entry.endedAt ?? 0) >= recentCutoff,
           )
           .map((entry) =>
             buildListEntry(entry, (entry.endedAt ?? now) - (entry.startedAt ?? entry.createdAt)),
@@ -483,13 +477,30 @@ export function createSubagentsTool(opts?: { agentSessionKey?: string }): AnyAge
                 : "no running subagents to kill.",
           });
         }
-        const resolved = resolveSubagentTarget(runs, target, { recentMinutes });
+        const resolved = resolveSubagentTarget(runs, target, {
+          recentMinutes,
+          isActive: isActiveRun,
+        });
         if (!resolved.entry) {
           return jsonResult({
             status: "error",
             action: "kill",
             target,
             error: resolved.error ?? "Unknown subagent target.",
+          });
+        }
+        const ownershipError = ensureSubagentControlsOwnDescendants({
+          requester,
+          entry: resolved.entry,
+        });
+        if (ownershipError) {
+          return jsonResult({
+            status: "forbidden",
+            action: "kill",
+            target,
+            runId: resolved.entry.runId,
+            sessionKey: resolved.entry.childSessionKey,
+            error: ownershipError,
           });
         }
         const killCache = new Map<string, Record<string, SessionEntry>>();
@@ -549,13 +560,30 @@ export function createSubagentsTool(opts?: { agentSessionKey?: string }): AnyAge
             error: `Message too long (${message.length} chars, max ${MAX_STEER_MESSAGE_CHARS}).`,
           });
         }
-        const resolved = resolveSubagentTarget(runs, target, { recentMinutes });
+        const resolved = resolveSubagentTarget(runs, target, {
+          recentMinutes,
+          isActive: isActiveRun,
+        });
         if (!resolved.entry) {
           return jsonResult({
             status: "error",
             action: "steer",
             target,
             error: resolved.error ?? "Unknown subagent target.",
+          });
+        }
+        const ownershipError = ensureSubagentControlsOwnDescendants({
+          requester,
+          entry: resolved.entry,
+        });
+        if (ownershipError) {
+          return jsonResult({
+            status: "forbidden",
+            action: "steer",
+            target,
+            runId: resolved.entry.runId,
+            sessionKey: resolved.entry.childSessionKey,
+            error: ownershipError,
           });
         }
         if (resolved.entry.endedAt) {

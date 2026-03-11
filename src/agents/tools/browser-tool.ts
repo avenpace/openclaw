@@ -1,10 +1,8 @@
 import crypto from "node:crypto";
-import type { AgentToolResult } from "@mariozechner/pi-agent-core";
 import {
   browserAct,
   browserArmDialog,
   browserArmFileChooser,
-  browserConsoleMessages,
   browserNavigate,
   browserPdfSave,
   browserScreenshotAction,
@@ -14,18 +12,24 @@ import {
   browserFocusTab,
   browserOpenTab,
   browserProfiles,
-  browserSnapshot,
   browserStart,
   browserStatus,
   browserStop,
-  browserTabs,
 } from "../../browser/client.js";
 import { resolveBrowserConfig } from "../../browser/config.js";
-import { DEFAULT_AI_SNAPSHOT_MAX_CHARS } from "../../browser/constants.js";
 import { DEFAULT_UPLOAD_DIR, resolveExistingPathsWithinRoot } from "../../browser/paths.js";
 import { applyBrowserProxyPaths, persistBrowserProxyFiles } from "../../browser/proxy-files.js";
+import {
+  trackSessionBrowserTab,
+  untrackSessionBrowserTab,
+} from "../../browser/session-tab-registry.js";
 import { loadConfig } from "../../config/config.js";
-import { wrapExternalContent } from "../../security/external-content.js";
+import {
+  executeActAction,
+  executeConsoleAction,
+  executeSnapshotAction,
+  executeTabsAction,
+} from "./browser-tool.actions.js";
 import { BrowserToolSchema } from "./browser-tool.schema.js";
 import { type AnyAgentTool, imageResultFromFile, jsonResult, readStringParam } from "./common.js";
 import { callGatewayTool } from "./gateway.js";
@@ -45,51 +49,15 @@ export type BrowserHandler = {
   /** Check if browser extension is connected */
   isConnected: () => boolean;
   /** Execute a browser action */
-  execute: (action: string, params: Record<string, unknown>) => Promise<{
+  execute: (
+    action: string,
+    params: Record<string, unknown>,
+  ) => Promise<{
     success: boolean;
     result?: unknown;
     error?: string;
   }>;
 };
-
-function wrapBrowserExternalJson(params: {
-  kind: "snapshot" | "console" | "tabs";
-  payload: unknown;
-  includeWarning?: boolean;
-}): { wrappedText: string; safeDetails: Record<string, unknown> } {
-  const extractedText = JSON.stringify(params.payload, null, 2);
-  const wrappedText = wrapExternalContent(extractedText, {
-    source: "browser",
-    includeWarning: params.includeWarning ?? true,
-  });
-  return {
-    wrappedText,
-    safeDetails: {
-      ok: true,
-      externalContent: {
-        untrusted: true,
-        source: "browser",
-        kind: params.kind,
-        wrapped: true,
-      },
-    },
-  };
-}
-
-function formatTabsToolResult(tabs: unknown[]): AgentToolResult<unknown> {
-  const wrapped = wrapBrowserExternalJson({
-    kind: "tabs",
-    payload: { tabs },
-    includeWarning: false,
-  });
-  const content: AgentToolResult<unknown>["content"] = [
-    { type: "text", text: wrapped.wrappedText },
-  ];
-  return {
-    content,
-    details: { ...wrapped.safeDetails, tabCount: tabs.length },
-  };
-}
 
 function readOptionalTargetAndTimeout(params: Record<string, unknown>) {
   const targetId = typeof params.targetId === "string" ? params.targetId.trim() : undefined;
@@ -166,6 +134,7 @@ type BrowserProxyResult = {
 };
 
 const DEFAULT_BROWSER_PROXY_TIMEOUT_MS = 20_000;
+const BROWSER_PROXY_GATEWAY_TIMEOUT_SLACK_MS = 5_000;
 
 type BrowserNodeTarget = {
   nodeId: string;
@@ -257,10 +226,11 @@ async function callBrowserProxy(params: {
   timeoutMs?: number;
   profile?: string;
 }): Promise<BrowserProxyResult> {
-  const gatewayTimeoutMs =
+  const proxyTimeoutMs =
     typeof params.timeoutMs === "number" && Number.isFinite(params.timeoutMs)
       ? Math.max(1, Math.floor(params.timeoutMs))
       : DEFAULT_BROWSER_PROXY_TIMEOUT_MS;
+  const gatewayTimeoutMs = proxyTimeoutMs + BROWSER_PROXY_GATEWAY_TIMEOUT_SLACK_MS;
   const payload = await callGatewayTool<{ payloadJSON?: string; payload?: string }>(
     "node.invoke",
     { timeoutMs: gatewayTimeoutMs },
@@ -272,7 +242,7 @@ async function callBrowserProxy(params: {
         path: params.path,
         query: params.query,
         body: params.body,
-        timeoutMs: params.timeoutMs,
+        timeoutMs: proxyTimeoutMs,
         profile: params.profile,
       },
       idempotencyKey: crypto.randomUUID(),
@@ -330,6 +300,7 @@ function resolveBrowserBaseUrl(params: {
 export function createBrowserTool(opts?: {
   sandboxBridgeUrl?: string;
   allowHostControl?: boolean;
+  agentSessionKey?: string;
   /** Platform-provided browser handler for remote browser control (e.g., Clawku extension) */
   browserHandler?: BrowserHandler;
 }): AnyAgentTool {
@@ -373,16 +344,18 @@ export function createBrowserTool(opts?: {
       const requestedNode = readStringParam(params, "node");
       let target = readStringParam(params, "target") as "sandbox" | "host" | "node" | undefined;
 
-      console.log(`[BrowserTool] execute called: action=${action}, hasBrowserHandler=${!!opts?.browserHandler}`);
+      console.log(
+        `[BrowserTool] execute called: action=${action}, hasBrowserHandler=${!!opts?.browserHandler}`,
+      );
 
       // If browserHandler is provided, route all commands through it
       if (opts?.browserHandler) {
         if (!opts.browserHandler.isConnected()) {
           throw new Error(
             "Browser extension not connected. Please pair your browser extension first:\n" +
-            "1. Install the Clawku Browser Extension\n" +
-            "2. Go to your Clawku dashboard → Devices → Browser Extension\n" +
-            "3. Click 'Generate Code' and enter it in the extension popup"
+              "1. Install the Clawku Browser Extension\n" +
+              "2. Go to your Clawku dashboard → Devices → Browser Extension\n" +
+              "3. Click 'Generate Code' and enter it in the extension popup",
           );
         }
 
@@ -497,19 +470,7 @@ export function createBrowserTool(opts?: {
           }
           return jsonResult({ profiles: await browserProfiles(baseUrl) });
         case "tabs":
-          if (proxyRequest) {
-            const result = await proxyRequest({
-              method: "GET",
-              path: "/tabs",
-              profile,
-            });
-            const tabs = (result as { tabs?: unknown[] }).tabs ?? [];
-            return formatTabsToolResult(tabs);
-          }
-          {
-            const tabs = await browserTabs(baseUrl, { profile });
-            return formatTabsToolResult(tabs);
-          }
+          return await executeTabsAction({ baseUrl, profile, proxyRequest });
         case "open": {
           const targetUrl = readTargetUrlParam(params);
           if (proxyRequest) {
@@ -521,7 +482,14 @@ export function createBrowserTool(opts?: {
             });
             return jsonResult(result);
           }
-          return jsonResult(await browserOpenTab(baseUrl, targetUrl, { profile }));
+          const opened = await browserOpenTab(baseUrl, targetUrl, { profile });
+          trackSessionBrowserTab({
+            sessionKey: opts?.agentSessionKey,
+            targetId: opened.targetId,
+            baseUrl,
+            profile,
+          });
+          return jsonResult(opened);
         }
         case "focus": {
           const targetId = readStringParam(params, "targetId", {
@@ -558,153 +526,24 @@ export function createBrowserTool(opts?: {
           }
           if (targetId) {
             await browserCloseTab(baseUrl, targetId, { profile });
+            untrackSessionBrowserTab({
+              sessionKey: opts?.agentSessionKey,
+              targetId,
+              baseUrl,
+              profile,
+            });
           } else {
             await browserAct(baseUrl, { kind: "close" }, { profile });
           }
           return jsonResult({ ok: true });
         }
-        case "snapshot": {
-          const snapshotDefaults = loadConfig().browser?.snapshotDefaults;
-          const format =
-            params.snapshotFormat === "ai" || params.snapshotFormat === "aria"
-              ? params.snapshotFormat
-              : "ai";
-          const mode =
-            params.mode === "efficient"
-              ? "efficient"
-              : format === "ai" && snapshotDefaults?.mode === "efficient"
-                ? "efficient"
-                : undefined;
-          const labels = typeof params.labels === "boolean" ? params.labels : undefined;
-          const refs = params.refs === "aria" || params.refs === "role" ? params.refs : undefined;
-          const hasMaxChars = Object.hasOwn(params, "maxChars");
-          const targetId = typeof params.targetId === "string" ? params.targetId.trim() : undefined;
-          const limit =
-            typeof params.limit === "number" && Number.isFinite(params.limit)
-              ? params.limit
-              : undefined;
-          const maxChars =
-            typeof params.maxChars === "number" &&
-            Number.isFinite(params.maxChars) &&
-            params.maxChars > 0
-              ? Math.floor(params.maxChars)
-              : undefined;
-          const resolvedMaxChars =
-            format === "ai"
-              ? hasMaxChars
-                ? maxChars
-                : mode === "efficient"
-                  ? undefined
-                  : DEFAULT_AI_SNAPSHOT_MAX_CHARS
-              : undefined;
-          const interactive =
-            typeof params.interactive === "boolean" ? params.interactive : undefined;
-          const compact = typeof params.compact === "boolean" ? params.compact : undefined;
-          const depth =
-            typeof params.depth === "number" && Number.isFinite(params.depth)
-              ? params.depth
-              : undefined;
-          const selector = typeof params.selector === "string" ? params.selector.trim() : undefined;
-          const frame = typeof params.frame === "string" ? params.frame.trim() : undefined;
-          const snapshot = proxyRequest
-            ? ((await proxyRequest({
-                method: "GET",
-                path: "/snapshot",
-                profile,
-                query: {
-                  format,
-                  targetId,
-                  limit,
-                  ...(typeof resolvedMaxChars === "number" ? { maxChars: resolvedMaxChars } : {}),
-                  refs,
-                  interactive,
-                  compact,
-                  depth,
-                  selector,
-                  frame,
-                  labels,
-                  mode,
-                },
-              })) as Awaited<ReturnType<typeof browserSnapshot>>)
-            : await browserSnapshot(baseUrl, {
-                format,
-                targetId,
-                limit,
-                ...(typeof resolvedMaxChars === "number" ? { maxChars: resolvedMaxChars } : {}),
-                refs,
-                interactive,
-                compact,
-                depth,
-                selector,
-                frame,
-                labels,
-                mode,
-                profile,
-              });
-          if (snapshot.format === "ai") {
-            const extractedText = snapshot.snapshot ?? "";
-            const wrappedSnapshot = wrapExternalContent(extractedText, {
-              source: "browser",
-              includeWarning: true,
-            });
-            const safeDetails = {
-              ok: true,
-              format: snapshot.format,
-              targetId: snapshot.targetId,
-              url: snapshot.url,
-              truncated: snapshot.truncated,
-              stats: snapshot.stats,
-              refs: snapshot.refs ? Object.keys(snapshot.refs).length : undefined,
-              labels: snapshot.labels,
-              labelsCount: snapshot.labelsCount,
-              labelsSkipped: snapshot.labelsSkipped,
-              imagePath: snapshot.imagePath,
-              imageType: snapshot.imageType,
-              externalContent: {
-                untrusted: true,
-                source: "browser",
-                kind: "snapshot",
-                format: "ai",
-                wrapped: true,
-              },
-            };
-            if (labels && snapshot.imagePath) {
-              return await imageResultFromFile({
-                label: "browser:snapshot",
-                path: snapshot.imagePath,
-                extraText: wrappedSnapshot,
-                details: safeDetails,
-              });
-            }
-            return {
-              content: [{ type: "text" as const, text: wrappedSnapshot }],
-              details: safeDetails,
-            };
-          }
-          {
-            const wrapped = wrapBrowserExternalJson({
-              kind: "snapshot",
-              payload: snapshot,
-            });
-            return {
-              content: [{ type: "text" as const, text: wrapped.wrappedText }],
-              details: {
-                ...wrapped.safeDetails,
-                format: "aria",
-                targetId: snapshot.targetId,
-                url: snapshot.url,
-                nodeCount: snapshot.nodes.length,
-                externalContent: {
-                  untrusted: true,
-                  source: "browser",
-                  kind: "snapshot",
-                  format: "aria",
-                  wrapped: true,
-                },
-              },
-            };
-          }
-        }
+        case "snapshot":
+          return await executeSnapshotAction({
+            input: params,
+            baseUrl,
+            profile,
+            proxyRequest,
+          });
         case "screenshot": {
           const targetId = readStringParam(params, "targetId");
           const fullPage = Boolean(params.fullPage);
@@ -761,50 +600,13 @@ export function createBrowserTool(opts?: {
             }),
           );
         }
-        case "console": {
-          const level = typeof params.level === "string" ? params.level.trim() : undefined;
-          const targetId = typeof params.targetId === "string" ? params.targetId.trim() : undefined;
-          if (proxyRequest) {
-            const result = (await proxyRequest({
-              method: "GET",
-              path: "/console",
-              profile,
-              query: {
-                level,
-                targetId,
-              },
-            })) as { ok?: boolean; targetId?: string; messages?: unknown[] };
-            const wrapped = wrapBrowserExternalJson({
-              kind: "console",
-              payload: result,
-              includeWarning: false,
-            });
-            return {
-              content: [{ type: "text" as const, text: wrapped.wrappedText }],
-              details: {
-                ...wrapped.safeDetails,
-                targetId: typeof result.targetId === "string" ? result.targetId : undefined,
-                messageCount: Array.isArray(result.messages) ? result.messages.length : undefined,
-              },
-            };
-          }
-          {
-            const result = await browserConsoleMessages(baseUrl, { level, targetId, profile });
-            const wrapped = wrapBrowserExternalJson({
-              kind: "console",
-              payload: result,
-              includeWarning: false,
-            });
-            return {
-              content: [{ type: "text" as const, text: wrapped.wrappedText }],
-              details: {
-                ...wrapped.safeDetails,
-                targetId: result.targetId,
-                messageCount: result.messages.length,
-              },
-            };
-          }
-        }
+        case "console":
+          return await executeConsoleAction({
+            input: params,
+            baseUrl,
+            profile,
+            proxyRequest,
+          });
         case "pdf": {
           const targetId = typeof params.targetId === "string" ? params.targetId.trim() : undefined;
           const result = proxyRequest
@@ -899,66 +701,12 @@ export function createBrowserTool(opts?: {
           if (!request) {
             throw new Error("request required");
           }
-          try {
-            const result = proxyRequest
-              ? await proxyRequest({
-                  method: "POST",
-                  path: "/act",
-                  profile,
-                  body: request,
-                })
-              : await browserAct(baseUrl, request, {
-                  profile,
-                });
-            return jsonResult(result);
-          } catch (err) {
-            const msg = String(err);
-            if (msg.includes("404:") && msg.includes("tab not found") && profile === "chrome") {
-              const targetId =
-                typeof request.targetId === "string" ? request.targetId.trim() : undefined;
-              // Some Chrome relay targetIds can go stale between snapshots and actions.
-              // Retry once without targetId to let relay use the currently attached tab.
-              if (targetId) {
-                const retryRequest = { ...request };
-                delete retryRequest.targetId;
-                try {
-                  const retryResult = proxyRequest
-                    ? await proxyRequest({
-                        method: "POST",
-                        path: "/act",
-                        profile,
-                        body: retryRequest,
-                      })
-                    : await browserAct(baseUrl, retryRequest as Parameters<typeof browserAct>[1], {
-                        profile,
-                      });
-                  return jsonResult(retryResult);
-                } catch {
-                  // Fall through to explicit stale-target guidance.
-                }
-              }
-              const tabs = proxyRequest
-                ? ((
-                    (await proxyRequest({
-                      method: "GET",
-                      path: "/tabs",
-                      profile,
-                    })) as { tabs?: unknown[] }
-                  ).tabs ?? [])
-                : await browserTabs(baseUrl, { profile }).catch(() => []);
-              if (!tabs.length) {
-                throw new Error(
-                  "No Chrome tabs are attached via the OpenClaw Browser Relay extension. Click the toolbar icon on the tab you want to control (badge ON), then retry.",
-                  { cause: err },
-                );
-              }
-              throw new Error(
-                `Chrome tab not found (stale targetId?). Run action=tabs profile="chrome" and use one of the returned targetIds.`,
-                { cause: err },
-              );
-            }
-            throw err;
-          }
+          return await executeActAction({
+            request,
+            baseUrl,
+            profile,
+            proxyRequest,
+          });
         }
         default:
           throw new Error(`Unknown action: ${action}`);

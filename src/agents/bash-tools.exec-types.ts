@@ -74,6 +74,21 @@ export type ExecToolDetails =
       command: string;
       cwd?: string;
       nodeId?: string;
+      warningText?: string;
+    }
+  | {
+      status: "approval-unavailable";
+      reason:
+        | "initiating-platform-disabled"
+        | "initiating-platform-unsupported"
+        | "no-approval-route";
+      channelLabel?: string;
+      sentApproverDms?: boolean;
+      host: ExecHost;
+      command: string;
+      cwd?: string;
+      nodeId?: string;
+      warningText?: string;
     }
   | {
       // Platform: command sent to user's paired device

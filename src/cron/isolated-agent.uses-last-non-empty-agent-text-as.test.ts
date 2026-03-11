@@ -9,12 +9,11 @@ import { runCronIsolatedAgentTurn } from "./isolated-agent.js";
 import {
   makeCfg,
   makeJob,
-  withTempCronHome,
+  withTempCronHome as withTempHome,
   writeSessionStore,
   writeSessionStoreEntries,
 } from "./isolated-agent.test-harness.js";
 import type { CronJob } from "./types.js";
-const withTempHome = withTempCronHome;
 
 function makeDeps(): CliDeps {
   return {
@@ -149,6 +148,19 @@ async function runTurnWithStoredModelOverride(
   });
 }
 
+async function runStoredOverrideAndExpectModel(params: {
+  home: string;
+  deterministicCatalog: Array<{ id: string; name: string; provider: string }>;
+  jobPayload: CronJob["payload"];
+  expected: { provider: string; model: string };
+}) {
+  vi.mocked(runEmbeddedPiAgent).mockClear();
+  vi.mocked(loadModelCatalog).mockResolvedValue(params.deterministicCatalog);
+  const res = (await runTurnWithStoredModelOverride(params.home, params.jobPayload)).res;
+  expect(res.status).toBe("ok");
+  expectEmbeddedProviderModel(params.expected);
+}
+
 describe("runCronIsolatedAgentTurn", () => {
   beforeEach(() => {
     vi.mocked(runEmbeddedPiAgent).mockClear();
@@ -267,7 +279,7 @@ describe("runCronIsolatedAgentTurn", () => {
       const lines = call?.prompt?.split("\n") ?? [];
       expect(lines[0]).toContain("[cron:job-1");
       expect(lines[0]).toContain("do it");
-      expect(lines[1]).toMatch(/^Current time: .+ \(.+\)$/);
+      expect(lines[1]).toMatch(/^Current time: .+ \(.+\) \/ \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC$/);
     });
   });
 
@@ -323,6 +335,20 @@ describe("runCronIsolatedAgentTurn", () => {
 
   it("applies model overrides with correct precedence", async () => {
     await withTempHome(async (home) => {
+      const deterministicCatalog = [
+        {
+          id: "gpt-4.1-mini",
+          name: "GPT-4.1 Mini",
+          provider: "openai",
+        },
+        {
+          id: "claude-opus-4-5",
+          name: "Claude Opus 4.5",
+          provider: "anthropic",
+        },
+      ];
+      vi.mocked(loadModelCatalog).mockResolvedValue(deterministicCatalog);
+
       let res = (
         await runCronTurn(home, {
           jobPayload: {
@@ -335,28 +361,28 @@ describe("runCronIsolatedAgentTurn", () => {
       expect(res.status).toBe("ok");
       expectEmbeddedProviderModel({ provider: "openai", model: "gpt-4.1-mini" });
 
-      vi.clearAllMocks();
-      res = (
-        await runTurnWithStoredModelOverride(home, {
+      await runStoredOverrideAndExpectModel({
+        home,
+        deterministicCatalog,
+        jobPayload: {
           kind: "agentTurn",
           message: DEFAULT_MESSAGE,
           deliver: false,
-        })
-      ).res;
-      expect(res.status).toBe("ok");
-      expectEmbeddedProviderModel({ provider: "openai", model: "gpt-4.1-mini" });
+        },
+        expected: { provider: "openai", model: "gpt-4.1-mini" },
+      });
 
-      vi.clearAllMocks();
-      res = (
-        await runTurnWithStoredModelOverride(home, {
+      await runStoredOverrideAndExpectModel({
+        home,
+        deterministicCatalog,
+        jobPayload: {
           kind: "agentTurn",
           message: DEFAULT_MESSAGE,
           model: "anthropic/claude-opus-4-5",
           deliver: false,
-        })
-      ).res;
-      expect(res.status).toBe("ok");
-      expectEmbeddedProviderModel({ provider: "anthropic", model: "claude-opus-4-5" });
+        },
+        expected: { provider: "anthropic", model: "claude-opus-4-5" },
+      });
     });
   });
 
@@ -369,7 +395,7 @@ describe("runCronIsolatedAgentTurn", () => {
         model: GMAIL_MODEL.replace("openrouter/", ""),
       });
 
-      vi.clearAllMocks();
+      vi.mocked(runEmbeddedPiAgent).mockClear();
       res = (
         await runGmailHookTurn(home, {
           "agent:main:hook:gmail:msg-1": {
@@ -397,7 +423,7 @@ describe("runCronIsolatedAgentTurn", () => {
       });
 
       expect(res.status).toBe("ok");
-      const call = vi.mocked(runEmbeddedPiAgent).mock.calls[0]?.[0] as { prompt?: string };
+      const call = vi.mocked(runEmbeddedPiAgent).mock.calls.at(-1)?.[0] as { prompt?: string };
       expect(call?.prompt).toContain("EXTERNAL, UNTRUSTED");
       expect(call?.prompt).toContain("Hello");
     });
@@ -419,7 +445,7 @@ describe("runCronIsolatedAgentTurn", () => {
       });
 
       expect(res.status).toBe("ok");
-      const call = vi.mocked(runEmbeddedPiAgent).mock.calls[0]?.[0] as { prompt?: string };
+      const call = vi.mocked(runEmbeddedPiAgent).mock.calls.at(-1)?.[0] as { prompt?: string };
       expect(call?.prompt).not.toContain("EXTERNAL, UNTRUSTED");
       expect(call?.prompt).toContain("Hello");
     });
@@ -456,12 +482,7 @@ describe("runCronIsolatedAgentTurn", () => {
       });
 
       expect(res.status).toBe("ok");
-      const call = vi.mocked(runEmbeddedPiAgent).mock.calls[0]?.[0] as {
-        provider?: string;
-        model?: string;
-      };
-      expect(call?.provider).toBe("anthropic");
-      expect(call?.model).toBe("claude-opus-4-5");
+      expectEmbeddedProviderModel({ provider: "anthropic", model: "claude-opus-4-5" });
     });
   });
 
@@ -520,26 +541,18 @@ describe("runCronIsolatedAgentTurn", () => {
     await withTempHome(async (home) => {
       const storePath = await writeSessionStore(home, { lastProvider: "webchat", lastTo: "" });
       const deps = makeDeps();
-
-      const first = (
-        await runCronTurn(home, {
+      const runPingTurn = () =>
+        runCronTurn(home, {
           deps,
           jobPayload: { kind: "agentTurn", message: "ping", deliver: false },
           message: "ping",
           mockTexts: ["ok"],
           storePath,
-        })
-      ).res;
+        });
 
-      const second = (
-        await runCronTurn(home, {
-          deps,
-          jobPayload: { kind: "agentTurn", message: "ping", deliver: false },
-          message: "ping",
-          mockTexts: ["ok"],
-          storePath,
-        })
-      ).res;
+      const first = (await runPingTurn()).res;
+
+      const second = (await runPingTurn()).res;
 
       expect(first.sessionId).toBeDefined();
       expect(second.sessionId).toBeDefined();
