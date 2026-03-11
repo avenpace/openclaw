@@ -87,13 +87,14 @@ export async function monitorWebChannel(
         ackReaction: account.ackReaction,
         messagePrefix: account.messagePrefix,
         allowFrom: account.allowFrom,
-        groupAllowFrom: account.groupAllowFrom,
-        groupPolicy: account.groupPolicy,
+        // Use tuning overrides for group settings if provided (platform multi-tenant control)
+        groupAllowFrom: tuning.groupAllowFrom ?? account.groupAllowFrom,
+        groupPolicy: tuning.groupPolicy ?? account.groupPolicy,
         textChunkLimit: account.textChunkLimit,
         chunkMode: account.chunkMode,
         mediaMaxMb: account.mediaMaxMb,
         blockStreaming: account.blockStreaming,
-        groups: account.groups,
+        groups: tuning.groups ?? account.groups,
       },
     },
   } satisfies ReturnType<typeof loadConfig>;

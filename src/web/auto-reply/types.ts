@@ -56,4 +56,10 @@ export type WebMonitorTuning = {
     maxWorkers?: number;
     docker?: WhatsAppWorkerDockerOptions;
   };
+  /** Override group policy for multi-tenant isolation. */
+  groupPolicy?: "open" | "allowlist" | "disabled";
+  /** Override group allowlist for multi-tenant isolation. */
+  groupAllowFrom?: string[];
+  /** Override per-group settings (e.g., requireMention) for multi-tenant isolation. */
+  groups?: Record<string, { requireMention?: boolean }>;
 };
