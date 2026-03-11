@@ -294,3 +294,72 @@
   - `node --import tsx scripts/release-check.ts`
   - `pnpm release:check`
   - `pnpm test:install:smoke` or `OPENCLAW_INSTALL_SMOKE_SKIP_NONROOT=1 pnpm test:install:smoke` for non-root smoke path.
+
+## Platform Fork: Multi-Tenant Group Handling
+
+This fork extends OpenClaw for multi-tenant platform use (Clawku). Key changes for WhatsApp group message handling:
+
+### Override Parameters for Multi-Tenant Isolation
+
+Platform-api passes override parameters to bypass config file resolution:
+
+**`monitorWebInbox` options:**
+
+- `groupPolicy`: Override group policy ("open" | "allowlist" | "disabled")
+- `groupAllowFrom`: Override group allowlist (e.g., `["*"]`)
+- `groups`: Override per-group settings (e.g., `{ "*": { requireMention: true } }`)
+
+**`monitorWebChannel` tuning:**
+
+- Same fields in `WebMonitorTuning` type for mention gating logic
+
+**`checkInboundAccessControl` params:**
+
+- `groupPolicyOverride`, `groupAllowFromOverride`, `groupsOverride`
+
+### Data Flow
+
+```
+platform-api (replyToAnyone=true)
+    ↓
+customListenerFactory wraps monitorWebInbox with:
+  - groupPolicy: 'allowlist'
+  - groupAllowFrom: ['*']
+  - groups: { '*': { requireMention: true } }
+    ↓
+monitorWebChannel receives tuning with same fields
+    ↓
+Internal cfg built from tuning overrides (NOT account config)
+    ↓
+checkInboundAccessControl uses groupPolicyOverride
+    ↓
+Mention gating uses cfg.channels.whatsapp.groups
+```
+
+### Critical Files
+
+| File                                | Purpose                                                                 |
+| ----------------------------------- | ----------------------------------------------------------------------- |
+| `src/web/inbound/monitor.ts`        | Resolves @lid JIDs in mentionedJids, passes overrides to access control |
+| `src/web/inbound/access-control.ts` | Uses groupPolicyOverride to allow/block group messages                  |
+| `src/web/auto-reply/monitor.ts`     | Uses tuning overrides when building internal cfg for mention gating     |
+| `src/web/auto-reply/types.ts`       | WebMonitorTuning type with groupPolicy, groupAllowFrom, groups fields   |
+
+### @lid JID Resolution
+
+WhatsApp uses `@lid` format for mentions (e.g., `777@lid`). The monitor resolves these to phone numbers via `resolveInboundJid` before passing to mention detection:
+
+```typescript
+const rawMentionedJids = extractMentionedJids(msg.message);
+const mentionedJids = rawMentionedJids
+  ? await Promise.all(rawMentionedJids.map(async (jid) => (await resolveInboundJid(jid)) ?? jid))
+  : undefined;
+```
+
+### Upstream Merge Warning
+
+When merging upstream, verify these override paths are preserved:
+
+1. `checkInboundAccessControl` uses `params.groupPolicyOverride` (not just `account.groupPolicy`)
+2. `monitorWebChannel` cfg uses `tuning.groupPolicy` etc. (not just `account.groupPolicy`)
+3. `mentionedJids` resolved through `resolveInboundJid` before use
