@@ -349,7 +349,13 @@ export async function monitorWebInbox(options: {
       await sock.sendMessage(chatJid, payload);
     };
     const timestamp = inbound.messageTimestampMs;
-    const mentionedJids = extractMentionedJids(msg.message as proto.IMessage | undefined);
+    const rawMentionedJids = extractMentionedJids(msg.message as proto.IMessage | undefined);
+    // Resolve @lid JIDs to phone numbers for mention matching
+    const mentionedJids = rawMentionedJids
+      ? await Promise.all(
+          rawMentionedJids.map(async (jid) => (await resolveInboundJid(jid)) ?? jid),
+        )
+      : undefined;
     const senderName = msg.pushName ?? undefined;
 
     inboundLogger.info(
