@@ -5,12 +5,12 @@ import { listProfilesForProvider } from "./profiles.js";
 import { suggestOAuthProfileIdForLegacyDefault } from "./repair.js";
 import type { AuthProfileStore } from "./types.js";
 
-export function formatAuthDoctorHint(params: {
+export async function formatAuthDoctorHint(params: {
   cfg?: OpenClawConfig;
   store: AuthProfileStore;
   provider: string;
   profileId?: string;
-}): string {
+}): Promise<string> {
   const providerKey = normalizeProviderId(params.provider);
   if (providerKey !== "anthropic") {
     return "";

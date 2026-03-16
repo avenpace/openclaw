@@ -119,6 +119,14 @@ export type ProviderAuthMethod = {
   run: (ctx: ProviderAuthContext) => Promise<ProviderAuthResult>;
 };
 
+export type ProviderModelSelectedContext = {
+  config: OpenClawConfig;
+  model: string;
+  prompter: WizardPrompter;
+  agentDir?: string;
+  workspaceDir?: string;
+};
+
 export type ProviderPlugin = {
   id: string;
   label: string;
@@ -129,6 +137,7 @@ export type ProviderPlugin = {
   auth: ProviderAuthMethod[];
   formatApiKey?: (cred: AuthProfileCredential) => string;
   refreshOAuth?: (cred: OAuthCredential) => Promise<OAuthCredential>;
+  onModelSelected?: (ctx: ProviderModelSelectedContext) => Promise<void>;
 };
 
 export type OpenClawPluginGatewayMethod = {
