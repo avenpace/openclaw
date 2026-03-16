@@ -315,9 +315,9 @@ export function createBrowserTool(opts?: {
     ? [
         "Control the user's browser via the connected browser extension.",
         "Actions: status, tabs, open, close, focus, navigate, snapshot, screenshot, act.",
-        "The browser extension allows taking screenshots, clicking elements, typing text, and navigating pages.",
-        "Use snapshot to see the current page structure, then use act to interact with elements by their ref (e.g., e12).",
-        "Always check status first to ensure the extension is connected before performing actions.",
+        "For clicking: use action='act' kind='click' element='description'.",
+        "For typing: use action='act' kind='type' text='your text here' element='input description'. The text parameter is REQUIRED.",
+        "Use snapshot to see page structure, then act with ref (e.g., ref='e12').",
       ]
     : [
         "Control the browser via OpenClaw's browser control server (status/start/stop/profiles/tabs/open/snapshot/screenshot/actions).",

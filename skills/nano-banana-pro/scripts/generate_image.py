@@ -109,22 +109,33 @@ def main():
 
     args = parser.parse_args()
 
-    # Get API key
-    api_key = get_api_key(args.api_key)
-    if not api_key:
-        print("Error: No API key provided.", file=sys.stderr)
-        print("Please either:", file=sys.stderr)
-        print("  1. Provide --api-key argument", file=sys.stderr)
-        print("  2. Set GEMINI_API_KEY environment variable", file=sys.stderr)
-        sys.exit(1)
-
-    # Import here after checking API key to avoid slow import on error
+    # Import here to avoid slow import on error
     from google import genai
     from google.genai import types
     from PIL import Image as PILImage
 
-    # Initialise client
-    client = genai.Client(api_key=api_key)
+    # Try to initialize client - OAuth/ADC first, then API key
+    api_key = get_api_key(args.api_key)
+    client = None
+
+    if api_key:
+        # Use explicit API key
+        client = genai.Client(api_key=api_key)
+        print("Using API key authentication")
+    else:
+        # Try OAuth/Application Default Credentials
+        try:
+            client = genai.Client()  # Uses ADC automatically
+            print("Using OAuth/Application Default Credentials")
+        except Exception as e:
+            print("Error: No authentication available.", file=sys.stderr)
+            print("Please connect your Google account:", file=sys.stderr)
+            print("  Go to Settings → LLM Providers → Connect Google", file=sys.stderr)
+            print("", file=sys.stderr)
+            print("Or provide an API key:", file=sys.stderr)
+            print("  1. --api-key argument", file=sys.stderr)
+            print("  2. GEMINI_API_KEY environment variable", file=sys.stderr)
+            sys.exit(1)
 
     # Set up output path
     output_path = Path(args.filename)

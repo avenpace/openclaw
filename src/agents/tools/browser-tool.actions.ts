@@ -340,7 +340,7 @@ export async function executeActAction(params: {
       }
       if (!tabs.length) {
         throw new Error(
-          "No Chrome tabs are attached via the OpenClaw Browser Relay extension. Click the toolbar icon on the tab you want to control (badge ON), then retry.",
+          "No Chrome tabs are attached via the Clawku Browser Agent extension. Click the toolbar icon on the tab you want to control (badge ON), then retry.",
           { cause: err },
         );
       }

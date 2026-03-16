@@ -51,7 +51,7 @@ export function createProfileSelectionOps({
         if (tabs1.length === 0) {
           throw new BrowserTabNotFoundError(
             `tab not found (no attached Chrome tabs for profile "${profile.name}"). ` +
-              "Click the OpenClaw Browser Relay toolbar icon on the tab you want to control (badge ON).",
+              "Click the Clawku Browser Agent toolbar icon on the tab you want to control (badge ON).",
           );
         }
       } else {

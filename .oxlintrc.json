@@ -25,6 +25,7 @@
   "ignorePatterns": [
     "assets/",
     "dist/",
+    "worker/",
     "docs/_layouts/",
     "extensions/",
     "node_modules/",

@@ -1,0 +1,74 @@
+import {
+  a as loadOpenClawPlugins,
+  i as createPluginLoaderLogger,
+} from "./command-detection-CXuIaE28.js";
+import { St as normalizeProviderId } from "./config-Cz7eAoWC.js";
+import "./send-Dv6I6FHr.js";
+import { O as createSubsystemLogger } from "./utils-DAQkyZZs.js";
+import "./paths-eFexkPEh.js";
+import "./retry-policy-DtCRuljj.js";
+import "./paths-Cp7C2R7V.js";
+import "./env-CvOd8P-q.js";
+import "./github-copilot-token-Bk2nhhXX.js";
+import "./send-_UgBGjRA.js";
+import "./send-vJ4c6MwA.js";
+import "./commands-registry-BlY8Y5A1.js";
+import "./tokens-DOs3E8YQ.js";
+import "./deliver-CVU2VO9q.js";
+import "./diagnostic-BFc7FPX3.js";
+import "./pi-model-discovery-DKiWmRcI.js";
+import "./image-CAQrEfw1.js";
+import "./audio-transcription-runner-BriarAcA.js";
+import "./fetch-DKMnlEva.js";
+import "./fetch-guard-B1KXbh6p.js";
+import "./api-key-rotation-C_y8EVUw.js";
+import "./proxy-fetch-M9xSywjl.js";
+import "./ir-DUSE-mNJ.js";
+import "./render-CypHTXnD.js";
+import "./target-errors-E3wNXZGn.js";
+import "./fetch-CwZxIBIg.js";
+import "./skill-commands-CAY7uGas.js";
+import "./tables-D0-JLGfw.js";
+import "./send-CfqtvYLf.js";
+import "./outbound-attachment-DFCIKn8a.js";
+import "./send-CkY4gYkS2.js";
+import "./fetch-BWingQe0.js";
+import "./manager-HEs65wLz.js";
+import "./query-expansion-VmsaGYn-.js";
+//#region src/plugins/providers.ts
+const log = createSubsystemLogger("plugins");
+function resolvePluginProviders(params) {
+  return loadOpenClawPlugins({
+    config: params.config,
+    workspaceDir: params.workspaceDir,
+    logger: createPluginLoaderLogger(log),
+  }).providers.map((entry) => entry.provider);
+}
+//#endregion
+//#region src/plugins/provider-runtime.ts
+function matchesProviderId(provider, providerId) {
+  const normalized = normalizeProviderId(providerId);
+  if (!normalized) {
+    return false;
+  }
+  if (normalizeProviderId(provider.id) === normalized) {
+    return true;
+  }
+  return (provider.aliases ?? []).some((alias) => normalizeProviderId(alias) === normalized);
+}
+function resolveProviderPluginsForHooks(params) {
+  return resolvePluginProviders(params);
+}
+function resolveProviderRuntimePlugin(params) {
+  return resolveProviderPluginsForHooks(params).find((plugin) =>
+    matchesProviderId(plugin, params.provider),
+  );
+}
+function formatProviderAuthProfileApiKeyWithPlugin(params) {
+  return resolveProviderRuntimePlugin(params)?.formatApiKey?.(params.context);
+}
+async function refreshProviderOAuthCredentialWithPlugin(params) {
+  return await resolveProviderRuntimePlugin(params)?.refreshOAuth?.(params.context);
+}
+//#endregion
+export { formatProviderAuthProfileApiKeyWithPlugin, refreshProviderOAuthCredentialWithPlugin };
