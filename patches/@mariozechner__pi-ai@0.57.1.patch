@@ -1,0 +1,13 @@
+diff --git a/dist/providers/openai-codex-responses.js b/dist/providers/openai-codex-responses.js
+index 76efb05bf2724ce15af5fac82c2518e046a62db7..ec2f244fdfa95bb95a992892f853be094cbf6b61 100644
+--- a/dist/providers/openai-codex-responses.js
++++ b/dist/providers/openai-codex-responses.js
+@@ -208,7 +208,7 @@ function buildRequestBody(model, context, options) {
+         text: { verbosity: options?.textVerbosity || "medium" },
+         include: ["reasoning.encrypted_content"],
+         prompt_cache_key: options?.sessionId,
+-        tool_choice: "auto",
++        tool_choice: options?.toolChoice || "auto",
+         parallel_tool_calls: true,
+     };
+     if (options?.temperature !== undefined) {
