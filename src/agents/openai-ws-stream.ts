@@ -577,6 +577,7 @@ export function createOpenAIWebSocketStreamFn(
       }
       if (streamOpts?.toolChoice !== undefined) {
         extraParams.tool_choice = streamOpts.toolChoice;
+        log.info(`[ws-stream] tool_choice set to: ${JSON.stringify(streamOpts.toolChoice)}`);
       }
       if (streamOpts?.reasoningEffort || streamOpts?.reasoningSummary) {
         const reasoning: { effort?: string; summary?: string } = {};

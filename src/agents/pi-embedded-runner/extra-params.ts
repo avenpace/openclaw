@@ -73,6 +73,7 @@ export function resolveExtraParams(params: {
 type CacheRetentionStreamOptions = Partial<SimpleStreamOptions> & {
   cacheRetention?: "none" | "short" | "long";
   openaiWsWarmup?: boolean;
+  toolChoice?: "auto" | "none" | "required" | { type: "function"; function: { name: string } };
 };
 
 function createStreamFnWithExtraParams(
@@ -100,6 +101,11 @@ function createStreamFnWithExtraParams(
   }
   if (typeof extraParams.openaiWsWarmup === "boolean") {
     streamParams.openaiWsWarmup = extraParams.openaiWsWarmup;
+  }
+  // Support toolChoice for forcing tool usage
+  if (extraParams.toolChoice !== undefined) {
+    streamParams.toolChoice = extraParams.toolChoice as CacheRetentionStreamOptions["toolChoice"];
+    log.info(`[extra-params] toolChoice set to: ${JSON.stringify(extraParams.toolChoice)}`);
   }
   const cacheRetention = resolveCacheRetention(extraParams, provider);
   if (cacheRetention) {
@@ -317,6 +323,37 @@ function createParallelToolCallsWrapper(
 }
 
 /**
+ * Create a streamFn wrapper that injects tool_choice into the API payload.
+ * Forces the model to always call a tool when tools are available.
+ */
+function createToolChoiceWrapper(
+  baseStreamFn: StreamFn | undefined,
+  toolChoice: "auto" | "none" | "required" | { type: "function"; function: { name: string } },
+): StreamFn {
+  const underlying = baseStreamFn ?? streamSimple;
+  return (model, context, options) => {
+    // Only apply to OpenAI-compatible APIs that support tool_choice
+    const api = model.api as string;
+    if (!api?.includes("openai") && !api?.includes("codex")) {
+      return underlying(model, context, options);
+    }
+    log.info(
+      `[tool-choice] applying tool_choice=${typeof toolChoice === "string" ? toolChoice : "function"} for ${model.provider ?? "unknown"}/${model.id ?? "unknown"} api=${api}`,
+    );
+    const originalOnPayload = options?.onPayload;
+    return underlying(model, context, {
+      ...options,
+      onPayload: (payload) => {
+        if (payload && typeof payload === "object") {
+          (payload as Record<string, unknown>).tool_choice = toolChoice;
+        }
+        return originalOnPayload?.(payload, model);
+      },
+    });
+  };
+}
+
+/**
  * Apply extra params (like temperature) to an agent's streamFn.
  * Also adds OpenRouter app attribution headers when using the OpenRouter provider.
  *
@@ -463,6 +500,31 @@ export function applyExtraParamsToAgent(
           ? rawParallelToolCalls
           : typeof rawParallelToolCalls;
       log.warn(`ignoring invalid parallel_tool_calls param: ${summary}`);
+    }
+  }
+
+  // Apply tool_choice wrapper to force tool usage behavior
+  const rawToolChoice = merged?.toolChoice;
+  if (rawToolChoice !== undefined) {
+    if (
+      rawToolChoice === "auto" ||
+      rawToolChoice === "none" ||
+      rawToolChoice === "required" ||
+      (typeof rawToolChoice === "object" &&
+        rawToolChoice !== null &&
+        (rawToolChoice as Record<string, unknown>).type === "function")
+    ) {
+      agent.streamFn = createToolChoiceWrapper(
+        agent.streamFn,
+        rawToolChoice as
+          | "auto"
+          | "none"
+          | "required"
+          | { type: "function"; function: { name: string } },
+      );
+    } else {
+      const summary = typeof rawToolChoice === "string" ? rawToolChoice : typeof rawToolChoice;
+      log.warn(`ignoring invalid toolChoice param: ${summary}`);
     }
   }
 }
