@@ -324,28 +324,36 @@ function createParallelToolCallsWrapper(
 
 /**
  * Create a streamFn wrapper that injects tool_choice into the API payload.
- * Forces the model to always call a tool when tools are available.
+ * For 'required', only applies on first turn to avoid infinite loops.
+ * Subsequent turns use 'auto' so model can finish without tool calls.
  */
 function createToolChoiceWrapper(
   baseStreamFn: StreamFn | undefined,
   toolChoice: "auto" | "none" | "required" | { type: "function"; function: { name: string } },
 ): StreamFn {
   const underlying = baseStreamFn ?? streamSimple;
+  let turnCount = 0; // Track API calls within this run
+
   return (model, context, options) => {
     // Only apply to OpenAI-compatible APIs that support tool_choice
     const api = model.api as string;
     if (!api?.includes("openai") && !api?.includes("codex")) {
       return underlying(model, context, options);
     }
+
+    // For 'required', only force on first turn to avoid infinite loops
+    const effectiveChoice = toolChoice === "required" && turnCount > 0 ? "auto" : toolChoice;
+    turnCount++;
+
     log.info(
-      `[tool-choice] applying tool_choice=${typeof toolChoice === "string" ? toolChoice : "function"} for ${model.provider ?? "unknown"}/${model.id ?? "unknown"} api=${api}`,
+      `[tool-choice] turn=${turnCount} applying tool_choice=${typeof effectiveChoice === "string" ? effectiveChoice : "function"} for ${model.provider ?? "unknown"}/${model.id ?? "unknown"} api=${api}`,
     );
     const originalOnPayload = options?.onPayload;
     return underlying(model, context, {
       ...options,
       onPayload: (payload) => {
         if (payload && typeof payload === "object") {
-          (payload as Record<string, unknown>).tool_choice = toolChoice;
+          (payload as Record<string, unknown>).tool_choice = effectiveChoice;
         }
         return originalOnPayload?.(payload, model);
       },
