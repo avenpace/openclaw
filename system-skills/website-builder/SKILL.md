@@ -492,7 +492,11 @@ bash command="ls -la websites/"
 
 This will show all webapp project directories. Each subdirectory is a separate webapp project.
 
-**IMPORTANT:** Use the `bash` tool (NOT `devices_run`). The `bash` tool runs on the server where websites are stored. The `devices_run` tool routes to the user's device which may be offline.
+**CRITICAL RULES:**
+
+1. Use `bash` tool (NOT `devices_run`) - bash runs on server, devices_run routes to offline device
+2. **DO NOT add redirects** like `2>/dev/null` - redirects break local execution
+3. Use simple command format exactly as shown above
 
 Alternative: Tell the user to check their **Cloud Storage** page on the dashboard - the Webapps section shows all their projects with preview links.
 
