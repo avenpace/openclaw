@@ -484,15 +484,17 @@ You cannot create images. For images:
 
 ## Listing Existing Webapps
 
-To list the user's existing webapps, use the `read` tool to read from the `websites/` directory:
+To list the user's existing webapps, use the `bash` tool with `ls` command:
 
 ```
-read path="websites"
+bash command="ls -la websites/"
 ```
 
 This will show all webapp project directories. Each subdirectory is a separate webapp project.
 
-**DO NOT use device commands (devices_run, find, ls) to list webapps.** The websites directory is on the server, not the user's device.
+**IMPORTANT:** Use the `bash` tool (NOT `devices_run`). The `bash` tool runs on the server where websites are stored. The `devices_run` tool routes to the user's device which may be offline.
+
+Alternative: Tell the user to check their **Cloud Storage** page on the dashboard - the Webapps section shows all their projects with preview links.
 
 ---
 
