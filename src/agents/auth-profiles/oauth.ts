@@ -1,5 +1,6 @@
 import {
   getOAuthApiKey,
+  getOAuthProvider,
   getOAuthProviders,
   type OAuthCredentials,
   type OAuthProvider,
@@ -71,7 +72,15 @@ async function buildOAuthApiKey(provider: string, credentials: OAuthCredential):
     provider,
     context: credentials,
   });
-  return typeof formatted === "string" && formatted.length > 0 ? formatted : credentials.access;
+  if (typeof formatted === "string" && formatted.length > 0) {
+    return formatted;
+  }
+  // Fall back to pi-ai's provider getApiKey if available
+  const piProvider = getOAuthProvider(provider);
+  if (piProvider?.getApiKey) {
+    return piProvider.getApiKey(credentials);
+  }
+  return credentials.access;
 }
 
 function buildApiKeyProfileResult(params: { apiKey: string; provider: string; email?: string }) {
