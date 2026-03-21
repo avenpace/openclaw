@@ -6,20 +6,14 @@ const STYLE_RANK = new Map(
 );
 function sortStyleSpans(spans) {
   return [...spans].toSorted((a, b) => {
-    if (a.start !== b.start) {
-      return a.start - b.start;
-    }
-    if (a.end !== b.end) {
-      return b.end - a.end;
-    }
+    if (a.start !== b.start) return a.start - b.start;
+    if (a.end !== b.end) return b.end - a.end;
     return (STYLE_RANK.get(a.style) ?? 0) - (STYLE_RANK.get(b.style) ?? 0);
   });
 }
 function renderMarkdownWithMarkers(ir, options) {
   const text = ir.text ?? "";
-  if (!text) {
-    return "";
-  }
+  if (!text) return "";
   const styleMarkers = options.styleMarkers;
   const styled = sortStyleSpans(ir.styles.filter((span) => Boolean(styleMarkers[span.style])));
   const boundaries = /* @__PURE__ */ new Set();
@@ -27,26 +21,20 @@ function renderMarkdownWithMarkers(ir, options) {
   boundaries.add(text.length);
   const startsAt = /* @__PURE__ */ new Map();
   for (const span of styled) {
-    if (span.start === span.end) {
-      continue;
-    }
+    if (span.start === span.end) continue;
     boundaries.add(span.start);
     boundaries.add(span.end);
     const bucket = startsAt.get(span.start);
-    if (bucket) {
-      bucket.push(span);
-    } else {
-      startsAt.set(span.start, [span]);
-    }
+    if (bucket) bucket.push(span);
+    else startsAt.set(span.start, [span]);
   }
-  for (const spans of startsAt.values()) {
+  for (const spans of startsAt.values())
     spans.sort((a, b) => {
       if (a.end !== b.end) return b.end - a.end;
       return (STYLE_RANK.get(a.style) ?? 0) - (STYLE_RANK.get(b.style) ?? 0);
     });
-  }
   const linkStarts = /* @__PURE__ */ new Map();
-  if (options.buildLink) {
+  if (options.buildLink)
     for (const link of ir.links) {
       if (link.start === link.end) continue;
       const rendered = options.buildLink(link, text);
@@ -57,7 +45,6 @@ function renderMarkdownWithMarkers(ir, options) {
       if (openBucket) openBucket.push(rendered);
       else linkStarts.set(rendered.start, [rendered]);
     }
-  }
   const points = [...boundaries].toSorted((a, b) => a - b);
   const stack = [];
   let out = "";
@@ -65,13 +52,11 @@ function renderMarkdownWithMarkers(ir, options) {
     const pos = points[i];
     while (stack.length && stack[stack.length - 1]?.end === pos) {
       const item = stack.pop();
-      if (item) {
-        out += item.close;
-      }
+      if (item) out += item.close;
     }
     const openingItems = [];
     const openingLinks = linkStarts.get(pos);
-    if (openingLinks && openingLinks.length > 0) {
+    if (openingLinks && openingLinks.length > 0)
       for (const [index, link] of openingLinks.entries())
         openingItems.push({
           end: link.end,
@@ -80,9 +65,8 @@ function renderMarkdownWithMarkers(ir, options) {
           kind: "link",
           index,
         });
-    }
     const openingStyles = startsAt.get(pos);
-    if (openingStyles) {
+    if (openingStyles)
       for (const [index, span] of openingStyles.entries()) {
         const marker = styleMarkers[span.style];
         if (!marker) continue;
@@ -95,18 +79,12 @@ function renderMarkdownWithMarkers(ir, options) {
           index,
         });
       }
-    }
     if (openingItems.length > 0) {
       openingItems.sort((a, b) => {
-        if (a.end !== b.end) {
-          return b.end - a.end;
-        }
-        if (a.kind !== b.kind) {
-          return a.kind === "link" ? -1 : 1;
-        }
-        if (a.kind === "style" && b.kind === "style") {
+        if (a.end !== b.end) return b.end - a.end;
+        if (a.kind !== b.kind) return a.kind === "link" ? -1 : 1;
+        if (a.kind === "style" && b.kind === "style")
           return (STYLE_RANK.get(a.style) ?? 0) - (STYLE_RANK.get(b.style) ?? 0);
-        }
         return a.index - b.index;
       });
       for (const item of openingItems) {
@@ -118,12 +96,8 @@ function renderMarkdownWithMarkers(ir, options) {
       }
     }
     const next = points[i + 1];
-    if (next === void 0) {
-      break;
-    }
-    if (next > pos) {
-      out += options.escapeText(text.slice(pos, next));
-    }
+    if (next === void 0) break;
+    if (next > pos) out += options.escapeText(text.slice(pos, next));
   }
   return out;
 }

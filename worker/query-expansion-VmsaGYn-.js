@@ -18,14 +18,10 @@ async function statRegularFile(absPath) {
   try {
     stat = await fs$1.lstat(absPath);
   } catch (err) {
-    if (isFileMissingError(err)) {
-      return { missing: true };
-    }
+    if (isFileMissingError(err)) return { missing: true };
     throw err;
   }
-  if (stat.isSymbolicLink() || !stat.isFile()) {
-    throw new Error("path required");
-  }
+  if (stat.isSymbolicLink() || !stat.isFile()) throw new Error("path required");
   return {
     missing: false,
     stat,
@@ -46,9 +42,7 @@ function normalizeRelPath(value) {
     .replace(/\\/g, "/");
 }
 function normalizeExtraMemoryPaths(workspaceDir, extraPaths) {
-  if (!extraPaths?.length) {
-    return [];
-  }
+  if (!extraPaths?.length) return [];
   const resolved = extraPaths
     .map((value) => value.trim())
     .filter(Boolean)
@@ -59,31 +53,21 @@ function normalizeExtraMemoryPaths(workspaceDir, extraPaths) {
 }
 function isMemoryPath(relPath) {
   const normalized = normalizeRelPath(relPath);
-  if (!normalized) {
-    return false;
-  }
-  if (normalized === "MEMORY.md" || normalized === "memory.md") {
-    return true;
-  }
+  if (!normalized) return false;
+  if (normalized === "MEMORY.md" || normalized === "memory.md") return true;
   return normalized.startsWith("memory/");
 }
 async function walkDir(dir, files) {
   const entries = await fs$1.readdir(dir, { withFileTypes: true });
   for (const entry of entries) {
     const full = path.join(dir, entry.name);
-    if (entry.isSymbolicLink()) {
-      continue;
-    }
+    if (entry.isSymbolicLink()) continue;
     if (entry.isDirectory()) {
       await walkDir(full, files);
       continue;
     }
-    if (!entry.isFile()) {
-      continue;
-    }
-    if (!entry.name.endsWith(".md")) {
-      continue;
-    }
+    if (!entry.isFile()) continue;
+    if (!entry.name.endsWith(".md")) continue;
     files.push(full);
   }
 }
@@ -95,12 +79,8 @@ async function listMemoryFiles(workspaceDir, extraPaths) {
   const addMarkdownFile = async (absPath) => {
     try {
       const stat = await fs$1.lstat(absPath);
-      if (stat.isSymbolicLink() || !stat.isFile()) {
-        return;
-      }
-      if (!absPath.endsWith(".md")) {
-        return;
-      }
+      if (stat.isSymbolicLink() || !stat.isFile()) return;
+      if (!absPath.endsWith(".md")) return;
       result.push(absPath);
     } catch {}
   };
@@ -108,12 +88,10 @@ async function listMemoryFiles(workspaceDir, extraPaths) {
   await addMarkdownFile(altMemoryFile);
   try {
     const dirStat = await fs$1.lstat(memoryDir);
-    if (!dirStat.isSymbolicLink() && dirStat.isDirectory()) {
-      await walkDir(memoryDir, result);
-    }
+    if (!dirStat.isSymbolicLink() && dirStat.isDirectory()) await walkDir(memoryDir, result);
   } catch {}
   const normalizedExtraPaths = normalizeExtraMemoryPaths(workspaceDir, extraPaths);
-  if (normalizedExtraPaths.length > 0) {
+  if (normalizedExtraPaths.length > 0)
     for (const inputPath of normalizedExtraPaths)
       try {
         const stat = await fs$1.lstat(inputPath);
@@ -124,10 +102,7 @@ async function listMemoryFiles(workspaceDir, extraPaths) {
         }
         if (stat.isFile() && inputPath.endsWith(".md")) result.push(inputPath);
       } catch {}
-  }
-  if (result.length <= 1) {
-    return result;
-  }
+  if (result.length <= 1) return result;
   const seen = /* @__PURE__ */ new Set();
   const deduped = [];
   for (const entry of result) {
@@ -135,9 +110,7 @@ async function listMemoryFiles(workspaceDir, extraPaths) {
     try {
       key = await fs$1.realpath(entry);
     } catch {}
-    if (seen.has(key)) {
-      continue;
-    }
+    if (seen.has(key)) continue;
     seen.add(key);
     deduped.push(entry);
   }
@@ -151,18 +124,14 @@ async function buildFileEntry(absPath, workspaceDir) {
   try {
     stat = await fs$1.stat(absPath);
   } catch (err) {
-    if (isFileMissingError(err)) {
-      return null;
-    }
+    if (isFileMissingError(err)) return null;
     throw err;
   }
   let content;
   try {
     content = await fs$1.readFile(absPath, "utf-8");
   } catch (err) {
-    if (isFileMissingError(err)) {
-      return null;
-    }
+    if (isFileMissingError(err)) return null;
     throw err;
   }
   const hash = hashText(content);
@@ -176,23 +145,17 @@ async function buildFileEntry(absPath, workspaceDir) {
 }
 function chunkMarkdown(content, chunking) {
   const lines = content.split("\n");
-  if (lines.length === 0) {
-    return [];
-  }
+  if (lines.length === 0) return [];
   const maxChars = Math.max(32, chunking.tokens * 4);
   const overlapChars = Math.max(0, chunking.overlap * 4);
   const chunks = [];
   let current = [];
   let currentChars = 0;
   const flush = () => {
-    if (current.length === 0) {
-      return;
-    }
+    if (current.length === 0) return;
     const firstEntry = current[0];
     const lastEntry = current[current.length - 1];
-    if (!firstEntry || !lastEntry) {
-      return;
-    }
+    if (!firstEntry || !lastEntry) return;
     const text = current.map((entry) => entry.line).join("\n");
     const startLine = firstEntry.lineNo;
     const endLine = lastEntry.lineNo;
@@ -213,14 +176,10 @@ function chunkMarkdown(content, chunking) {
     const kept = [];
     for (let i = current.length - 1; i >= 0; i -= 1) {
       const entry = current[i];
-      if (!entry) {
-        continue;
-      }
+      if (!entry) continue;
       acc += entry.line.length + 1;
       kept.unshift(entry);
-      if (acc >= overlapChars) {
-        break;
-      }
+      if (acc >= overlapChars) break;
     }
     current = kept;
     currentChars = kept.reduce((sum, entry) => sum + entry.line.length + 1, 0);
@@ -229,12 +188,10 @@ function chunkMarkdown(content, chunking) {
     const line = lines[i] ?? "";
     const lineNo = i + 1;
     const segments = [];
-    if (line.length === 0) {
-      segments.push("");
-    } else {
+    if (line.length === 0) segments.push("");
+    else
       for (let start = 0; start < line.length; start += maxChars)
         segments.push(line.slice(start, start + maxChars));
-    }
     for (const segment of segments) {
       const lineSize = segment.length + 1;
       if (currentChars + lineSize > maxChars && current.length > 0) {
@@ -262,9 +219,7 @@ function chunkMarkdown(content, chunking) {
  * than the original JSONL file.
  */
 function remapChunkLines(chunks, lineMap) {
-  if (!lineMap || lineMap.length === 0) {
-    return;
-  }
+  if (!lineMap || lineMap.length === 0) return;
   for (const chunk of chunks) {
     chunk.startLine = lineMap[chunk.startLine - 1] ?? chunk.startLine;
     chunk.endLine = lineMap[chunk.endLine - 1] ?? chunk.endLine;
@@ -279,9 +234,7 @@ function parseEmbedding(raw) {
   }
 }
 function cosineSimilarity(a, b) {
-  if (a.length === 0 || b.length === 0) {
-    return 0;
-  }
+  if (a.length === 0 || b.length === 0) return 0;
   const len = Math.min(a.length, b.length);
   let dot = 0;
   let normA = 0;
@@ -293,9 +246,7 @@ function cosineSimilarity(a, b) {
     normA += av * av;
     normB += bv * bv;
   }
-  if (normA === 0 || normB === 0) {
-    return 0;
-  }
+  if (normA === 0 || normB === 0) return 0;
   return dot / (Math.sqrt(normA) * Math.sqrt(normB));
 }
 async function runWithConcurrency(tasks, limit) {
@@ -304,9 +255,7 @@ async function runWithConcurrency(tasks, limit) {
     limit,
     errorMode: "stop",
   });
-  if (hasError) {
-    throw firstError;
-  }
+  if (hasError) throw firstError;
   return results;
 }
 //#endregion
@@ -338,26 +287,16 @@ function extractSessionText(content) {
     const normalized = normalizeSessionText(content);
     return normalized ? normalized : null;
   }
-  if (!Array.isArray(content)) {
-    return null;
-  }
+  if (!Array.isArray(content)) return null;
   const parts = [];
   for (const block of content) {
-    if (!block || typeof block !== "object") {
-      continue;
-    }
+    if (!block || typeof block !== "object") continue;
     const record = block;
-    if (record.type !== "text" || typeof record.text !== "string") {
-      continue;
-    }
+    if (record.type !== "text" || typeof record.text !== "string") continue;
     const normalized = normalizeSessionText(record.text);
-    if (normalized) {
-      parts.push(normalized);
-    }
+    if (normalized) parts.push(normalized);
   }
-  if (parts.length === 0) {
-    return null;
-  }
+  if (parts.length === 0) return null;
   return parts.join(" ");
 }
 async function buildSessionEntry(absPath) {
@@ -368,29 +307,19 @@ async function buildSessionEntry(absPath) {
     const lineMap = [];
     for (let jsonlIdx = 0; jsonlIdx < lines.length; jsonlIdx++) {
       const line = lines[jsonlIdx];
-      if (!line.trim()) {
-        continue;
-      }
+      if (!line.trim()) continue;
       let record;
       try {
         record = JSON.parse(line);
       } catch {
         continue;
       }
-      if (!record || typeof record !== "object" || record.type !== "message") {
-        continue;
-      }
+      if (!record || typeof record !== "object" || record.type !== "message") continue;
       const message = record.message;
-      if (!message || typeof message.role !== "string") {
-        continue;
-      }
-      if (message.role !== "user" && message.role !== "assistant") {
-        continue;
-      }
+      if (!message || typeof message.role !== "string") continue;
+      if (message.role !== "user" && message.role !== "assistant") continue;
       const text = extractSessionText(message.content);
-      if (!text) {
-        continue;
-      }
+      if (!text) continue;
       const safe = redactSensitiveText(text, { mode: "tools" });
       const label = message.role === "user" ? "User" : "Assistant";
       collected.push(`${label}: ${safe}`);
@@ -415,18 +344,13 @@ async function buildSessionEntry(absPath) {
 //#region src/infra/warning-filter.ts
 const warningFilterKey = Symbol.for("openclaw.warning-filter");
 function shouldIgnoreWarning(warning) {
-  if (warning.code === "DEP0040" && warning.message?.includes("punycode")) {
-    return true;
-  }
-  if (warning.code === "DEP0060" && warning.message?.includes("util._extend")) {
-    return true;
-  }
+  if (warning.code === "DEP0040" && warning.message?.includes("punycode")) return true;
+  if (warning.code === "DEP0060" && warning.message?.includes("util._extend")) return true;
   if (
     warning.name === "ExperimentalWarning" &&
     warning.message?.includes("SQLite is an experimental feature")
-  ) {
+  )
     return true;
-  }
   return false;
 }
 function normalizeWarningArgs(args) {
@@ -440,24 +364,14 @@ function normalizeWarningArgs(args) {
     name = warningArg.name;
     message = warningArg.message;
     code = warningArg.code;
-  } else if (typeof warningArg === "string") {
-    message = warningArg;
-  }
+  } else if (typeof warningArg === "string") message = warningArg;
   if (secondArg && typeof secondArg === "object" && !Array.isArray(secondArg)) {
     const options = secondArg;
-    if (typeof options.type === "string") {
-      name = options.type;
-    }
-    if (typeof options.code === "string") {
-      code = options.code;
-    }
+    if (typeof options.type === "string") name = options.type;
+    if (typeof options.code === "string") code = options.code;
   } else {
-    if (typeof secondArg === "string") {
-      name = secondArg;
-    }
-    if (typeof thirdArg === "string") {
-      code = thirdArg;
-    }
+    if (typeof secondArg === "string") name = secondArg;
+    if (typeof thirdArg === "string") code = thirdArg;
   }
   return {
     name,
@@ -467,14 +381,10 @@ function normalizeWarningArgs(args) {
 }
 function installProcessWarningFilter() {
   const globalState = globalThis;
-  if (globalState[warningFilterKey]?.installed) {
-    return;
-  }
+  if (globalState[warningFilterKey]?.installed) return;
   const originalEmitWarning = process.emitWarning.bind(process);
   const wrappedEmitWarning = (...args) => {
-    if (shouldIgnoreWarning(normalizeWarningArgs(args))) {
-      return;
-    }
+    if (shouldIgnoreWarning(normalizeWarningArgs(args))) return;
     return Reflect.apply(originalEmitWarning, process, args);
   };
   process.emitWarning = wrappedEmitWarning;
@@ -916,16 +826,13 @@ const KO_TRAILING_PARTICLES = [
   "만",
 ].toSorted((a, b) => b.length - a.length);
 function stripKoreanTrailingParticle(token) {
-  for (const particle of KO_TRAILING_PARTICLES) {
+  for (const particle of KO_TRAILING_PARTICLES)
     if (token.length > particle.length && token.endsWith(particle))
       return token.slice(0, -particle.length);
-  }
   return null;
 }
 function isUsefulKoreanStem(stem) {
-  if (/[\uac00-\ud7af]/.test(stem)) {
-    return stem.length >= 2;
-  }
+  if (/[\uac00-\ud7af]/.test(stem)) return stem.length >= 2;
   return /^[a-z0-9_]+$/i.test(stem);
 }
 const STOP_WORDS_JA = new Set([
@@ -1081,18 +988,10 @@ function isQueryStopWordToken(token) {
  * Returns false for short tokens, numbers-only, etc.
  */
 function isValidKeyword(token) {
-  if (!token || token.length === 0) {
-    return false;
-  }
-  if (/^[a-zA-Z]+$/.test(token) && token.length < 3) {
-    return false;
-  }
-  if (/^\d+$/.test(token)) {
-    return false;
-  }
-  if (/^[\p{P}\p{S}]+$/u.test(token)) {
-    return false;
-  }
+  if (!token || token.length === 0) return false;
+  if (/^[a-zA-Z]+$/.test(token) && token.length < 3) return false;
+  if (/^\d+$/.test(token)) return false;
+  if (/^[\p{P}\p{S}]+$/u.test(token)) return false;
   return true;
 }
 /**
@@ -1107,7 +1006,7 @@ function tokenize(text) {
     .trim()
     .split(/[\s\p{P}]+/u)
     .filter(Boolean);
-  for (const segment of segments) {
+  for (const segment of segments)
     if (/[\u3040-\u30ff]/.test(segment)) {
       const jpParts =
         segment.match(/[a-z0-9_]+|[\u30a0-\u30ffー]+|[\u4e00-\u9fff]+|[\u3040-\u309f]{2,}/g) ?? [];
@@ -1126,7 +1025,6 @@ function tokenize(text) {
       if (!STOP_WORDS_KO.has(segment) && !stemIsStopWord) tokens.push(segment);
       if (stem && !STOP_WORDS_KO.has(stem) && isUsefulKoreanStem(stem)) tokens.push(stem);
     } else tokens.push(segment);
-  }
   return tokens;
 }
 /**
@@ -1142,15 +1040,9 @@ function extractKeywords(query) {
   const keywords = [];
   const seen = /* @__PURE__ */ new Set();
   for (const token of tokens) {
-    if (isQueryStopWordToken(token)) {
-      continue;
-    }
-    if (!isValidKeyword(token)) {
-      continue;
-    }
-    if (seen.has(token)) {
-      continue;
-    }
+    if (isQueryStopWordToken(token)) continue;
+    if (!isValidKeyword(token)) continue;
+    if (seen.has(token)) continue;
     seen.add(token);
     keywords.push(token);
   }

@@ -11,22 +11,16 @@ function buildMessagingTarget(kind, id, raw) {
   };
 }
 function ensureTargetId(params) {
-  if (!params.pattern.test(params.candidate)) {
-    throw new Error(params.errorMessage);
-  }
+  if (!params.pattern.test(params.candidate)) throw new Error(params.errorMessage);
   return params.candidate;
 }
 function parseTargetMention(params) {
   const match = params.raw.match(params.mentionPattern);
-  if (!match?.[1]) {
-    return;
-  }
+  if (!match?.[1]) return;
   return buildMessagingTarget(params.kind, match[1], params.raw);
 }
 function parseTargetPrefix(params) {
-  if (!params.raw.startsWith(params.prefix)) {
-    return;
-  }
+  if (!params.raw.startsWith(params.prefix)) return;
   const id = params.raw.slice(params.prefix.length).trim();
   return id ? buildMessagingTarget(params.kind, id, params.raw) : void 0;
 }
@@ -37,15 +31,11 @@ function parseTargetPrefixes(params) {
       prefix: entry.prefix,
       kind: entry.kind,
     });
-    if (parsed) {
-      return parsed;
-    }
+    if (parsed) return parsed;
   }
 }
 function parseAtUserTarget(params) {
-  if (!params.raw.startsWith("@")) {
-    return;
-  }
+  if (!params.raw.startsWith("@")) return;
   return buildMessagingTarget(
     "user",
     ensureTargetId({
@@ -62,16 +52,12 @@ function parseMentionPrefixOrAtUserTarget(params) {
     mentionPattern: params.mentionPattern,
     kind: "user",
   });
-  if (mentionTarget) {
-    return mentionTarget;
-  }
+  if (mentionTarget) return mentionTarget;
   const prefixedTarget = parseTargetPrefixes({
     raw: params.raw,
     prefixes: params.prefixes,
   });
-  if (prefixedTarget) {
-    return prefixedTarget;
-  }
+  if (prefixedTarget) return prefixedTarget;
   return parseAtUserTarget({
     raw: params.raw,
     pattern: params.atUserPattern,
@@ -80,12 +66,9 @@ function parseMentionPrefixOrAtUserTarget(params) {
 }
 function requireTargetKind(params) {
   const kindLabel = params.kind;
-  if (!params.target) {
-    throw new Error(`${params.platform} ${kindLabel} id is required.`);
-  }
-  if (params.target.kind !== params.kind) {
+  if (!params.target) throw new Error(`${params.platform} ${kindLabel} id is required.`);
+  if (params.target.kind !== params.kind)
     throw new Error(`${params.platform} ${kindLabel} id is required (use ${kindLabel}:<id>).`);
-  }
   return params.target.id;
 }
 //#endregion

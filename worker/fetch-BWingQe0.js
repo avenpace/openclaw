@@ -9,9 +9,7 @@ import { t as getProxyUrlFromFetch } from "./proxy-fetch-M9xSywjl.js";
 import { O as createSubsystemLogger } from "./utils-DAQkyZZs.js";
 //#region src/infra/wsl.ts
 function isWSLEnv() {
-  if (process.env.WSL_INTEROP || process.env.WSL_DISTRO_NAME || process.env.WSLENV) {
-    return true;
-  }
+  if (process.env.WSL_INTEROP || process.env.WSL_DISTRO_NAME || process.env.WSLENV) return true;
   return false;
 }
 /**
@@ -19,12 +17,8 @@ function isWSLEnv() {
  * Checks env vars first, then /proc/version.
  */
 function isWSLSync() {
-  if (process.platform !== "linux") {
-    return false;
-  }
-  if (isWSLEnv()) {
-    return true;
-  }
+  if (process.platform !== "linux") return false;
+  if (isWSLEnv()) return true;
   try {
     const release = readFileSync("/proc/version", "utf8").toLowerCase();
     return release.includes("microsoft") || release.includes("wsl");
@@ -36,9 +30,7 @@ function isWSLSync() {
  * Synchronously check if running in WSL2.
  */
 function isWSL2Sync() {
-  if (!isWSLSync()) {
-    return false;
-  }
+  if (!isWSLSync()) return false;
   try {
     const version = readFileSync("/proc/version", "utf8").toLowerCase();
     return version.includes("wsl2") || version.includes("microsoft-standard");
@@ -53,9 +45,7 @@ const TELEGRAM_ENABLE_AUTO_SELECT_FAMILY_ENV = "OPENCLAW_TELEGRAM_ENABLE_AUTO_SE
 const TELEGRAM_DNS_RESULT_ORDER_ENV = "OPENCLAW_TELEGRAM_DNS_RESULT_ORDER";
 let wsl2SyncCache;
 function isWSL2SyncCached() {
-  if (typeof wsl2SyncCache === "boolean") {
-    return wsl2SyncCache;
-  }
+  if (typeof wsl2SyncCache === "boolean") return wsl2SyncCache;
   wsl2SyncCache = isWSL2Sync();
   return wsl2SyncCache;
 }
@@ -65,36 +55,31 @@ function resolveTelegramAutoSelectFamilyDecision(params) {
     typeof params?.nodeMajor === "number"
       ? params.nodeMajor
       : Number(process$1.versions.node.split(".")[0]);
-  if (isTruthyEnvValue(env["OPENCLAW_TELEGRAM_ENABLE_AUTO_SELECT_FAMILY"])) {
+  if (isTruthyEnvValue(env["OPENCLAW_TELEGRAM_ENABLE_AUTO_SELECT_FAMILY"]))
     return {
       value: true,
       source: `env:${TELEGRAM_ENABLE_AUTO_SELECT_FAMILY_ENV}`,
     };
-  }
-  if (isTruthyEnvValue(env["OPENCLAW_TELEGRAM_DISABLE_AUTO_SELECT_FAMILY"])) {
+  if (isTruthyEnvValue(env["OPENCLAW_TELEGRAM_DISABLE_AUTO_SELECT_FAMILY"]))
     return {
       value: false,
       source: `env:${TELEGRAM_DISABLE_AUTO_SELECT_FAMILY_ENV}`,
     };
-  }
-  if (typeof params?.network?.autoSelectFamily === "boolean") {
+  if (typeof params?.network?.autoSelectFamily === "boolean")
     return {
       value: params.network.autoSelectFamily,
       source: "config",
     };
-  }
-  if (isWSL2SyncCached()) {
+  if (isWSL2SyncCached())
     return {
       value: false,
       source: "default-wsl2",
     };
-  }
-  if (Number.isFinite(nodeMajor) && nodeMajor >= 22) {
+  if (Number.isFinite(nodeMajor) && nodeMajor >= 22)
     return {
       value: true,
       source: "default-node22",
     };
-  }
   return { value: null };
 }
 /**
@@ -114,25 +99,22 @@ function resolveTelegramDnsResultOrderDecision(params) {
       ? params.nodeMajor
       : Number(process$1.versions.node.split(".")[0]);
   const envValue = env[TELEGRAM_DNS_RESULT_ORDER_ENV]?.trim().toLowerCase();
-  if (envValue === "ipv4first" || envValue === "verbatim") {
+  if (envValue === "ipv4first" || envValue === "verbatim")
     return {
       value: envValue,
       source: `env:${TELEGRAM_DNS_RESULT_ORDER_ENV}`,
     };
-  }
   const configValue = params?.network?.dnsResultOrder?.trim().toLowerCase();
-  if (configValue === "ipv4first" || configValue === "verbatim") {
+  if (configValue === "ipv4first" || configValue === "verbatim")
     return {
       value: configValue,
       source: "config",
     };
-  }
-  if (Number.isFinite(nodeMajor) && nodeMajor >= 22) {
+  if (Number.isFinite(nodeMajor) && nodeMajor >= 22)
     return {
       value: "ipv4first",
       source: "default-node22",
     };
-  }
   return { value: null };
 }
 //#endregion
@@ -158,15 +140,11 @@ const IPV4_FALLBACK_RULES = [
   },
 ];
 function normalizeDnsResultOrder(value) {
-  if (value === "ipv4first" || value === "verbatim") {
-    return value;
-  }
+  if (value === "ipv4first" || value === "verbatim") return value;
   return null;
 }
 function createDnsResultOrderLookup(order) {
-  if (!order) {
-    return;
-  }
+  if (!order) return;
   const lookup = dns.lookup;
   return (hostname, options, callback) => {
     lookup(
@@ -190,39 +168,28 @@ function buildTelegramConnectOptions(params) {
     connect.autoSelectFamilyAttemptTimeout = TELEGRAM_AUTO_SELECT_FAMILY_ATTEMPT_TIMEOUT_MS;
   }
   const lookup = createDnsResultOrderLookup(params.dnsResultOrder);
-  if (lookup) {
-    connect.lookup = lookup;
-  }
+  if (lookup) connect.lookup = lookup;
   return Object.keys(connect).length > 0 ? connect : null;
 }
 function shouldBypassEnvProxyForTelegramApi(env = process.env) {
   const noProxyValue = env.no_proxy ?? env.NO_PROXY ?? "";
-  if (!noProxyValue) {
-    return false;
-  }
-  if (noProxyValue === "*") {
-    return true;
-  }
+  if (!noProxyValue) return false;
+  if (noProxyValue === "*") return true;
   const targetHostname = TELEGRAM_API_HOSTNAME.toLowerCase();
   const targetPort = 443;
   const noProxyEntries = noProxyValue.split(/[,\s]/);
   for (let i = 0; i < noProxyEntries.length; i++) {
     const entry = noProxyEntries[i];
-    if (!entry) {
-      continue;
-    }
+    if (!entry) continue;
     const parsed = entry.match(/^(.+):(\d+)$/);
     const entryHostname = (parsed ? parsed[1] : entry).replace(/^\*?\./, "").toLowerCase();
     const entryPort = parsed ? Number.parseInt(parsed[2], 10) : 0;
-    if (entryPort && entryPort !== targetPort) {
-      continue;
-    }
+    if (entryPort && entryPort !== targetPort) continue;
     if (
       targetHostname === entryHostname ||
       targetHostname.slice(-(entryHostname.length + 1)) === `.${entryHostname}`
-    ) {
+    )
       return true;
-    }
   }
   return false;
 }
@@ -279,9 +246,7 @@ function createTelegramDispatcher(params) {
   };
 }
 function withDispatcherIfMissing(init, dispatcher) {
-  if (init?.dispatcher) {
-    return init ?? {};
-  }
+  if (init?.dispatcher) return init ?? {};
   return init
     ? {
         ...init,
@@ -310,24 +275,16 @@ function collectErrorCodes(err) {
   const seen = /* @__PURE__ */ new Set();
   while (queue.length > 0) {
     const current = queue.shift();
-    if (!current || seen.has(current)) {
-      continue;
-    }
+    if (!current || seen.has(current)) continue;
     seen.add(current);
     if (typeof current === "object") {
       const code = current.code;
-      if (typeof code === "string" && code.trim()) {
-        codes.add(code.trim().toUpperCase());
-      }
+      if (typeof code === "string" && code.trim()) codes.add(code.trim().toUpperCase());
       const cause = current.cause;
-      if (cause && !seen.has(cause)) {
-        queue.push(cause);
-      }
+      if (cause && !seen.has(cause)) queue.push(cause);
       const errors = current.errors;
       if (Array.isArray(errors)) {
-        for (const nested of errors) {
-          if (nested && !seen.has(nested)) queue.push(nested);
-        }
+        for (const nested of errors) if (nested && !seen.has(nested)) queue.push(nested);
       }
     }
   }
@@ -343,9 +300,7 @@ function shouldRetryWithIpv4Fallback(err) {
       err && typeof err === "object" && "message" in err ? String(err.message).toLowerCase() : "",
     codes: collectErrorCodes(err),
   };
-  for (const rule of IPV4_FALLBACK_RULES) {
-    if (!rule.matches(ctx)) return false;
-  }
+  for (const rule of IPV4_FALLBACK_RULES) if (!rule.matches(ctx)) return false;
   return true;
 }
 function resolveTelegramFetch(proxyFetch, options) {
@@ -362,9 +317,7 @@ function resolveTelegramFetch(proxyFetch, options) {
     : proxyFetch
       ? resolveWrappedFetch(proxyFetch)
       : undiciSourceFetch;
-  if (proxyFetch && !explicitProxyUrl) {
-    return sourceFetch;
-  }
+  if (proxyFetch && !explicitProxyUrl) return sourceFetch;
   const dnsResultOrder = normalizeDnsResultOrder(dnsDecision.value);
   const useEnvProxy = !explicitProxyUrl && hasEnvHttpProxyForTelegramApi();
   const defaultDispatcherResolution = createTelegramDispatcher({
@@ -383,7 +336,7 @@ function resolveTelegramFetch(proxyFetch, options) {
   let stickyIpv4FallbackEnabled = false;
   let stickyIpv4Dispatcher = null;
   const resolveStickyIpv4Dispatcher = () => {
-    if (!stickyIpv4Dispatcher) {
+    if (!stickyIpv4Dispatcher)
       stickyIpv4Dispatcher = createTelegramDispatcher({
         autoSelectFamily: false,
         dnsResultOrder: "ipv4first",
@@ -391,7 +344,6 @@ function resolveTelegramFetch(proxyFetch, options) {
         forceIpv4: true,
         proxyUrl: explicitProxyUrl,
       }).dispatcher;
-    }
     return stickyIpv4Dispatcher;
   };
   return async (input, init) => {
@@ -404,12 +356,8 @@ function resolveTelegramFetch(proxyFetch, options) {
       return await sourceFetch(input, initialInit);
     } catch (err) {
       if (shouldRetryWithIpv4Fallback(err)) {
-        if (callerProvidedDispatcher) {
-          return sourceFetch(input, init ?? {});
-        }
-        if (!allowStickyIpv4Fallback) {
-          throw err;
-        }
+        if (callerProvidedDispatcher) return sourceFetch(input, init ?? {});
+        if (!allowStickyIpv4Fallback) throw err;
         if (!stickyIpv4FallbackEnabled) {
           stickyIpv4FallbackEnabled = true;
           log.warn(

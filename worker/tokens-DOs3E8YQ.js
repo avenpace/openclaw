@@ -6,9 +6,7 @@ const silentExactRegexByToken = /* @__PURE__ */ new Map();
 const silentTrailingRegexByToken = /* @__PURE__ */ new Map();
 function getSilentExactRegex(token) {
   const cached = silentExactRegexByToken.get(token);
-  if (cached) {
-    return cached;
-  }
+  if (cached) return cached;
   const escaped = escapeRegExp(token);
   const regex = new RegExp(`^\\s*${escaped}\\s*$`);
   silentExactRegexByToken.set(token, regex);
@@ -16,18 +14,14 @@ function getSilentExactRegex(token) {
 }
 function getSilentTrailingRegex(token) {
   const cached = silentTrailingRegexByToken.get(token);
-  if (cached) {
-    return cached;
-  }
+  if (cached) return cached;
   const escaped = escapeRegExp(token);
   const regex = new RegExp(`(?:^|\\s+|\\*+)${escaped}\\s*$`);
   silentTrailingRegexByToken.set(token, regex);
   return regex;
 }
 function isSilentReplyText(text, token = SILENT_REPLY_TOKEN) {
-  if (!text) {
-    return false;
-  }
+  if (!text) return false;
   return getSilentExactRegex(token).test(text);
 }
 /**
@@ -39,33 +33,17 @@ function stripSilentToken(text, token = SILENT_REPLY_TOKEN) {
   return text.replace(getSilentTrailingRegex(token), "").trim();
 }
 function isSilentReplyPrefixText(text, token = SILENT_REPLY_TOKEN) {
-  if (!text) {
-    return false;
-  }
+  if (!text) return false;
   const trimmed = text.trimStart();
-  if (!trimmed) {
-    return false;
-  }
-  if (trimmed !== trimmed.toUpperCase()) {
-    return false;
-  }
+  if (!trimmed) return false;
+  if (trimmed !== trimmed.toUpperCase()) return false;
   const normalized = trimmed.toUpperCase();
-  if (!normalized) {
-    return false;
-  }
-  if (normalized.length < 2) {
-    return false;
-  }
-  if (/[^A-Z_]/.test(normalized)) {
-    return false;
-  }
+  if (!normalized) return false;
+  if (normalized.length < 2) return false;
+  if (/[^A-Z_]/.test(normalized)) return false;
   const tokenUpper = token.toUpperCase();
-  if (!tokenUpper.startsWith(normalized)) {
-    return false;
-  }
-  if (normalized.includes("_")) {
-    return true;
-  }
+  if (!tokenUpper.startsWith(normalized)) return false;
+  if (normalized.includes("_")) return true;
   return tokenUpper === "NO_REPLY" && normalized === "NO";
 }
 //#endregion

@@ -656,6 +656,54 @@ async function pollOperation(
   throw new Error("Operation polling timeout");
 }
 
+/**
+ * Refresh an expired Google OAuth token using the refresh token
+ */
+export async function refreshGeminiCliOAuth(
+  credentials: GeminiCliOAuthCredentials,
+): Promise<GeminiCliOAuthCredentials> {
+  const { clientId, clientSecret } = resolveOAuthClientConfig();
+
+  const body = new URLSearchParams({
+    client_id: clientId,
+    refresh_token: credentials.refresh,
+    grant_type: "refresh_token",
+  });
+  if (clientSecret) {
+    body.set("client_secret", clientSecret);
+  }
+
+  const response = await fetchWithTimeout(TOKEN_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+      Accept: "*/*",
+      "User-Agent": "google-api-nodejs-client/9.15.1",
+    },
+    body,
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`OAuth token refresh failed: ${errorText}`);
+  }
+
+  const data = (await response.json()) as {
+    access_token: string;
+    refresh_token?: string;
+    expires_in: number;
+  };
+
+  const expiresAt = Date.now() + data.expires_in * 1000 - 5 * 60 * 1000;
+
+  return {
+    ...credentials,
+    access: data.access_token,
+    refresh: data.refresh_token || credentials.refresh, // Keep old refresh token if not provided
+    expires: expiresAt,
+  };
+}
+
 export async function loginGeminiCliOAuth(
   ctx: GeminiCliOAuthContext,
 ): Promise<GeminiCliOAuthCredentials> {

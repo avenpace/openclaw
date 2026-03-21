@@ -93,6 +93,7 @@ import { createCloudStorageTools } from "../../tools/cloud-storage-tool.js";
 import { createDevicesTools } from "../../tools/devices-tool.js";
 import { getBuiltinImageResizeHandler } from "../../tools/image-resize-handler-builtin.js";
 import { createImageResizeTools } from "../../tools/image-resize-tool.js";
+import { createPythonTool, isPythonAvailable } from "../../tools/python-tool.js";
 import { resolveTranscriptPolicy } from "../../transcript-policy.js";
 import { DEFAULT_BOOTSTRAP_FILENAME } from "../../workspace.js";
 import { isRunnerAbortError } from "../abort.js";
@@ -830,8 +831,13 @@ export async function runEmbeddedAttempt(
     const workspaceNotes = hookAdjustedBootstrapFiles.some(
       (file) => file.name === DEFAULT_BOOTSTRAP_FILENAME && !file.missing,
     )
-      ? ["Reminder: commit your changes in this workspace after edits."]
-      : undefined;
+      ? [
+          "Reminder: commit your changes in this workspace after edits.",
+          "IMPORTANT: After making file edits, VERIFY the changes worked by reading the file or testing. Do NOT report 'done' without confirming the fix is applied.",
+        ]
+      : [
+          "IMPORTANT: After making file edits, VERIFY the changes worked by reading the file or testing. Do NOT report 'done' without confirming the fix is applied.",
+        ];
 
     const agentDir = params.agentDir ?? resolveOpenClawAgentDir();
 
@@ -905,6 +911,24 @@ export async function runEmbeddedAttempt(
     const imageResizeHandler = params.imageResizeHandler ?? getBuiltinImageResizeHandler();
     const imageTools = createImageResizeTools(imageResizeHandler);
     toolsRaw.push(...imageTools);
+
+    // Add sandboxed Python tool for workspace file operations
+    // Runs on SERVER - use for editing files, text processing, batch operations
+    // Agent should prefer this for workspace tasks; use devices_run for system access
+    if (params.workspaceDir) {
+      const pythonAvailable = await isPythonAvailable();
+      console.log(
+        `[python-tool] isPythonAvailable: ${pythonAvailable}, workspaceDir: ${params.workspaceDir}`,
+      );
+      if (pythonAvailable) {
+        const pythonTool = createPythonTool({
+          workspaceDir: params.workspaceDir,
+          maxTimeoutSec: 30,
+        });
+        toolsRaw.push(pythonTool);
+        console.log(`[python-tool] Added python_exec tool for workspace: ${params.workspaceDir}`);
+      }
+    }
 
     const toolsEnabled = supportsModelTools(params.model);
     const tools = sanitizeToolsForGoogle({

@@ -56,6 +56,12 @@ export const EXTERNAL_CHANNEL_SAFE_BINS = [
   "cp",
   "mv",
   "rm",
+  "find", // requires special handling - path validation + block -exec/-execdir
+  // PHP for server-side execution (website-builder tests, etc.)
+  // Script path is validated via WORKSPACE_RESTRICTED_BINS
+  "php",
+  // SQLite for database operations (website-builder uses SQLite)
+  "sqlite3",
 ];
 
 /**
@@ -69,7 +75,14 @@ export const WORKSPACE_RESTRICTED_BINS = new Set([
   "mv",
   "rm",
   "ls", // read-only but still restricted to workspace
+  "find", // requires special handling in validateWorkspacePaths
+  "php", // script path must be within workspace
 ]);
+
+/**
+ * Dangerous find flags that execute commands - must be blocked for security.
+ */
+const FIND_DANGEROUS_FLAGS = new Set(["-exec", "-execdir", "-ok", "-okdir"]);
 
 /**
  * Validate that all path arguments in a command are within the workspace.
@@ -92,6 +105,11 @@ export function validateWorkspacePaths(params: {
   const pathModule = require("node:path");
   const normalizedRoot = pathModule.resolve(workspaceRoot);
 
+  // Special handling for 'find' command
+  if (cmd === "find") {
+    return validateFindCommand({ argv, workspaceRoot, normalizedRoot, pathModule });
+  }
+
   // Check each argument (skip flags starting with -)
   for (let i = 1; i < argv.length; i++) {
     const arg = argv[i];
@@ -99,31 +117,97 @@ export function validateWorkspacePaths(params: {
       continue;
     }
 
-    // Expand ~ to workspace root (not actual home)
-    let resolvedPath = arg;
-    if (arg === "~" || arg.startsWith("~/")) {
-      resolvedPath = pathModule.join(workspaceRoot, arg.slice(1) || "");
-    } else if (!pathModule.isAbsolute(arg)) {
-      // Relative paths are resolved from workspace root
-      resolvedPath = pathModule.join(workspaceRoot, arg);
+    const pathCheck = validateSinglePath({ arg, workspaceRoot, normalizedRoot, pathModule });
+    if (!pathCheck.ok) {
+      return pathCheck;
     }
+  }
 
-    // Normalize and check for path traversal
-    const normalized = pathModule.resolve(resolvedPath);
+  return { ok: true };
+}
 
-    // Check if path is within workspace
-    if (!normalized.startsWith(normalizedRoot + pathModule.sep) && normalized !== normalizedRoot) {
-      // Check for path traversal patterns
-      if (arg.includes("..") || normalized.includes("..")) {
-        return {
-          ok: false,
-          reason: `Path traversal detected: "${arg}" - access outside workspace is not allowed`,
-        };
-      }
+/**
+ * Validate a single path argument is within workspace.
+ */
+function validateSinglePath(params: {
+  arg: string;
+  workspaceRoot: string;
+  normalizedRoot: string;
+  pathModule: typeof import("node:path");
+}): { ok: true } | { ok: false; reason: string } {
+  const { arg, workspaceRoot, normalizedRoot, pathModule } = params;
+
+  // Expand ~ to workspace root (not actual home)
+  let resolvedPath = arg;
+  if (arg === "~" || arg.startsWith("~/")) {
+    resolvedPath = pathModule.join(workspaceRoot, arg.slice(1) || "");
+  } else if (!pathModule.isAbsolute(arg)) {
+    // Relative paths are resolved from workspace root
+    resolvedPath = pathModule.join(workspaceRoot, arg);
+  }
+
+  // Normalize and check for path traversal
+  const normalized = pathModule.resolve(resolvedPath);
+
+  // Check if path is within workspace
+  if (!normalized.startsWith(normalizedRoot + pathModule.sep) && normalized !== normalizedRoot) {
+    // Check for path traversal patterns
+    if (arg.includes("..") || normalized.includes("..")) {
       return {
         ok: false,
-        reason: `Path "${arg}" is outside workspace. File operations are restricted to your workspace directory.`,
+        reason: `Path traversal detected: "${arg}" - access outside workspace is not allowed`,
       };
+    }
+    return {
+      ok: false,
+      reason: `Path "${arg}" is outside workspace. File operations are restricted to your workspace directory.`,
+    };
+  }
+
+  return { ok: true };
+}
+
+/**
+ * Special validation for 'find' command:
+ * - Only validates the search path (first positional arg before any flags)
+ * - Blocks dangerous flags like -exec, -execdir, -ok, -okdir
+ */
+function validateFindCommand(params: {
+  argv: string[];
+  workspaceRoot: string;
+  normalizedRoot: string;
+  pathModule: typeof import("node:path");
+}): { ok: true } | { ok: false; reason: string } {
+  const { argv, workspaceRoot, normalizedRoot, pathModule } = params;
+
+  // Check for dangerous flags first
+  for (let i = 1; i < argv.length; i++) {
+    const arg = argv[i]?.toLowerCase() ?? "";
+    if (FIND_DANGEROUS_FLAGS.has(arg)) {
+      return {
+        ok: false,
+        reason: `The "${argv[i]}" flag is not allowed with find for security reasons. Use find predicates like -name, -type, -printf instead.`,
+      };
+    }
+  }
+
+  // For find, the search path(s) come before any flags (args starting with -)
+  // find [path...] [expression]
+  // We validate all path arguments (everything before the first flag)
+  for (let i = 1; i < argv.length; i++) {
+    const arg = argv[i];
+    if (!arg) {
+      continue;
+    }
+
+    // Once we hit a flag, stop checking for paths
+    if (arg.startsWith("-") || arg === "(" || arg === ")" || arg === "!" || arg === ",") {
+      break;
+    }
+
+    const pathCheck = validateSinglePath({ arg, workspaceRoot, normalizedRoot, pathModule });
+    if (!pathCheck.ok) {
+      return pathCheck;
     }
   }
 

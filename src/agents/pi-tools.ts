@@ -296,6 +296,10 @@ export function createOpenClawCodingTools(options?: {
     modelProvider: options?.modelProvider,
     modelId: options?.modelId,
   });
+  // DEBUG: Log tool policy resolution for write tool availability
+  console.log(
+    `[pi-tools] Profile: ${profile}, profileAlsoAllow: ${JSON.stringify(profileAlsoAllow)}, hasToolsFs: ${Boolean(options?.config?.tools?.fs)}`,
+  );
   const groupPolicy = resolveGroupToolPolicy({
     config: options?.config,
     sessionKey: options?.sessionKey,

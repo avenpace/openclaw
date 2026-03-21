@@ -17,9 +17,7 @@ function calculateBackoffMs(consecutiveNoOutputPolls) {
  * @returns Suggested delay in milliseconds before next poll
  */
 function recordCommandPoll(state, commandId, hasNewOutput) {
-  if (!state.commandPollCounts) {
-    state.commandPollCounts = /* @__PURE__ */ new Map();
-  }
+  if (!state.commandPollCounts) state.commandPollCounts = /* @__PURE__ */ new Map();
   const existing = state.commandPollCounts.get(commandId);
   const now = Date.now();
   if (hasNewOutput) {
@@ -47,13 +45,10 @@ function resetCommandPollCount(state, commandId) {
  * Call periodically to prevent memory bloat.
  */
 function pruneStaleCommandPolls(state, maxAgeMs = 36e5) {
-  if (!state.commandPollCounts) {
-    return;
-  }
+  if (!state.commandPollCounts) return;
   const now = Date.now();
-  for (const [commandId, data] of state.commandPollCounts.entries()) {
+  for (const [commandId, data] of state.commandPollCounts.entries())
     if (now - data.lastPollAt > maxAgeMs) state.commandPollCounts.delete(commandId);
-  }
 }
 //#endregion
 export { recordCommandPoll as n, resetCommandPollCount as r, pruneStaleCommandPolls as t };

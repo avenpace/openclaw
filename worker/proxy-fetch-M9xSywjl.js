@@ -9,9 +9,7 @@ const PROXY_FETCH_PROXY_URL = Symbol.for("openclaw.proxyFetch.proxyUrl");
 function makeProxyFetch(proxyUrl) {
   let agent = null;
   const resolveAgent = () => {
-    if (!agent) {
-      agent = new ProxyAgent(proxyUrl);
-    }
+    if (!agent) agent = new ProxyAgent(proxyUrl);
     return agent;
   };
   const proxyFetch = (input, init) =>
@@ -29,9 +27,7 @@ function makeProxyFetch(proxyUrl) {
 }
 function getProxyUrlFromFetch(fetchImpl) {
   const proxyUrl = fetchImpl?.[PROXY_FETCH_PROXY_URL];
-  if (typeof proxyUrl !== "string") {
-    return;
-  }
+  if (typeof proxyUrl !== "string") return;
   const trimmed = proxyUrl.trim();
   return trimmed ? trimmed : void 0;
 }
@@ -50,9 +46,8 @@ function resolveProxyFetchFromEnv() {
       process.env.https_proxy ||
       process.env.http_proxy
     )?.trim()
-  ) {
+  )
     return;
-  }
   try {
     const agent = new EnvHttpProxyAgent();
     return (input, init) =>

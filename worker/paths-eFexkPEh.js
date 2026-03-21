@@ -16,21 +16,15 @@ function resolveRawHomeDir(env, homedir) {
     if (explicitHome === "~" || explicitHome.startsWith("~/") || explicitHome.startsWith("~\\")) {
       const fallbackHome =
         normalize(env.HOME) ?? normalize(env.USERPROFILE) ?? normalizeSafe(homedir);
-      if (fallbackHome) {
-        return explicitHome.replace(/^~(?=$|[\\/])/, fallbackHome);
-      }
+      if (fallbackHome) return explicitHome.replace(/^~(?=$|[\\/])/, fallbackHome);
       return;
     }
     return explicitHome;
   }
   const envHome = normalize(env.HOME);
-  if (envHome) {
-    return envHome;
-  }
+  if (envHome) return envHome;
   const userProfile = normalize(env.USERPROFILE);
-  if (userProfile) {
-    return userProfile;
-  }
+  if (userProfile) return userProfile;
   return normalizeSafe(homedir);
 }
 function normalizeSafe(homedir) {
@@ -44,15 +38,11 @@ function resolveRequiredHomeDir(env = process.env, homedir = os.homedir) {
   return resolveEffectiveHomeDir(env, homedir) ?? path.resolve(process.cwd());
 }
 function expandHomePrefix(input, opts) {
-  if (!input.startsWith("~")) {
-    return input;
-  }
+  if (!input.startsWith("~")) return input;
   const home =
     normalize(opts?.home) ??
     resolveEffectiveHomeDir(opts?.env ?? process.env, opts?.homedir ?? os.homedir);
-  if (!home) {
-    return input;
-  }
+  if (!home) return input;
   return input.replace(/^~(?=$|[\\/])/, home);
 }
 //#endregion
@@ -93,17 +83,11 @@ function newStateDir(homedir = resolveDefaultHomeDir) {
 function resolveStateDir(env = process.env, homedir = envHomedir(env)) {
   const effectiveHomedir = () => resolveRequiredHomeDir(env, homedir);
   const override = env.OPENCLAW_STATE_DIR?.trim() || env.CLAWDBOT_STATE_DIR?.trim();
-  if (override) {
-    return resolveUserPath(override, env, effectiveHomedir);
-  }
+  if (override) return resolveUserPath(override, env, effectiveHomedir);
   const newDir = newStateDir(effectiveHomedir);
-  if (env.OPENCLAW_TEST_FAST === "1") {
-    return newDir;
-  }
+  if (env.OPENCLAW_TEST_FAST === "1") return newDir;
   const legacyDirs = legacyStateDirs(effectiveHomedir);
-  if (fs.existsSync(newDir)) {
-    return newDir;
-  }
+  if (fs.existsSync(newDir)) return newDir;
   const existingLegacy = legacyDirs.find((dir) => {
     try {
       return fs.existsSync(dir);
@@ -111,16 +95,12 @@ function resolveStateDir(env = process.env, homedir = envHomedir(env)) {
       return false;
     }
   });
-  if (existingLegacy) {
-    return existingLegacy;
-  }
+  if (existingLegacy) return existingLegacy;
   return newDir;
 }
 function resolveUserPath(input, env = process.env, homedir = envHomedir(env)) {
   const trimmed = input.trim();
-  if (!trimmed) {
-    return trimmed;
-  }
+  if (!trimmed) return trimmed;
   if (trimmed.startsWith("~")) {
     const expanded = expandHomePrefix(trimmed, {
       home: resolveRequiredHomeDir(env, homedir),
@@ -142,9 +122,7 @@ function resolveCanonicalConfigPath(
   stateDir = resolveStateDir(env, envHomedir(env)),
 ) {
   const override = env.OPENCLAW_CONFIG_PATH?.trim() || env.CLAWDBOT_CONFIG_PATH?.trim();
-  if (override) {
-    return resolveUserPath(override, env, envHomedir(env));
-  }
+  if (override) return resolveUserPath(override, env, envHomedir(env));
   return path.join(stateDir, CONFIG_FILENAME);
 }
 /**
@@ -152,9 +130,8 @@ function resolveCanonicalConfigPath(
  * before falling back to the canonical path.
  */
 function resolveConfigPathCandidate(env = process.env, homedir = envHomedir(env)) {
-  if (env.OPENCLAW_TEST_FAST === "1") {
+  if (env.OPENCLAW_TEST_FAST === "1")
     return resolveCanonicalConfigPath(env, resolveStateDir(env, homedir));
-  }
   const existing = resolveDefaultConfigCandidates(env, homedir).find((candidate) => {
     try {
       return fs.existsSync(candidate);
@@ -162,9 +139,7 @@ function resolveConfigPathCandidate(env = process.env, homedir = envHomedir(env)
       return false;
     }
   });
-  if (existing) {
-    return existing;
-  }
+  if (existing) return existing;
   return resolveCanonicalConfigPath(env, resolveStateDir(env, homedir));
 }
 /**
@@ -176,12 +151,8 @@ function resolveConfigPath(
   homedir = envHomedir(env),
 ) {
   const override = env.OPENCLAW_CONFIG_PATH?.trim();
-  if (override) {
-    return resolveUserPath(override, env, homedir);
-  }
-  if (env.OPENCLAW_TEST_FAST === "1") {
-    return path.join(stateDir, CONFIG_FILENAME);
-  }
+  if (override) return resolveUserPath(override, env, homedir);
+  if (env.OPENCLAW_TEST_FAST === "1") return path.join(stateDir, CONFIG_FILENAME);
   const stateOverride = env.OPENCLAW_STATE_DIR?.trim();
   const existing = [
     path.join(stateDir, CONFIG_FILENAME),
@@ -193,16 +164,11 @@ function resolveConfigPath(
       return false;
     }
   });
-  if (existing) {
-    return existing;
-  }
-  if (stateOverride) {
-    return path.join(stateDir, CONFIG_FILENAME);
-  }
+  if (existing) return existing;
+  if (stateOverride) return path.join(stateDir, CONFIG_FILENAME);
   const defaultStateDir = resolveStateDir(env, homedir);
-  if (path.resolve(stateDir) === path.resolve(defaultStateDir)) {
+  if (path.resolve(stateDir) === path.resolve(defaultStateDir))
     return resolveConfigPathCandidate(env, homedir);
-  }
   return path.join(stateDir, CONFIG_FILENAME);
 }
 resolveConfigPathCandidate();
@@ -213,9 +179,7 @@ resolveConfigPathCandidate();
 function resolveDefaultConfigCandidates(env = process.env, homedir = envHomedir(env)) {
   const effectiveHomedir = () => resolveRequiredHomeDir(env, homedir);
   const explicit = env.OPENCLAW_CONFIG_PATH?.trim() || env.CLAWDBOT_CONFIG_PATH?.trim();
-  if (explicit) {
-    return [resolveUserPath(explicit, env, effectiveHomedir)];
-  }
+  if (explicit) return [resolveUserPath(explicit, env, effectiveHomedir)];
   const candidates = [];
   const openclawStateDir = env.OPENCLAW_STATE_DIR?.trim() || env.CLAWDBOT_STATE_DIR?.trim();
   if (openclawStateDir) {
@@ -241,9 +205,7 @@ const OAUTH_FILENAME = "oauth.json";
  */
 function resolveOAuthDir(env = process.env, stateDir = resolveStateDir(env, envHomedir(env))) {
   const override = env.OPENCLAW_OAUTH_DIR?.trim();
-  if (override) {
-    return resolveUserPath(override, env, envHomedir(env));
-  }
+  if (override) return resolveUserPath(override, env, envHomedir(env));
   return path.join(stateDir, "credentials");
 }
 function resolveOAuthPath(env = process.env, stateDir = resolveStateDir(env, envHomedir(env))) {
@@ -253,15 +215,11 @@ function resolveGatewayPort(cfg, env = process.env) {
   const envRaw = env.OPENCLAW_GATEWAY_PORT?.trim() || env.CLAWDBOT_GATEWAY_PORT?.trim();
   if (envRaw) {
     const parsed = Number.parseInt(envRaw, 10);
-    if (Number.isFinite(parsed) && parsed > 0) {
-      return parsed;
-    }
+    if (Number.isFinite(parsed) && parsed > 0) return parsed;
   }
   const configPort = cfg?.gateway?.port;
   if (typeof configPort === "number" && Number.isFinite(configPort)) {
-    if (configPort > 0) {
-      return configPort;
-    }
+    if (configPort > 0) return configPort;
   }
   return DEFAULT_GATEWAY_PORT;
 }

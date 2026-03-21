@@ -15,28 +15,16 @@ import "node:util";
 const ROOT_BOOLEAN_FLAGS = new Set(["--dev", "--no-color"]);
 const ROOT_VALUE_FLAGS = new Set(["--profile", "--log-level"]);
 function isValueToken(arg) {
-  if (!arg || arg === "--") {
-    return false;
-  }
-  if (!arg.startsWith("-")) {
-    return true;
-  }
+  if (!arg || arg === "--") return false;
+  if (!arg.startsWith("-")) return true;
   return /^-\d+(?:\.\d+)?$/.test(arg);
 }
 function consumeRootOptionToken(args, index) {
   const arg = args[index];
-  if (!arg) {
-    return 0;
-  }
-  if (ROOT_BOOLEAN_FLAGS.has(arg)) {
-    return 1;
-  }
-  if (arg.startsWith("--profile=") || arg.startsWith("--log-level=")) {
-    return 1;
-  }
-  if (ROOT_VALUE_FLAGS.has(arg)) {
-    return isValueToken(args[index + 1]) ? 2 : 1;
-  }
+  if (!arg) return 0;
+  if (ROOT_BOOLEAN_FLAGS.has(arg)) return 1;
+  if (arg.startsWith("--profile=") || arg.startsWith("--log-level=")) return 1;
+  if (ROOT_VALUE_FLAGS.has(arg)) return isValueToken(args[index + 1]) ? 2 : 1;
   return 0;
 }
 //#endregion
@@ -49,12 +37,8 @@ function getCommandPathInternal(argv, depth, opts) {
   const path = [];
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i];
-    if (!arg) {
-      continue;
-    }
-    if (arg === "--") {
-      break;
-    }
+    if (!arg) continue;
+    if (arg === "--") break;
     if (opts.skipRootOptions) {
       const consumed = consumeRootOptionToken(args, i);
       if (consumed > 0) {
@@ -62,13 +46,9 @@ function getCommandPathInternal(argv, depth, opts) {
         continue;
       }
     }
-    if (arg.startsWith("-")) {
-      continue;
-    }
+    if (arg.startsWith("-")) continue;
     path.push(arg);
-    if (path.length >= depth) {
-      break;
-    }
+    if (path.length >= depth) break;
   }
   return path;
 }
@@ -97,15 +77,9 @@ function resolvePreferredOpenClawTmpDir(options = {}) {
   const tmpdir = options.tmpdir ?? os.tmpdir;
   const uid = getuid();
   const isSecureDirForUser = (st) => {
-    if (uid === void 0) {
-      return true;
-    }
-    if (typeof st.uid === "number" && st.uid !== uid) {
-      return false;
-    }
-    if (typeof st.mode === "number" && (st.mode & 18) !== 0) {
-      return false;
-    }
+    if (uid === void 0) return true;
+    if (typeof st.uid === "number" && st.uid !== uid) return false;
+    if (typeof st.mode === "number" && (st.mode & 18) !== 0) return false;
     return true;
   };
   const fallback = () => {
@@ -118,30 +92,20 @@ function resolvePreferredOpenClawTmpDir(options = {}) {
   };
   const resolveDirState = (candidatePath) => {
     try {
-      if (!isTrustedTmpDir(lstatSync(candidatePath))) {
-        return "invalid";
-      }
+      if (!isTrustedTmpDir(lstatSync(candidatePath))) return "invalid";
       accessSync(candidatePath, TMP_DIR_ACCESS_MODE);
       return "available";
     } catch (err) {
-      if (isNodeErrorWithCode(err, "ENOENT")) {
-        return "missing";
-      }
+      if (isNodeErrorWithCode(err, "ENOENT")) return "missing";
       return "invalid";
     }
   };
   const tryRepairWritableBits = (candidatePath) => {
     try {
       const st = lstatSync(candidatePath);
-      if (!st.isDirectory() || st.isSymbolicLink()) {
-        return false;
-      }
-      if (uid !== void 0 && typeof st.uid === "number" && st.uid !== uid) {
-        return false;
-      }
-      if (typeof st.mode !== "number" || (st.mode & 18) === 0) {
-        return false;
-      }
+      if (!st.isDirectory() || st.isSymbolicLink()) return false;
+      if (uid !== void 0 && typeof st.uid === "number" && st.uid !== uid) return false;
+      if (typeof st.mode !== "number" || (st.mode & 18) === 0) return false;
       chmodSync(candidatePath, 448);
       warn(`[openclaw] tightened permissions on temp dir: ${candidatePath}`);
       return resolveDirState(candidatePath) === "available";
@@ -152,13 +116,9 @@ function resolvePreferredOpenClawTmpDir(options = {}) {
   const ensureTrustedFallbackDir = () => {
     const fallbackPath = fallback();
     const state = resolveDirState(fallbackPath);
-    if (state === "available") {
-      return fallbackPath;
-    }
+    if (state === "available") return fallbackPath;
     if (state === "invalid") {
-      if (tryRepairWritableBits(fallbackPath)) {
-        return fallbackPath;
-      }
+      if (tryRepairWritableBits(fallbackPath)) return fallbackPath;
       throw new Error(`Unsafe fallback OpenClaw temp dir: ${fallbackPath}`);
     }
     try {
@@ -170,19 +130,14 @@ function resolvePreferredOpenClawTmpDir(options = {}) {
     } catch {
       throw new Error(`Unable to create fallback OpenClaw temp dir: ${fallbackPath}`);
     }
-    if (resolveDirState(fallbackPath) !== "available" && !tryRepairWritableBits(fallbackPath)) {
+    if (resolveDirState(fallbackPath) !== "available" && !tryRepairWritableBits(fallbackPath))
       throw new Error(`Unsafe fallback OpenClaw temp dir: ${fallbackPath}`);
-    }
     return fallbackPath;
   };
   const existingPreferredState = resolveDirState(POSIX_OPENCLAW_TMP_DIR);
-  if (existingPreferredState === "available") {
-    return POSIX_OPENCLAW_TMP_DIR;
-  }
+  if (existingPreferredState === "available") return POSIX_OPENCLAW_TMP_DIR;
   if (existingPreferredState === "invalid") {
-    if (tryRepairWritableBits("/tmp/openclaw")) {
-      return POSIX_OPENCLAW_TMP_DIR;
-    }
+    if (tryRepairWritableBits("/tmp/openclaw")) return POSIX_OPENCLAW_TMP_DIR;
     return ensureTrustedFallbackDir();
   }
   try {
@@ -192,12 +147,8 @@ function resolvePreferredOpenClawTmpDir(options = {}) {
       mode: 448,
     });
     chmodSync(POSIX_OPENCLAW_TMP_DIR, 448);
-    if (
-      resolveDirState("/tmp/openclaw") !== "available" &&
-      !tryRepairWritableBits("/tmp/openclaw")
-    ) {
+    if (resolveDirState("/tmp/openclaw") !== "available" && !tryRepairWritableBits("/tmp/openclaw"))
       return ensureTrustedFallbackDir();
-    }
     return POSIX_OPENCLAW_TMP_DIR;
   } catch {
     return ensureTrustedFallbackDir();
@@ -208,14 +159,10 @@ function resolvePreferredOpenClawTmpDir(options = {}) {
 function readLoggingConfig() {
   const configPath = resolveConfigPath();
   try {
-    if (!fs.existsSync(configPath)) {
-      return;
-    }
+    if (!fs.existsSync(configPath)) return;
     const raw = fs.readFileSync(configPath, "utf-8");
     const logging = JSON5.parse(raw)?.logging;
-    if (!logging || typeof logging !== "object" || Array.isArray(logging)) {
-      return;
-    }
+    if (!logging || typeof logging !== "object" || Array.isArray(logging)) return;
     return logging;
   } catch {
     return;
@@ -225,9 +172,7 @@ function readLoggingConfig() {
 //#region src/logging/levels.ts
 const ALLOWED_LOG_LEVELS = ["silent", "fatal", "error", "warn", "info", "debug", "trace"];
 function tryParseLogLevel(level) {
-  if (typeof level !== "string") {
-    return;
-  }
+  if (typeof level !== "string") return;
   const candidate = level.trim();
   return ALLOWED_LOG_LEVELS.includes(candidate) ? candidate : void 0;
 }
@@ -286,9 +231,7 @@ function resolveEnvLogLevelOverride() {
 //#region src/logging/node-require.ts
 function resolveNodeRequireFromMeta(metaUrl) {
   const getBuiltinModule = process.getBuiltinModule;
-  if (typeof getBuiltinModule !== "function") {
-    return null;
-  }
+  if (typeof getBuiltinModule !== "function") return null;
   try {
     const moduleNamespace = getBuiltinModule("module");
     const createRequire =
@@ -347,9 +290,7 @@ function shouldSkipLoadConfigFallback(argv = process.argv) {
 }
 function attachExternalTransport(logger, transport) {
   logger.attachTransport((logObj) => {
-    if (!externalTransports.has(transport)) {
-      return;
-    }
+    if (!externalTransports.has(transport)) return;
     try {
       transport(logObj);
     } catch {}
@@ -365,21 +306,19 @@ function canUseSilentVitestFileLogFastPath(envLevel) {
 }
 function resolveSettings() {
   const envLevel = resolveEnvLogLevelOverride();
-  if (canUseSilentVitestFileLogFastPath(envLevel)) {
+  if (canUseSilentVitestFileLogFastPath(envLevel))
     return {
       level: "silent",
       file: defaultRollingPathForToday(),
       maxFileBytes: DEFAULT_MAX_LOG_FILE_BYTES,
     };
-  }
   let cfg = loggingState.overrideSettings ?? readLoggingConfig();
-  if (!cfg && !shouldSkipLoadConfigFallback()) {
+  if (!cfg && !shouldSkipLoadConfigFallback())
     try {
       cfg = requireConfig$1?.("../config/config.js")?.loadConfig?.().logging;
     } catch {
       cfg = void 0;
     }
-  }
   const defaultLevel =
     process.env.VITEST === "true" && process.env.OPENCLAW_TEST_FILE_LOG !== "1" ? "silent" : "info";
   const fromConfig = normalizeLogLevel(cfg?.level, defaultLevel);
@@ -390,19 +329,13 @@ function resolveSettings() {
   };
 }
 function settingsChanged(a, b) {
-  if (!a) {
-    return true;
-  }
+  if (!a) return true;
   return a.level !== b.level || a.file !== b.file || a.maxFileBytes !== b.maxFileBytes;
 }
 function isFileLogLevelEnabled(level) {
   const settings = loggingState.cachedSettings ?? resolveSettings();
-  if (!loggingState.cachedSettings) {
-    loggingState.cachedSettings = settings;
-  }
-  if (settings.level === "silent") {
-    return false;
-  }
+  if (!loggingState.cachedSettings) loggingState.cachedSettings = settings;
+  if (settings.level === "silent") return false;
   return levelToMinLevel(level) <= levelToMinLevel(settings.level);
 }
 function buildLogger(settings) {
@@ -412,15 +345,11 @@ function buildLogger(settings) {
     type: "hidden",
   });
   if (settings.level === "silent") {
-    for (const transport of externalTransports) {
-      attachExternalTransport(logger, transport);
-    }
+    for (const transport of externalTransports) attachExternalTransport(logger, transport);
     return logger;
   }
   fs.mkdirSync(path.dirname(settings.file), { recursive: true });
-  if (isRollingPath(settings.file)) {
-    pruneOldRollingLogs(path.dirname(settings.file));
-  }
+  if (isRollingPath(settings.file)) pruneOldRollingLogs(path.dirname(settings.file));
   let currentFileBytes = getCurrentLogFileBytes(settings.file);
   let warnedAboutSizeCap = false;
   logger.attachTransport((logObj) => {
@@ -448,20 +377,14 @@ function buildLogger(settings) {
         }
         return;
       }
-      if (appendLogLine(settings.file, payload)) {
-        currentFileBytes = nextBytes;
-      }
+      if (appendLogLine(settings.file, payload)) currentFileBytes = nextBytes;
     } catch {}
   });
-  for (const transport of externalTransports) {
-    attachExternalTransport(logger, transport);
-  }
+  for (const transport of externalTransports) attachExternalTransport(logger, transport);
   return logger;
 }
 function resolveMaxLogFileBytes(raw) {
-  if (typeof raw === "number" && Number.isFinite(raw) && raw > 0) {
-    return Math.floor(raw);
-  }
+  if (typeof raw === "number" && Number.isFinite(raw) && raw > 0) return Math.floor(raw);
   return DEFAULT_MAX_LOG_FILE_BYTES;
 }
 function getCurrentLogFileBytes(file) {
@@ -536,17 +459,11 @@ function pruneOldRollingLogs(dir) {
     const entries = fs.readdirSync(dir, { withFileTypes: true });
     const cutoff = Date.now() - MAX_LOG_AGE_MS;
     for (const entry of entries) {
-      if (!entry.isFile()) {
-        continue;
-      }
-      if (!entry.name.startsWith(`${LOG_PREFIX}-`) || !entry.name.endsWith(LOG_SUFFIX)) {
-        continue;
-      }
+      if (!entry.isFile()) continue;
+      if (!entry.name.startsWith(`${LOG_PREFIX}-`) || !entry.name.endsWith(LOG_SUFFIX)) continue;
       const fullPath = path.join(dir, entry.name);
       try {
-        if (fs.statSync(fullPath).mtimeMs < cutoff) {
-          fs.rmSync(fullPath, { force: true });
-        }
+        if (fs.statSync(fullPath).mtimeMs < cutoff) fs.rmSync(fullPath, { force: true });
       } catch {}
     }
   } catch {}
@@ -599,21 +516,15 @@ function shouldLogVerbose() {
   return globalVerbose || isFileLogLevelEnabled("debug");
 }
 function logVerbose(message) {
-  if (!shouldLogVerbose()) {
-    return;
-  }
+  if (!shouldLogVerbose()) return;
   try {
     getLogger().debug({ message }, "verbose");
   } catch {}
-  if (!globalVerbose) {
-    return;
-  }
+  if (!globalVerbose) return;
   console.log(theme.muted(message));
 }
 function logVerboseConsole(message) {
-  if (!globalVerbose) {
-    return;
-  }
+  if (!globalVerbose) return;
   console.log(theme.muted(message));
 }
 const success = theme.success;
@@ -624,24 +535,16 @@ const danger = theme.error;
 //#region src/terminal/progress-line.ts
 let activeStream = null;
 function registerActiveProgressLine(stream) {
-  if (!stream.isTTY) {
-    return;
-  }
+  if (!stream.isTTY) return;
   activeStream = stream;
 }
 function clearActiveProgressLine() {
-  if (!activeStream?.isTTY) {
-    return;
-  }
+  if (!activeStream?.isTTY) return;
   activeStream.write("\r\x1B[2K");
 }
 function unregisterActiveProgressLine(stream) {
-  if (!activeStream) {
-    return;
-  }
-  if (stream && activeStream !== stream) {
-    return;
-  }
+  if (!activeStream) return;
+  if (stream && activeStream !== stream) return;
   activeStream = null;
 }
 //#endregion
@@ -670,39 +573,31 @@ function restoreTerminalState(reason, options = {}) {
     } catch (err) {
       reportRestoreFailure("raw mode", err, reason);
     }
-    if (resumeStdin && typeof stdin.isPaused === "function" && stdin.isPaused()) {
+    if (resumeStdin && typeof stdin.isPaused === "function" && stdin.isPaused())
       try {
         stdin.resume();
       } catch (err) {
         reportRestoreFailure("stdin resume", err, reason);
       }
-    }
   }
-  if (process.stdout.isTTY) {
+  if (process.stdout.isTTY)
     try {
       process.stdout.write(RESET_SEQUENCE);
     } catch (err) {
       reportRestoreFailure("stdout reset", err, reason);
     }
-  }
 }
 //#endregion
 //#region src/runtime.ts
 function shouldEmitRuntimeLog(env = process.env) {
-  if (env.VITEST !== "true") {
-    return true;
-  }
-  if (env.OPENCLAW_TEST_RUNTIME_LOG === "1") {
-    return true;
-  }
+  if (env.VITEST !== "true") return true;
+  if (env.OPENCLAW_TEST_RUNTIME_LOG === "1") return true;
   return typeof console.log.mock === "object";
 }
 function createRuntimeIo() {
   return {
     log: (...args) => {
-      if (!shouldEmitRuntimeLog()) {
-        return;
-      }
+      if (!shouldEmitRuntimeLog()) return;
       clearActiveProgressLine();
       console.log(...args);
     },
@@ -744,9 +639,7 @@ function stripAnsi(input) {
  */
 function sanitizeForLog(v) {
   let out = stripAnsi(v);
-  for (let c = 0; c <= 31; c++) {
-    out = out.replaceAll(String.fromCharCode(c), "");
-  }
+  for (let c = 0; c <= 31; c++) out = out.replaceAll(String.fromCharCode(c), "");
   return out.replaceAll(String.fromCharCode(127), "");
 }
 //#endregion
@@ -761,21 +654,14 @@ const loadConfigFallbackDefault = () => {
 };
 let loadConfigFallback = loadConfigFallbackDefault;
 function normalizeConsoleLevel(level) {
-  if (isVerbose()) {
-    return "debug";
-  }
-  if (!level && process.env.VITEST === "true" && process.env.OPENCLAW_TEST_CONSOLE !== "1") {
+  if (isVerbose()) return "debug";
+  if (!level && process.env.VITEST === "true" && process.env.OPENCLAW_TEST_CONSOLE !== "1")
     return "silent";
-  }
   return normalizeLogLevel(level, "info");
 }
 function normalizeConsoleStyle(style) {
-  if (style === "compact" || style === "json" || style === "pretty") {
-    return style;
-  }
-  if (!process.stdout.isTTY) {
-    return "compact";
-  }
+  if (style === "compact" || style === "json" || style === "pretty") return style;
+  if (!process.stdout.isTTY) return "compact";
   return "pretty";
 }
 function resolveConsoleSettings() {
@@ -786,14 +672,13 @@ function resolveConsoleSettings() {
     !isVerbose() &&
     !envLevel &&
     !loggingState.overrideSettings
-  ) {
+  )
     return {
       level: "silent",
       style: normalizeConsoleStyle(void 0),
     };
-  }
   let cfg = loggingState.overrideSettings ?? readLoggingConfig();
-  if (!cfg) {
+  if (!cfg)
     if (loggingState.resolvingConsoleSettings) cfg = void 0;
     else {
       loggingState.resolvingConsoleSettings = true;
@@ -803,53 +688,42 @@ function resolveConsoleSettings() {
         loggingState.resolvingConsoleSettings = false;
       }
     }
-  }
   return {
     level: envLevel ?? normalizeConsoleLevel(cfg?.consoleLevel),
     style: normalizeConsoleStyle(cfg?.consoleStyle),
   };
 }
 function consoleSettingsChanged(a, b) {
-  if (!a) {
-    return true;
-  }
+  if (!a) return true;
   return a.level !== b.level || a.style !== b.style;
 }
 function getConsoleSettings() {
   const settings = resolveConsoleSettings();
   const cached = loggingState.cachedConsoleSettings;
-  if (!cached || consoleSettingsChanged(cached, settings)) {
+  if (!cached || consoleSettingsChanged(cached, settings))
     loggingState.cachedConsoleSettings = settings;
-  }
   return loggingState.cachedConsoleSettings;
 }
 function shouldLogSubsystemToConsole(subsystem) {
   const filter = loggingState.consoleSubsystemFilter;
-  if (!filter || filter.length === 0) {
-    return true;
-  }
+  if (!filter || filter.length === 0) return true;
   return filter.some((prefix) => subsystem === prefix || subsystem.startsWith(`${prefix}/`));
 }
 function formatConsoleTimestamp(style) {
   const now = /* @__PURE__ */ new Date();
-  if (style === "pretty") {
+  if (style === "pretty")
     return `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}:${String(now.getSeconds()).padStart(2, "0")}`;
-  }
   return formatLocalIsoWithOffset(now);
 }
 //#endregion
 //#region src/logging/subsystem.ts
 function shouldLogToConsole(level, settings) {
-  if (settings.level === "silent") {
-    return false;
-  }
+  if (settings.level === "silent") return false;
   return levelToMinLevel(level) <= levelToMinLevel(settings.level);
 }
 (() => {
   const getBuiltinModule = process.getBuiltinModule;
-  if (typeof getBuiltinModule !== "function") {
-    return null;
-  }
+  if (typeof getBuiltinModule !== "function") return null;
   try {
     const utilNamespace = getBuiltinModule("util");
     return typeof utilNamespace.inspect === "function" ? utilNamespace.inspect : null;
@@ -859,9 +733,7 @@ function shouldLogToConsole(level, settings) {
 })();
 function isRichConsoleEnv() {
   const term = (process.env.TERM ?? "").toLowerCase();
-  if (process.env.COLORTERM || process.env.TERM_PROGRAM) {
-    return true;
-  }
+  if (process.env.COLORTERM || process.env.TERM_PROGRAM) return true;
   return term.length > 0 && term !== "dumb";
 }
 function getColorForConsole() {
@@ -869,16 +741,14 @@ function getColorForConsole() {
     typeof process.env.FORCE_COLOR === "string" &&
     process.env.FORCE_COLOR.trim().length > 0 &&
     process.env.FORCE_COLOR.trim() !== "0";
-  if (process.env.NO_COLOR && !hasForceColor) {
-    return new Chalk({ level: 0 });
-  }
+  if (process.env.NO_COLOR && !hasForceColor) return new Chalk({ level: 0 });
   return Boolean(process.stdout.isTTY || process.stderr.isTTY) || isRichConsoleEnv()
     ? new Chalk({ level: 1 })
     : new Chalk({ level: 0 });
 }
 const SUBSYSTEM_COLORS = ["cyan", "green", "yellow", "blue", "magenta", "red"];
 const SUBSYSTEM_COLOR_OVERRIDES = { "gmail-watcher": "blue" };
-const SUBSYSTEM_PREFIXES_TO_DROP = new Set(["gateway", "channels", "providers"]);
+const SUBSYSTEM_PREFIXES_TO_DROP = ["gateway", "channels", "providers"];
 const SUBSYSTEM_MAX_SEGMENTS = 2;
 const CHANNEL_SUBSYSTEM_PREFIXES = new Set([
   "telegram",
@@ -900,59 +770,38 @@ function pickSubsystemColor(color, subsystem) {
 function formatSubsystemForConsole(subsystem) {
   const parts = subsystem.split("/").filter(Boolean);
   const original = parts.join("/") || subsystem;
-  while (parts.length > 0 && SUBSYSTEM_PREFIXES_TO_DROP.has(parts[0])) {
-    parts.shift();
-  }
-  if (parts.length === 0) {
-    return original;
-  }
-  if (CHANNEL_SUBSYSTEM_PREFIXES.has(parts[0])) {
-    return parts[0];
-  }
-  if (parts.length > SUBSYSTEM_MAX_SEGMENTS) {
-    return parts.slice(-SUBSYSTEM_MAX_SEGMENTS).join("/");
-  }
+  while (parts.length > 0 && SUBSYSTEM_PREFIXES_TO_DROP.includes(parts[0])) parts.shift();
+  if (parts.length === 0) return original;
+  if (CHANNEL_SUBSYSTEM_PREFIXES.has(parts[0])) return parts[0];
+  if (parts.length > SUBSYSTEM_MAX_SEGMENTS) return parts.slice(-SUBSYSTEM_MAX_SEGMENTS).join("/");
   return parts.join("/");
 }
 function stripRedundantSubsystemPrefixForConsole(message, displaySubsystem) {
-  if (!displaySubsystem) {
-    return message;
-  }
+  if (!displaySubsystem) return message;
   if (message.startsWith("[")) {
     const closeIdx = message.indexOf("]");
     if (closeIdx > 1) {
       if (message.slice(1, closeIdx).toLowerCase() === displaySubsystem.toLowerCase()) {
         let i = closeIdx + 1;
-        while (message[i] === " ") {
-          i += 1;
-        }
+        while (message[i] === " ") i += 1;
         return message.slice(i);
       }
     }
   }
-  if (message.slice(0, displaySubsystem.length).toLowerCase() !== displaySubsystem.toLowerCase()) {
+  if (message.slice(0, displaySubsystem.length).toLowerCase() !== displaySubsystem.toLowerCase())
     return message;
-  }
   const next = message.slice(displaySubsystem.length, displaySubsystem.length + 1);
-  if (next !== ":" && next !== " ") {
-    return message;
-  }
+  if (next !== ":" && next !== " ") return message;
   let i = displaySubsystem.length;
-  while (message[i] === " ") {
-    i += 1;
-  }
-  if (message[i] === ":") {
-    i += 1;
-  }
-  while (message[i] === " ") {
-    i += 1;
-  }
+  while (message[i] === " ") i += 1;
+  if (message[i] === ":") i += 1;
+  while (message[i] === " ") i += 1;
   return message.slice(i);
 }
 function formatConsoleLine(opts) {
   const displaySubsystem =
     opts.style === "json" ? opts.subsystem : formatSubsystemForConsole(opts.subsystem);
-  if (opts.style === "json") {
+  if (opts.style === "json")
     return JSON.stringify({
       time: formatConsoleTimestamp("json"),
       level: opts.level,
@@ -960,7 +809,6 @@ function formatConsoleLine(opts) {
       message: opts.message,
       ...opts.meta,
     });
-  }
   const color = getColorForConsole();
   const prefix = `[${displaySubsystem}]`;
   const prefixColor = pickSubsystemColor(color, displaySubsystem);
@@ -975,12 +823,9 @@ function formatConsoleLine(opts) {
   const displayMessage = stripRedundantSubsystemPrefixForConsole(opts.message, displaySubsystem);
   return `${[
     (() => {
-      if (opts.style === "pretty") {
-        return color.gray(formatConsoleTimestamp("pretty"));
-      }
-      if (loggingState.consoleTimestampPrefix) {
+      if (opts.style === "pretty") return color.gray(formatConsoleTimestamp("pretty"));
+      if (loggingState.consoleTimestampPrefix)
         return color.gray(formatConsoleTimestamp(opts.style));
-      }
       return "";
     })(),
     prefixColor(prefix),
@@ -995,21 +840,14 @@ function writeConsoleLine(level, line) {
       ? line.replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g, "?").replace(/[\uD800-\uDFFF]/g, "?")
       : line;
   const sink = loggingState.rawConsole ?? console;
-  if (loggingState.forceConsoleToStderr || level === "error" || level === "fatal") {
+  if (loggingState.forceConsoleToStderr || level === "error" || level === "fatal")
     (sink.error ?? console.error)(sanitized);
-  } else if (level === "warn") {
-    (sink.warn ?? console.warn)(sanitized);
-  } else {
-    (sink.log ?? console.log)(sanitized);
-  }
+  else if (level === "warn") (sink.warn ?? console.warn)(sanitized);
+  else (sink.log ?? console.log)(sanitized);
 }
 function shouldSuppressProbeConsoleLine(params) {
-  if (isVerbose()) {
-    return false;
-  }
-  if (params.level === "error" || params.level === "fatal") {
-    return false;
-  }
+  if (isVerbose()) return false;
+  if (params.level === "error" || params.level === "fatal") return false;
   if (
     !(
       params.subsystem === "agent/embedded" ||
@@ -1017,9 +855,8 @@ function shouldSuppressProbeConsoleLine(params) {
       params.subsystem === "model-fallback" ||
       params.subsystem.startsWith("model-fallback/")
     )
-  ) {
+  )
     return false;
-  }
   if (
     (typeof params.meta?.runId === "string"
       ? params.meta.runId
@@ -1027,31 +864,21 @@ function shouldSuppressProbeConsoleLine(params) {
         ? params.meta.sessionId
         : void 0
     )?.startsWith("probe-")
-  ) {
+  )
     return true;
-  }
   return /(sessionId|runId)=probe-/.test(params.message);
 }
 function logToFile(fileLogger, level, message, meta) {
-  if (level === "silent") {
-    return;
-  }
+  if (level === "silent") return;
   const method = fileLogger[level];
-  if (typeof method !== "function") {
-    return;
-  }
-  if (meta && Object.keys(meta).length > 0) {
-    method.call(fileLogger, meta, message);
-  } else {
-    method.call(fileLogger, message);
-  }
+  if (typeof method !== "function") return;
+  if (meta && Object.keys(meta).length > 0) method.call(fileLogger, meta, message);
+  else method.call(fileLogger, message);
 }
 function createSubsystemLogger(subsystem) {
   let fileLogger = null;
   const getFileLogger = () => {
-    if (!fileLogger) {
-      fileLogger = getChildLogger({ subsystem });
-    }
+    if (!fileLogger) fileLogger = getChildLogger({ subsystem });
     return fileLogger;
   };
   const emit = (level, message, meta) => {
@@ -1060,24 +887,16 @@ function createSubsystemLogger(subsystem) {
       shouldLogToConsole(level, { level: consoleSettings.level }) &&
       shouldLogSubsystemToConsole(subsystem);
     const fileEnabled = isFileLogLevelEnabled(level);
-    if (!consoleEnabled && !fileEnabled) {
-      return;
-    }
+    if (!consoleEnabled && !fileEnabled) return;
     let consoleMessageOverride;
     let fileMeta = meta;
     if (meta && Object.keys(meta).length > 0) {
       const { consoleMessage, ...rest } = meta;
-      if (typeof consoleMessage === "string") {
-        consoleMessageOverride = consoleMessage;
-      }
+      if (typeof consoleMessage === "string") consoleMessageOverride = consoleMessage;
       fileMeta = Object.keys(rest).length > 0 ? rest : void 0;
     }
-    if (fileEnabled) {
-      logToFile(getFileLogger(), level, message, fileMeta);
-    }
-    if (!consoleEnabled) {
-      return;
-    }
+    if (fileEnabled) logToFile(getFileLogger(), level, message, fileMeta);
+    if (!consoleEnabled) return;
     const consoleMessage = consoleMessageOverride ?? message;
     if (
       shouldSuppressProbeConsoleLine({
@@ -1086,9 +905,8 @@ function createSubsystemLogger(subsystem) {
         message: consoleMessage,
         meta: fileMeta,
       })
-    ) {
+    )
       return;
-    }
     writeConsoleLine(
       level,
       formatConsoleLine({
@@ -1110,12 +928,8 @@ function createSubsystemLogger(subsystem) {
   return {
     subsystem,
     isEnabled: (level, target = "any") => {
-      if (target === "console") {
-        return isConsoleEnabled(level);
-      }
-      if (target === "file") {
-        return isFileEnabled(level);
-      }
+      if (target === "console") return isConsoleEnabled(level);
+      if (target === "file") return isFileEnabled(level);
       return isConsoleEnabled(level) || isFileEnabled(level);
     },
     trace: (message, meta) => emit("trace", message, meta),
@@ -1125,9 +939,7 @@ function createSubsystemLogger(subsystem) {
     error: (message, meta) => emit("error", message, meta),
     fatal: (message, meta) => emit("fatal", message, meta),
     raw: (message) => {
-      if (isFileEnabled("info")) {
-        logToFile(getFileLogger(), "info", message, { raw: true });
-      }
+      if (isFileEnabled("info")) logToFile(getFileLogger(), "info", message, { raw: true });
       if (isConsoleEnabled("info")) {
         if (
           shouldSuppressProbeConsoleLine({
@@ -1135,9 +947,8 @@ function createSubsystemLogger(subsystem) {
             subsystem,
             message,
           })
-        ) {
+        )
           return;
-        }
         writeConsoleLine("info", message);
       }
     },
@@ -1149,9 +960,7 @@ function createSubsystemLogger(subsystem) {
 const subsystemPrefixRe = /^([a-z][a-z0-9-]{1,20}):\s+(.*)$/i;
 function splitSubsystem(message) {
   const match = message.match(subsystemPrefixRe);
-  if (!match) {
-    return null;
-  }
+  if (!match) return null;
   const [, subsystem, rest] = match;
   return {
     subsystem,
@@ -1266,9 +1075,7 @@ function normalizeE164(number) {
     .replace(/^whatsapp:/, "")
     .trim()
     .replace(/[^\d+]/g, "");
-  if (digits.startsWith("+")) {
-    return `+${digits.slice(1)}`;
-  }
+  if (digits.startsWith("+")) return `+${digits.slice(1)}`;
   return `+${digits}`;
 }
 /**
@@ -1277,17 +1084,11 @@ function normalizeE164(number) {
  * "bot" and the human are the same WhatsApp identity (e.g. auto read receipts, @mention JID triggers).
  */
 function isSelfChatMode(selfE164, allowFrom) {
-  if (!selfE164) {
-    return false;
-  }
-  if (!Array.isArray(allowFrom) || allowFrom.length === 0) {
-    return false;
-  }
+  if (!selfE164) return false;
+  if (!Array.isArray(allowFrom) || allowFrom.length === 0) return false;
   const normalizedSelf = normalizeE164(selfE164);
   return allowFrom.some((n) => {
-    if (n === "*") {
-      return false;
-    }
+    if (n === "*") return false;
     try {
       return normalizeE164(String(n)) === normalizedSelf;
     } catch {
@@ -1297,23 +1098,17 @@ function isSelfChatMode(selfE164, allowFrom) {
 }
 function toWhatsappJid(number) {
   const withoutPrefix = number.replace(/^whatsapp:/, "").trim();
-  if (withoutPrefix.includes("@")) {
-    return withoutPrefix;
-  }
+  if (withoutPrefix.includes("@")) return withoutPrefix;
   return `${normalizeE164(withoutPrefix).replace(/\D/g, "")}@s.whatsapp.net`;
 }
 function resolveLidMappingDirs(opts) {
   const dirs = /* @__PURE__ */ new Set();
   const addDir = (dir) => {
-    if (!dir) {
-      return;
-    }
+    if (!dir) return;
     dirs.add(resolveUserPath(dir));
   };
   addDir(opts?.authDir);
-  for (const dir of opts?.lidMappingDirs ?? []) {
-    addDir(dir);
-  }
+  for (const dir of opts?.lidMappingDirs ?? []) addDir(dir);
   addDir(resolveOAuthDir());
   addDir(path.join(CONFIG_DIR, "credentials"));
   return [...dirs];
@@ -1326,9 +1121,7 @@ function readLidReverseMapping(lid, opts) {
     try {
       const data = fs.readFileSync(mappingPath, "utf8");
       const phone = JSON.parse(data);
-      if (phone === null || phone === void 0) {
-        continue;
-      }
+      if (phone === null || phone === void 0) continue;
       return normalizeE164(String(phone));
     } catch {}
   }
@@ -1336,46 +1129,29 @@ function readLidReverseMapping(lid, opts) {
 }
 function jidToE164(jid, opts) {
   const match = jid.match(/^(\d+)(?::\d+)?@(s\.whatsapp\.net|hosted)$/);
-  if (match) {
-    return `+${match[1]}`;
-  }
+  if (match) return `+${match[1]}`;
   const lidMatch = jid.match(/^(\d+)(?::\d+)?@(lid|hosted\.lid)$/);
   if (lidMatch) {
     const lid = lidMatch[1];
     const phone = readLidReverseMapping(lid, opts);
-    if (phone) {
-      return phone;
-    }
-    if (opts?.logMissing ?? shouldLogVerbose()) {
+    if (phone) return phone;
+    if (opts?.logMissing ?? shouldLogVerbose())
       logVerbose(`LID mapping not found for ${lid}; skipping inbound message`);
-    }
   }
   return null;
 }
 async function resolveJidToE164(jid, opts) {
-  if (!jid) {
-    return null;
-  }
+  if (!jid) return null;
   const direct = jidToE164(jid, opts);
-  if (direct) {
-    return direct;
-  }
-  if (!/(@lid|@hosted\.lid)$/.test(jid)) {
-    return null;
-  }
-  if (!opts?.lidLookup?.getPNForLID) {
-    return null;
-  }
+  if (direct) return direct;
+  if (!/(@lid|@hosted\.lid)$/.test(jid)) return null;
+  if (!opts?.lidLookup?.getPNForLID) return null;
   try {
     const pnJid = await opts.lidLookup.getPNForLID(jid);
-    if (!pnJid) {
-      return null;
-    }
+    if (!pnJid) return null;
     return jidToE164(pnJid, opts);
   } catch (err) {
-    if (shouldLogVerbose()) {
-      logVerbose(`LID mapping lookup failed for ${jid}: ${String(err)}`);
-    }
+    if (shouldLogVerbose()) logVerbose(`LID mapping lookup failed for ${jid}: ${String(err)}`);
     return null;
   }
 }
@@ -1398,32 +1174,23 @@ function sliceUtf16Safe(input, start, end) {
     to = tmp;
   }
   if (from > 0 && from < len) {
-    if (isLowSurrogate(input.charCodeAt(from)) && isHighSurrogate(input.charCodeAt(from - 1))) {
+    if (isLowSurrogate(input.charCodeAt(from)) && isHighSurrogate(input.charCodeAt(from - 1)))
       from += 1;
-    }
   }
   if (to > 0 && to < len) {
-    if (isHighSurrogate(input.charCodeAt(to - 1)) && isLowSurrogate(input.charCodeAt(to))) {
-      to -= 1;
-    }
+    if (isHighSurrogate(input.charCodeAt(to - 1)) && isLowSurrogate(input.charCodeAt(to))) to -= 1;
   }
   return input.slice(from, to);
 }
 function truncateUtf16Safe(input, maxLen) {
   const limit = Math.max(0, Math.floor(maxLen));
-  if (input.length <= limit) {
-    return input;
-  }
+  if (input.length <= limit) return input;
   return sliceUtf16Safe(input, 0, limit);
 }
 function resolveUserPath(input) {
-  if (!input) {
-    return "";
-  }
+  if (!input) return "";
   const trimmed = input.trim();
-  if (!trimmed) {
-    return trimmed;
-  }
+  if (!trimmed) return trimmed;
   if (trimmed.startsWith("~")) {
     const expanded = expandHomePrefix(trimmed, {
       home: resolveRequiredHomeDir(process.env, os.homedir),
@@ -1436,14 +1203,10 @@ function resolveUserPath(input) {
 }
 function resolveConfigDir(env = process.env, homedir = os.homedir) {
   const override = env.OPENCLAW_STATE_DIR?.trim() || env.CLAWDBOT_STATE_DIR?.trim();
-  if (override) {
-    return resolveUserPath(override);
-  }
+  if (override) return resolveUserPath(override);
   const newDir = path.join(resolveRequiredHomeDir(env, homedir), ".openclaw");
   try {
-    if (fs.existsSync(newDir)) {
-      return newDir;
-    }
+    if (fs.existsSync(newDir)) return newDir;
   } catch {}
   return newDir;
 }
@@ -1452,45 +1215,31 @@ function resolveHomeDir() {
 }
 function resolveHomeDisplayPrefix() {
   const home = resolveHomeDir();
-  if (!home) {
-    return;
-  }
-  if (process.env.OPENCLAW_HOME?.trim()) {
+  if (!home) return;
+  if (process.env.OPENCLAW_HOME?.trim())
     return {
       home,
       prefix: "$OPENCLAW_HOME",
     };
-  }
   return {
     home,
     prefix: "~",
   };
 }
 function shortenHomePath(input) {
-  if (!input) {
-    return input;
-  }
+  if (!input) return input;
   const display = resolveHomeDisplayPrefix();
-  if (!display) {
-    return input;
-  }
+  if (!display) return input;
   const { home, prefix } = display;
-  if (input === home) {
-    return prefix;
-  }
-  if (input.startsWith(`${home}/`) || input.startsWith(`${home}\\`)) {
+  if (input === home) return prefix;
+  if (input.startsWith(`${home}/`) || input.startsWith(`${home}\\`))
     return `${prefix}${input.slice(home.length)}`;
-  }
   return input;
 }
 function shortenHomeInString(input) {
-  if (!input) {
-    return input;
-  }
+  if (!input) return input;
   const display = resolveHomeDisplayPrefix();
-  if (!display) {
-    return input;
-  }
+  if (!display) return input;
   return input.split(display.home).join(display.prefix);
 }
 function formatTerminalLink(label, url, opts) {
@@ -1499,9 +1248,8 @@ function formatTerminalLink(label, url, opts) {
   const safeUrl = url.replaceAll(esc, "");
   if (
     !(opts?.force === true ? true : opts?.force === false ? false : Boolean(process.stdout.isTTY))
-  ) {
+  )
     return opts?.fallback ?? `${safeLabel} (${safeUrl})`;
-  }
   return `\u001b]8;;${safeUrl}\u0007${safeLabel}\u001b]8;;\u0007`;
 }
 const CONFIG_DIR = resolveConfigDir();

@@ -13,7 +13,7 @@ async function auditTelegramGroupMembershipImpl(params) {
   });
   const base = `${TELEGRAM_API_BASE}/bot${params.token}`;
   const groups = [];
-  for (const chatId of params.groupIds) {
+  for (const chatId of params.groupIds)
     try {
       const res = await fetchWithTimeout(
         `${base}/getChatMember?chat_id=${encodeURIComponent(chatId)}&user_id=${encodeURIComponent(String(params.botId))}`,
@@ -57,7 +57,6 @@ async function auditTelegramGroupMembershipImpl(params) {
         matchSource: "id",
       });
     }
-  }
   return {
     ok: groups.every((g) => g.ok),
     checkedGroups: groups.length,

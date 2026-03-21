@@ -14,52 +14,52 @@ import {
   U as readStoreAllowFromForDmPolicy,
   q as issuePairingChallenge,
   t as hasControlCommand,
-} from "./command-detection-CXuIaE28.js";
+} from "./command-detection-Dhx1e_hI.js";
 import {
   Ti as resolveWhatsAppAccount,
   r as loadConfig,
   rc as saveMediaBuffer,
-} from "./config-Cz7eAoWC.js";
+} from "./config-Bbh7NwOk.js";
 import "./paths-eFexkPEh.js";
-import { i as recordChannelActivity } from "./retry-policy-DtCRuljj.js";
+import { i as recordChannelActivity } from "./retry-policy-BFw_Fo0d.js";
 import "./paths-Cp7C2R7V.js";
-import { nt as upsertChannelPairingRequest, st as formatLocationText } from "./send-Dv6I6FHr.js";
+import { nt as upsertChannelPairingRequest, st as formatLocationText } from "./send-D1nCQpeB.js";
 import "./env-CvOd8P-q.js";
 import "./github-copilot-token-Bk2nhhXX.js";
-import "./send-_UgBGjRA.js";
+import "./send-4yD9YQxG.js";
 import {
   Mt as resolveOpenProviderRuntimeGroupPolicy,
   Nt as warnMissingProviderGroupPolicyFallbackOnce,
   jt as resolveDefaultGroupPolicy,
-} from "./send-vJ4c6MwA.js";
-import "./commands-registry-BlY8Y5A1.js";
+} from "./send-D5EzJST3.js";
+import "./commands-registry-BHastMsb.js";
 import "./tokens-DOs3E8YQ.js";
-import "./deliver-CVU2VO9q.js";
-import "./diagnostic-BFc7FPX3.js";
-import "./pi-model-discovery-DKiWmRcI.js";
-import "./image-CAQrEfw1.js";
-import "./audio-transcription-runner-BriarAcA.js";
-import "./fetch-DKMnlEva.js";
-import "./fetch-guard-B1KXbh6p.js";
-import "./api-key-rotation-C_y8EVUw.js";
+import "./deliver-C0GVkzkd.js";
+import "./diagnostic-Do69szG1.js";
+import "./pi-model-discovery-BcGL9lNf.js";
+import "./image-BlKytQT6.js";
+import "./audio-transcription-runner-DzIs4Ys-.js";
+import "./fetch-DqmC9kLB.js";
+import "./fetch-guard-ClBTIPsZ.js";
+import "./api-key-rotation-pYV4CyLq.js";
 import "./proxy-fetch-M9xSywjl.js";
-import "./ir-DUSE-mNJ.js";
+import "./ir-B0Uaakfs.js";
 import "./render-CypHTXnD.js";
-import "./target-errors-E3wNXZGn.js";
+import "./target-errors-CPMpm0UI.js";
 import "./fetch-CwZxIBIg.js";
-import "./skill-commands-CAY7uGas.js";
-import "./tables-D0-JLGfw.js";
-import "./send-CfqtvYLf.js";
-import "./outbound-attachment-DFCIKn8a.js";
-import "./send-CkY4gYkS2.js";
+import "./skill-commands-Bu0xJ0TZ.js";
+import "./tables-1ZdW1Az7.js";
+import "./send-Bh0EaOi9.js";
+import "./outbound-attachment-lnRT_Mn-.js";
+import "./send-BwD-icdX2.js";
 import "./fetch-BWingQe0.js";
-import "./manager-HEs65wLz.js";
+import "./manager-BP8gZzOd.js";
 import "./query-expansion-VmsaGYn-.js";
 import {
   i as waitForWaConnection,
   r as getStatusCode,
   t as createWaSocket,
-} from "./session-BDRGe5fl.js";
+} from "./session-DKg5iaaL.js";
 import {
   B as shouldLogVerbose,
   K as getChildLogger,
@@ -138,30 +138,25 @@ async function checkInboundAccessControl(params) {
     groupAllowFrom,
     storeAllowFrom,
     isSenderAllowed: (allowEntries) => {
-      if (allowEntries.includes("*")) {
-        return true;
-      }
+      if (allowEntries.includes("*")) return true;
       const normalizedEntrySet = new Set(
         allowEntries.map((entry) => normalizeE164(String(entry))).filter((entry) => Boolean(entry)),
       );
-      if (!params.group && isSamePhone) {
-        return true;
-      }
+      if (!params.group && isSamePhone) return true;
       return params.group
         ? Boolean(normalizedGroupSender && normalizedEntrySet.has(normalizedGroupSender))
         : normalizedEntrySet.has(normalizedDmSender);
     },
   });
   if (params.group && access.decision !== "allow") {
-    if (access.reason === "groupPolicy=disabled") {
+    if (access.reason === "groupPolicy=disabled")
       logVerbose("Blocked group message (groupPolicy: disabled)");
-    } else if (access.reason === "groupPolicy=allowlist (empty allowlist)") {
+    else if (access.reason === "groupPolicy=allowlist (empty allowlist)")
       logVerbose("Blocked group message (groupPolicy: allowlist, no groupAllowFrom)");
-    } else {
+    else
       logVerbose(
         `Blocked group message from ${params.senderE164 ?? "unknown sender"} (groupPolicy: allowlist)`,
       );
-    }
     return {
       allowed: false,
       shouldMarkRead: false,
@@ -190,9 +185,9 @@ async function checkInboundAccessControl(params) {
     }
     if (access.decision === "pairing" && !isSamePhone) {
       const candidate = params.from;
-      if (suppressPairingReply) {
+      if (suppressPairingReply)
         logVerbose(`Skipping pairing reply for historical DM from ${candidate}.`);
-      } else {
+      else
         await issuePairingChallenge({
           channel: "whatsapp",
           senderId: candidate,
@@ -217,7 +212,6 @@ async function checkInboundAccessControl(params) {
             logVerbose(`whatsapp pairing reply failed for ${candidate}: ${String(err)}`);
           },
         });
-      }
       return {
         allowed: false,
         shouldMarkRead: false,
@@ -255,35 +249,23 @@ function isRecentInboundMessage(key) {
 //#region src/web/vcard.ts
 const ALLOWED_VCARD_KEYS = new Set(["FN", "N", "TEL"]);
 function parseVcard(vcard) {
-  if (!vcard) {
-    return { phones: [] };
-  }
+  if (!vcard) return { phones: [] };
   const lines = vcard.split(/\r?\n/);
   let nameFromN;
   let nameFromFn;
   const phones = [];
   for (const rawLine of lines) {
     const line = rawLine.trim();
-    if (!line) {
-      continue;
-    }
+    if (!line) continue;
     const colonIndex = line.indexOf(":");
-    if (colonIndex === -1) {
-      continue;
-    }
+    if (colonIndex === -1) continue;
     const key = line.slice(0, colonIndex).toUpperCase();
     const rawValue = line.slice(colonIndex + 1).trim();
-    if (!rawValue) {
-      continue;
-    }
+    if (!rawValue) continue;
     const baseKey = normalizeVcardKey(key);
-    if (!baseKey || !ALLOWED_VCARD_KEYS.has(baseKey)) {
-      continue;
-    }
+    if (!baseKey || !ALLOWED_VCARD_KEYS.has(baseKey)) continue;
     const value = cleanVcardValue(rawValue);
-    if (!value) {
-      continue;
-    }
+    if (!value) continue;
     if (baseKey === "FN" && !nameFromFn) {
       nameFromFn = normalizeVcardName(value);
       continue;
@@ -294,9 +276,7 @@ function parseVcard(vcard) {
     }
     if (baseKey === "TEL") {
       const phone = normalizeVcardPhone(value);
-      if (phone) {
-        phones.push(phone);
-      }
+      if (phone) phones.push(phone);
     }
   }
   return {
@@ -306,9 +286,7 @@ function parseVcard(vcard) {
 }
 function normalizeVcardKey(key) {
   const [primary] = key.split(";");
-  if (!primary) {
-    return;
-  }
+  if (!primary) return;
   const segments = primary.split(".");
   return segments[segments.length - 1] || void 0;
 }
@@ -320,12 +298,8 @@ function normalizeVcardName(value) {
 }
 function normalizeVcardPhone(value) {
   const trimmed = value.trim();
-  if (!trimmed) {
-    return "";
-  }
-  if (trimmed.toLowerCase().startsWith("tel:")) {
-    return trimmed.slice(4).trim();
-  }
+  if (!trimmed) return "";
+  if (trimmed.toLowerCase().startsWith("tel:")) return trimmed.slice(4).trim();
   return trimmed;
 }
 //#endregion
@@ -334,18 +308,14 @@ function unwrapMessage$1(message) {
   return normalizeMessageContent(message);
 }
 function extractContextInfo(message) {
-  if (!message) {
-    return;
-  }
+  if (!message) return;
   const contentType = getContentType(message);
   const candidate = contentType ? message[contentType] : void 0;
   const contextInfo =
     candidate && typeof candidate === "object" && "contextInfo" in candidate
       ? candidate.contextInfo
       : void 0;
-  if (contextInfo) {
-    return contextInfo;
-  }
+  if (contextInfo) return contextInfo;
   const fallback =
     message.extendedTextMessage?.contextInfo ??
     message.imageMessage?.contextInfo ??
@@ -359,27 +329,17 @@ function extractContextInfo(message) {
     message.interactiveResponseMessage?.contextInfo ??
     message.buttonsMessage?.contextInfo ??
     message.listMessage?.contextInfo;
-  if (fallback) {
-    return fallback;
-  }
+  if (fallback) return fallback;
   for (const value of Object.values(message)) {
-    if (!value || typeof value !== "object") {
-      continue;
-    }
-    if (!("contextInfo" in value)) {
-      continue;
-    }
+    if (!value || typeof value !== "object") continue;
+    if (!("contextInfo" in value)) continue;
     const candidateContext = value.contextInfo;
-    if (candidateContext) {
-      return candidateContext;
-    }
+    if (candidateContext) return candidateContext;
   }
 }
 function extractMentionedJids(rawMessage) {
   const message = unwrapMessage$1(rawMessage);
-  if (!message) {
-    return;
-  }
+  if (!message) return;
   const flattened = [
     message.extendedTextMessage?.contextInfo?.mentionedJid,
     message.extendedTextMessage?.contextInfo?.quotedMessage?.extendedTextMessage?.contextInfo
@@ -394,70 +354,43 @@ function extractMentionedJids(rawMessage) {
   ]
     .flatMap((arr) => arr ?? [])
     .filter(Boolean);
-  if (flattened.length === 0) {
-    return;
-  }
+  if (flattened.length === 0) return;
   return Array.from(new Set(flattened));
 }
 function extractText(rawMessage) {
   const message = unwrapMessage$1(rawMessage);
-  if (!message) {
-    return;
-  }
+  if (!message) return;
   const extracted = extractMessageContent(message);
   const candidates = [message, extracted && extracted !== message ? extracted : void 0];
   for (const candidate of candidates) {
-    if (!candidate) {
-      continue;
-    }
-    if (typeof candidate.conversation === "string" && candidate.conversation.trim()) {
+    if (!candidate) continue;
+    if (typeof candidate.conversation === "string" && candidate.conversation.trim())
       return candidate.conversation.trim();
-    }
     const extended = candidate.extendedTextMessage?.text;
-    if (extended?.trim()) {
-      return extended.trim();
-    }
+    if (extended?.trim()) return extended.trim();
     const caption =
       candidate.imageMessage?.caption ??
       candidate.videoMessage?.caption ??
       candidate.documentMessage?.caption;
-    if (caption?.trim()) {
-      return caption.trim();
-    }
+    if (caption?.trim()) return caption.trim();
   }
   const contactPlaceholder =
     extractContactPlaceholder(message) ??
     (extracted && extracted !== message ? extractContactPlaceholder(extracted) : void 0);
-  if (contactPlaceholder) {
-    return contactPlaceholder;
-  }
+  if (contactPlaceholder) return contactPlaceholder;
 }
 function extractMediaPlaceholder(rawMessage) {
   const message = unwrapMessage$1(rawMessage);
-  if (!message) {
-    return;
-  }
-  if (message.imageMessage) {
-    return "<media:image>";
-  }
-  if (message.videoMessage) {
-    return "<media:video>";
-  }
-  if (message.audioMessage) {
-    return "<media:audio>";
-  }
-  if (message.documentMessage) {
-    return "<media:document>";
-  }
-  if (message.stickerMessage) {
-    return "<media:sticker>";
-  }
+  if (!message) return;
+  if (message.imageMessage) return "<media:image>";
+  if (message.videoMessage) return "<media:video>";
+  if (message.audioMessage) return "<media:audio>";
+  if (message.documentMessage) return "<media:document>";
+  if (message.stickerMessage) return "<media:sticker>";
 }
 function extractContactPlaceholder(rawMessage) {
   const message = unwrapMessage$1(rawMessage);
-  if (!message) {
-    return;
-  }
+  if (!message) return;
   const contact = message.contactMessage ?? void 0;
   if (contact) {
     const { name, phones } = describeContact({
@@ -467,9 +400,7 @@ function extractContactPlaceholder(rawMessage) {
     return formatContactPlaceholder(name, phones);
   }
   const contactsArray = message.contactsArrayMessage?.contacts ?? void 0;
-  if (!contactsArray || contactsArray.length === 0) {
-    return;
-  }
+  if (!contactsArray || contactsArray.length === 0) return;
   return formatContactsPlaceholder(
     contactsArray
       .map((entry) =>
@@ -493,40 +424,28 @@ function describeContact(input) {
 }
 function formatContactPlaceholder(name, phones) {
   const label = formatContactLabel(name, phones);
-  if (!label) {
-    return "<contact>";
-  }
+  if (!label) return "<contact>";
   return `<contact: ${label}>`;
 }
 function formatContactsPlaceholder(labels, total) {
   const cleaned = labels.map((label) => label.trim()).filter(Boolean);
-  if (cleaned.length === 0) {
-    return `<contacts: ${total} ${total === 1 ? "contact" : "contacts"}>`;
-  }
+  if (cleaned.length === 0) return `<contacts: ${total} ${total === 1 ? "contact" : "contacts"}>`;
   const remaining = Math.max(total - cleaned.length, 0);
   const suffix = remaining > 0 ? ` +${remaining} more` : "";
   return `<contacts: ${cleaned.join(", ")}${suffix}>`;
 }
 function formatContactLabel(name, phones) {
   const parts = [name, formatPhoneList(phones)].filter((value) => Boolean(value));
-  if (parts.length === 0) {
-    return;
-  }
+  if (parts.length === 0) return;
   return parts.join(", ");
 }
 function formatPhoneList(phones) {
   const cleaned = phones?.map((phone) => phone.trim()).filter(Boolean) ?? [];
-  if (cleaned.length === 0) {
-    return;
-  }
+  if (cleaned.length === 0) return;
   const { shown, remaining } = summarizeList(cleaned, cleaned.length, 1);
   const [primary] = shown;
-  if (!primary) {
-    return;
-  }
-  if (remaining === 0) {
-    return primary;
-  }
+  if (!primary) return;
+  if (remaining === 0) return primary;
   return `${primary} (+${remaining} more)`;
 }
 function summarizeList(values, total, maxShown) {
@@ -538,9 +457,7 @@ function summarizeList(values, total, maxShown) {
 }
 function extractLocationData(rawMessage) {
   const message = unwrapMessage$1(rawMessage);
-  if (!message) {
-    return null;
-  }
+  if (!message) return null;
   const live = message.liveLocationMessage ?? void 0;
   if (live) {
     const latitudeRaw = live.degreesLatitude;
@@ -548,7 +465,7 @@ function extractLocationData(rawMessage) {
     if (latitudeRaw != null && longitudeRaw != null) {
       const latitude = Number(latitudeRaw);
       const longitude = Number(longitudeRaw);
-      if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
+      if (Number.isFinite(latitude) && Number.isFinite(longitude))
         return {
           latitude,
           longitude,
@@ -557,7 +474,6 @@ function extractLocationData(rawMessage) {
           source: "live",
           isLive: true,
         };
-      }
     }
   }
   const location = message.locationMessage ?? void 0;
@@ -586,20 +502,14 @@ function extractLocationData(rawMessage) {
 }
 function describeReplyContext(rawMessage) {
   const message = unwrapMessage$1(rawMessage);
-  if (!message) {
-    return null;
-  }
+  if (!message) return null;
   const contextInfo = extractContextInfo(message);
   const quoted = normalizeMessageContent(contextInfo?.quotedMessage);
-  if (!quoted) {
-    return null;
-  }
+  if (!quoted) return null;
   const location = extractLocationData(quoted);
   const locationText = location ? formatLocationText(location) : void 0;
   let body = [extractText(quoted), locationText].filter(Boolean).join("\n").trim();
-  if (!body) {
-    body = extractMediaPlaceholder(quoted);
-  }
+  if (!body) body = extractMediaPlaceholder(quoted);
   if (!body) {
     const quotedType = quoted ? getContentType(quoted) : void 0;
     logVerbose(
@@ -635,27 +545,15 @@ function resolveMediaMimetype(message) {
     message.audioMessage?.mimetype ??
     message.stickerMessage?.mimetype ??
     void 0;
-  if (explicit) {
-    return explicit;
-  }
-  if (message.audioMessage) {
-    return "audio/ogg; codecs=opus";
-  }
-  if (message.imageMessage) {
-    return "image/jpeg";
-  }
-  if (message.videoMessage) {
-    return "video/mp4";
-  }
-  if (message.stickerMessage) {
-    return "image/webp";
-  }
+  if (explicit) return explicit;
+  if (message.audioMessage) return "audio/ogg; codecs=opus";
+  if (message.imageMessage) return "image/jpeg";
+  if (message.videoMessage) return "video/mp4";
+  if (message.stickerMessage) return "image/webp";
 }
 async function downloadInboundMedia(msg, sock) {
   const message = unwrapMessage(msg.message);
-  if (!message) {
-    return;
-  }
+  if (!message) return;
   const mimetype = resolveMediaMimetype(message);
   const fileName = message.documentMessage?.fileName ?? void 0;
   if (
@@ -664,9 +562,8 @@ async function downloadInboundMedia(msg, sock) {
     !message.documentMessage &&
     !message.audioMessage &&
     !message.stickerMessage
-  ) {
+  )
     return;
-  }
   try {
     return {
       buffer: await downloadMediaMessage(
@@ -705,7 +602,7 @@ function createWebSendApi(params) {
     sendMessage: async (to, text, mediaBuffer, mediaType, sendOptions) => {
       const jid = toWhatsappJid(to);
       let payload;
-      if (mediaBuffer && mediaType) {
+      if (mediaBuffer && mediaType)
         if (mediaType.startsWith("image/"))
           payload = {
             image: mediaBuffer,
@@ -733,9 +630,7 @@ function createWebSendApi(params) {
             caption: text || void 0,
             mimetype: mediaType,
           };
-      } else {
-        payload = { text };
-      }
+      else payload = { text };
       const result = await params.sock.sendMessage(jid, payload);
       recordWhatsAppOutbound(sendOptions?.accountId ?? params.defaultAccountId);
       return { messageId: resolveOutboundMessageId(result) };
@@ -788,18 +683,14 @@ async function monitorWebInbox(options) {
     onCloseResolve = resolve;
   });
   const resolveClose = (reason) => {
-    if (!onCloseResolve) {
-      return;
-    }
+    if (!onCloseResolve) return;
     const resolver = onCloseResolve;
     onCloseResolve = null;
     resolver(reason);
   };
   try {
     await sock.sendPresenceUpdate("available");
-    if (shouldLogVerbose()) {
-      logVerbose("Sent global 'available' presence on connect");
-    }
+    if (shouldLogVerbose()) logVerbose("Sent global 'available' presence on connect");
   } catch (err) {
     logVerbose(`Failed to send 'available' presence on connect: ${String(err)}`);
   }
@@ -812,26 +703,20 @@ async function monitorWebInbox(options) {
         msg.chatType === "group"
           ? (msg.senderJid ?? msg.senderE164 ?? msg.senderName ?? msg.from)
           : msg.from;
-      if (!senderKey) {
-        return null;
-      }
+      if (!senderKey) return null;
       const conversationKey = msg.chatType === "group" ? msg.chatId : msg.from;
       return `${msg.accountId}:${conversationKey}:${senderKey}`;
     },
     shouldDebounce: options.shouldDebounce,
     onFlush: async (entries) => {
       const last = entries.at(-1);
-      if (!last) {
-        return;
-      }
+      if (!last) return;
       if (entries.length === 1) {
         await options.onMessage(last);
         return;
       }
       const mentioned = /* @__PURE__ */ new Set();
-      for (const entry of entries) {
-        for (const jid of entry.mentionedJids ?? []) mentioned.add(jid);
-      }
+      for (const entry of entries) for (const jid of entry.mentionedJids ?? []) mentioned.add(jid);
       const combinedBody = entries
         .map((entry) => entry.body)
         .filter(Boolean)
@@ -858,9 +743,7 @@ async function monitorWebInbox(options) {
     });
   const getGroupMeta = async (jid) => {
     const cached = groupMetaCache.get(jid);
-    if (cached && cached.expires > Date.now()) {
-      return cached;
-    }
+    if (cached && cached.expires > Date.now()) return cached;
     try {
       const meta = await sock.groupMetadata(jid);
       const participants =
@@ -886,23 +769,15 @@ async function monitorWebInbox(options) {
   const normalizeInboundMessage = async (msg) => {
     const id = msg.key?.id ?? void 0;
     const remoteJid = msg.key?.remoteJid;
-    if (!remoteJid) {
-      return null;
-    }
-    if (remoteJid.endsWith("@status") || remoteJid.endsWith("@broadcast")) {
-      return null;
-    }
+    if (!remoteJid) return null;
+    if (remoteJid.endsWith("@status") || remoteJid.endsWith("@broadcast")) return null;
     const group = isJidGroup(remoteJid) === true;
     if (id) {
-      if (isRecentInboundMessage(`${options.accountId}:${remoteJid}:${id}`)) {
-        return null;
-      }
+      if (isRecentInboundMessage(`${options.accountId}:${remoteJid}:${id}`)) return null;
     }
     const participantJid = msg.key?.participant ?? void 0;
     const from = group ? remoteJid : await resolveInboundJid(remoteJid);
-    if (!from) {
-      return null;
-    }
+    if (!from) return null;
     const senderE164 = group
       ? participantJid
         ? await resolveInboundJid(participantJid)
@@ -933,9 +808,7 @@ async function monitorWebInbox(options) {
       groupAllowFromOverride: options.groupAllowFrom,
       groupsOverride: options.groups,
     });
-    if (!access.allowed) {
-      return null;
-    }
+    if (!access.allowed) return null;
     return {
       id,
       remoteJid,
@@ -951,7 +824,7 @@ async function monitorWebInbox(options) {
   };
   const maybeMarkInboundAsRead = async (inbound) => {
     const { id, remoteJid, participantJid, access } = inbound;
-    if (id && !access.isSelfChat && options.sendReadReceipts !== false) {
+    if (id && !access.isSelfChat && options.sendReadReceipts !== false)
       try {
         await sock.readMessages([
           {
@@ -968,22 +841,17 @@ async function monitorWebInbox(options) {
       } catch (err) {
         logVerbose(`Failed to mark message ${id} read: ${String(err)}`);
       }
-    } else if (id && access.isSelfChat && shouldLogVerbose()) {
+    else if (id && access.isSelfChat && shouldLogVerbose())
       logVerbose(`Self-chat mode: skipping read receipt for ${id}`);
-    }
   };
   const enrichInboundMessage = async (msg) => {
     const location = extractLocationData(msg.message ?? void 0);
     const locationText = location ? formatLocationText(location) : void 0;
     let body = extractText(msg.message ?? void 0);
-    if (locationText) {
-      body = [body, locationText].filter(Boolean).join("\n").trim();
-    }
+    if (locationText) body = [body, locationText].filter(Boolean).join("\n").trim();
     if (!body) {
       body = extractMediaPlaceholder(msg.message ?? void 0);
-      if (!body) {
-        return null;
-      }
+      if (!body) return null;
     }
     const replyContext = describeReplyContext(msg.message);
     let mediaPath;
@@ -1101,9 +969,7 @@ async function monitorWebInbox(options) {
     }
   };
   const handleMessagesUpsert = async (upsert) => {
-    if (upsert.type !== "notify" && upsert.type !== "append") {
-      return;
-    }
+    if (upsert.type !== "notify" && upsert.type !== "append") return;
     for (const msg of upsert.messages ?? []) {
       recordChannelActivity({
         channel: "whatsapp",
@@ -1111,17 +977,11 @@ async function monitorWebInbox(options) {
         direction: "inbound",
       });
       const inbound = await normalizeInboundMessage(msg);
-      if (!inbound) {
-        continue;
-      }
+      if (!inbound) continue;
       await maybeMarkInboundAsRead(inbound);
-      if (upsert.type === "append") {
-        continue;
-      }
+      if (upsert.type === "append") continue;
       const enriched = await enrichInboundMessage(msg);
-      if (!enriched) {
-        continue;
-      }
+      if (!enriched) continue;
       await enqueueInboundMessage(msg, inbound, enriched);
     }
   };
@@ -1195,24 +1055,16 @@ function send(event) {
   process.stdout.write(`${JSON.stringify(event)}\n`);
 }
 function encodeError(err) {
-  if (err instanceof Error) {
-    return err.message;
-  }
+  if (err instanceof Error) return err.message;
   return String(err);
 }
 async function handleInit(msg) {
   try {
     const cfg = loadConfig();
     const shouldDebounce = (m) => {
-      if (m.mediaPath || m.mediaType) {
-        return false;
-      }
-      if (m.location) {
-        return false;
-      }
-      if (m.replyToId || m.replyToBody) {
-        return false;
-      }
+      if (m.mediaPath || m.mediaType) return false;
+      if (m.location) return false;
+      if (m.replyToId || m.replyToBody) return false;
       return !hasControlCommand(m.body, cfg);
     };
     listener = await monitorWebInbox({
@@ -1308,28 +1160,23 @@ async function handleCall(msg) {
   }
 }
 function handleInboundMessage(message) {
-  if (!message || typeof message !== "object") {
-    return;
-  }
+  if (!message || typeof message !== "object") return;
   if (message.type === "init") {
     handleInit(message);
     return;
   }
-  if (message.type === "call") {
-    handleCall(message);
-  }
+  if (message.type === "call") handleCall(message);
 }
-if (process.send) {
+if (process.send)
   process.on("message", (message) => {
     handleInboundMessage(message);
   });
-} else {
+else
   readline.createInterface({ input: process.stdin }).on("line", (line) => {
     try {
       handleInboundMessage(JSON.parse(line));
     } catch {}
   });
-}
 process.on("SIGTERM", () => {
   listener?.signalClose?.({
     status: 0,

@@ -8,12 +8,8 @@ function withDuplex(init, input) {
     typeof Request !== "undefined" &&
     input instanceof Request &&
     input.body != null;
-  if (!hasInitBody && !hasRequestBody) {
-    return init;
-  }
-  if (init && "duplex" in init) {
-    return init;
-  }
+  if (!hasInitBody && !hasRequestBody) return init;
+  if (init && "duplex" in init) return init;
   return init
     ? {
         ...init,
@@ -22,37 +18,25 @@ function withDuplex(init, input) {
     : { duplex: "half" };
 }
 function wrapFetchWithAbortSignal(fetchImpl) {
-  if (fetchImpl[wrapFetchWithAbortSignalMarker]) {
-    return fetchImpl;
-  }
+  if (fetchImpl[wrapFetchWithAbortSignalMarker]) return fetchImpl;
   const wrapped = (input, init) => {
     const patchedInit = withDuplex(init, input);
     const signal = patchedInit?.signal;
-    if (!signal) {
+    if (!signal) return fetchImpl(input, patchedInit);
+    if (typeof AbortSignal !== "undefined" && signal instanceof AbortSignal)
       return fetchImpl(input, patchedInit);
-    }
-    if (typeof AbortSignal !== "undefined" && signal instanceof AbortSignal) {
-      return fetchImpl(input, patchedInit);
-    }
-    if (typeof AbortController === "undefined") {
-      return fetchImpl(input, patchedInit);
-    }
-    if (typeof signal.addEventListener !== "function") {
-      return fetchImpl(input, patchedInit);
-    }
+    if (typeof AbortController === "undefined") return fetchImpl(input, patchedInit);
+    if (typeof signal.addEventListener !== "function") return fetchImpl(input, patchedInit);
     const controller = new AbortController();
     const onAbort = bindAbortRelay(controller);
     let listenerAttached = false;
-    if (signal.aborted) {
-      controller.abort();
-    } else {
+    if (signal.aborted) controller.abort();
+    else {
       signal.addEventListener("abort", onAbort, { once: true });
       listenerAttached = true;
     }
     const cleanup = () => {
-      if (!listenerAttached || typeof signal.removeEventListener !== "function") {
-        return;
-      }
+      if (!listenerAttached || typeof signal.removeEventListener !== "function") return;
       listenerAttached = false;
       try {
         signal.removeEventListener("abort", onAbort);
@@ -84,9 +68,7 @@ function wrapFetchWithAbortSignal(fetchImpl) {
 }
 function resolveFetch(fetchImpl) {
   const resolved = fetchImpl ?? globalThis.fetch;
-  if (!resolved) {
-    return;
-  }
+  if (!resolved) return;
   return wrapFetchWithAbortSignal(resolved);
 }
 //#endregion

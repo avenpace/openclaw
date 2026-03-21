@@ -29,12 +29,8 @@ function isZero(value) {
   return value === 0 || value === 0n;
 }
 function sameFileIdentity$1(left, right, platform = process.platform) {
-  if (left.ino !== right.ino) {
-    return false;
-  }
-  if (left.dev === right.dev) {
-    return true;
-  }
+  if (left.ino !== right.ino) return false;
+  if (left.dev === right.dev) return true;
   return platform === "win32" && (isZero(left.dev) || isZero(right.dev));
 }
 //#endregion
@@ -45,9 +41,7 @@ function normalizeWindowsPathForComparison(input) {
   let normalized = path.win32.normalize(input);
   if (normalized.startsWith("\\\\?\\")) {
     normalized = normalized.slice(4);
-    if (normalized.toUpperCase().startsWith("UNC\\")) {
-      normalized = `\\\\${normalized.slice(4)}`;
-    }
+    if (normalized.toUpperCase().startsWith("UNC\\")) normalized = `\\\\${normalized.slice(4)}`;
   }
   return normalized.replaceAll("/", "\\").toLowerCase();
 }
@@ -106,9 +100,7 @@ async function resolveBoundaryPath(params) {
     boundaryLabel: params.boundaryLabel,
     context,
   });
-  if (outsideResult) {
-    return outsideResult;
-  }
+  if (outsideResult) return outsideResult;
   return resolveBoundaryPathLexicalAsync({
     params,
     absolutePath: context.absolutePath,
@@ -135,9 +127,7 @@ function resolveBoundaryPathSync(params) {
     boundaryLabel: params.boundaryLabel,
     context,
   });
-  if (outsideResult) {
-    return outsideResult;
-  }
+  if (outsideResult) return outsideResult;
   return resolveBoundaryPathLexicalSync({
     params,
     absolutePath: context.absolutePath,
@@ -205,9 +195,7 @@ function finalizeLexicalResolution(params) {
   });
 }
 function handleLexicalLstatFailure(params) {
-  if (!isNotFoundPathError(params.error)) {
-    return false;
-  }
+  if (!isNotFoundPathError(params.error)) return false;
   applyMissingSuffixToCanonicalCursor({
     state: params.state,
     missingFromIndex: params.missingFromIndex,
@@ -227,9 +215,8 @@ function handleLexicalStatReadFailure(params) {
       resolveParams: params.resolveParams,
       absolutePath: params.absolutePath,
     })
-  ) {
+  )
     return null;
-  }
   throw params.error;
 }
 function handleLexicalStatDisposition(params) {
@@ -257,27 +244,25 @@ function handleLexicalStatDisposition(params) {
   return "resolve-link";
 }
 function applyResolvedSymlinkHop(params) {
-  if (!isPathInside(params.rootCanonicalPath, params.linkCanonical)) {
+  if (!isPathInside(params.rootCanonicalPath, params.linkCanonical))
     throw symlinkEscapeError({
       boundaryLabel: params.boundaryLabel,
       rootCanonicalPath: params.rootCanonicalPath,
       symlinkPath: params.state.lexicalCursor,
     });
-  }
   params.state.canonicalCursor = params.linkCanonical;
   params.state.lexicalCursor = params.linkCanonical;
 }
 function readLexicalStat(params) {
   try {
     const stat = params.read(params.state.lexicalCursor);
-    if (isPromiseLike(stat)) {
+    if (isPromiseLike(stat))
       return Promise.resolve(stat).catch((error) =>
         handleLexicalStatReadFailure({
           ...params,
           error,
         }),
       );
-    }
     return stat;
   } catch (error) {
     return handleLexicalStatReadFailure({
@@ -288,7 +273,7 @@ function readLexicalStat(params) {
 }
 function resolveAndApplySymlinkHop(params) {
   const linkCanonical = params.resolveLinkCanonical(params.state.lexicalCursor);
-  if (isPromiseLike(linkCanonical)) {
+  if (isPromiseLike(linkCanonical))
     return Promise.resolve(linkCanonical).then((value) =>
       applyResolvedSymlinkHop({
         state: params.state,
@@ -297,7 +282,6 @@ function resolveAndApplySymlinkHop(params) {
         boundaryLabel: params.boundaryLabel,
       }),
     );
-  }
   applyResolvedSymlinkHop({
     state: params.state,
     linkCanonical,
@@ -331,21 +315,15 @@ async function resolveBoundaryPathLexicalAsync(params) {
       missingFromIndex: idx,
       read: (cursor) => fs$1.lstat(cursor),
     });
-    if (!stat) {
-      break;
-    }
+    if (!stat) break;
     const disposition = handleLexicalStatDisposition({
       ...sharedStepParams,
       isSymbolicLink: stat.isSymbolicLink(),
       segment,
       isLast,
     });
-    if (disposition === "continue") {
-      continue;
-    }
-    if (disposition === "break") {
-      break;
-    }
+    if (disposition === "continue") continue;
+    if (disposition === "break") break;
     await resolveAndApplySymlinkHop({
       state,
       rootCanonicalPath: params.rootCanonicalPath,
@@ -374,13 +352,9 @@ function resolveBoundaryPathLexicalSync(params) {
       absolutePath: params.absolutePath,
       read: (cursor) => fs.lstatSync(cursor),
     });
-    if (isPromiseLike(maybeStat)) {
-      throw new Error("Unexpected async lexical stat");
-    }
+    if (isPromiseLike(maybeStat)) throw new Error("Unexpected async lexical stat");
     const stat = maybeStat;
-    if (!stat) {
-      break;
-    }
+    if (!stat) break;
     const disposition = handleLexicalStatDisposition({
       state,
       isSymbolicLink: stat.isSymbolicLink(),
@@ -390,12 +364,8 @@ function resolveBoundaryPathLexicalSync(params) {
       resolveParams: params.params,
       absolutePath: params.absolutePath,
     });
-    if (disposition === "continue") {
-      continue;
-    }
-    if (disposition === "break") {
-      break;
-    }
+    if (disposition === "continue") continue;
+    if (disposition === "break") break;
     if (
       isPromiseLike(
         resolveAndApplySymlinkHop({
@@ -405,9 +375,8 @@ function resolveBoundaryPathLexicalSync(params) {
           resolveLinkCanonical: (cursor) => resolveSymlinkHopPathSync(cursor),
         }),
       )
-    ) {
+    )
       throw new Error("Unexpected async symlink resolution");
-    }
   }
   const kind = getPathKindSync(params.absolutePath, state.preserveFinalSymlink);
   return finalizeLexicalResolution({
@@ -443,9 +412,7 @@ function createBoundaryResolutionContext(params) {
   };
 }
 async function resolveOutsideBoundaryPathAsync(params) {
-  if (params.context.lexicalInside) {
-    return null;
-  }
+  if (params.context.lexicalInside) return null;
   const kind = await getPathKind(params.context.absolutePath, false);
   return buildOutsideBoundaryPathFromContext({
     boundaryLabel: params.boundaryLabel,
@@ -454,9 +421,7 @@ async function resolveOutsideBoundaryPathAsync(params) {
   });
 }
 function resolveOutsideBoundaryPathSync(params) {
-  if (params.context.lexicalInside) {
-    return null;
-  }
+  if (params.context.lexicalInside) return null;
   const kind = getPathKindSync(params.context.absolutePath, false);
   return buildOutsideBoundaryPathFromContext({
     boundaryLabel: params.boundaryLabel,
@@ -475,15 +440,11 @@ function buildOutsideBoundaryPathFromContext(params) {
   });
 }
 async function resolveOutsideLexicalCanonicalPathAsync(params) {
-  if (isPathInside(params.rootPath, params.absolutePath)) {
-    return;
-  }
+  if (isPathInside(params.rootPath, params.absolutePath)) return;
   return await resolvePathViaExistingAncestor(params.absolutePath);
 }
 function resolveOutsideLexicalCanonicalPathSync(params) {
-  if (isPathInside(params.rootPath, params.absolutePath)) {
-    return;
-  }
+  if (isPathInside(params.rootPath, params.absolutePath)) return;
   return resolvePathViaExistingAncestorSync(params.absolutePath);
 }
 function buildOutsideLexicalBoundaryPath(params) {
@@ -502,12 +463,8 @@ function buildOutsideLexicalBoundaryPath(params) {
   });
 }
 function assertLexicalBoundaryOrCanonicalAlias(params) {
-  if (params.skipLexicalRootCheck || params.lexicalInside) {
-    return;
-  }
-  if (isPathInside(params.rootCanonicalPath, params.canonicalOutsideLexicalPath)) {
-    return;
-  }
+  if (params.skipLexicalRootCheck || params.lexicalInside) return;
+  if (isPathInside(params.rootCanonicalPath, params.canonicalOutsideLexicalPath)) return;
   throw pathEscapeError({
     boundaryLabel: params.boundaryLabel,
     rootPath: params.rootPath,
@@ -532,19 +489,13 @@ async function resolvePathViaExistingAncestor(targetPath) {
   while (!isFilesystemRoot(cursor) && !(await pathExists(cursor))) {
     missingSuffix.unshift(path.basename(cursor));
     const parent = path.dirname(cursor);
-    if (parent === cursor) {
-      break;
-    }
+    if (parent === cursor) break;
     cursor = parent;
   }
-  if (!(await pathExists(cursor))) {
-    return normalized;
-  }
+  if (!(await pathExists(cursor))) return normalized;
   try {
     const resolvedAncestor = path.resolve(await fs$1.realpath(cursor));
-    if (missingSuffix.length === 0) {
-      return resolvedAncestor;
-    }
+    if (missingSuffix.length === 0) return resolvedAncestor;
     return path.resolve(resolvedAncestor, ...missingSuffix);
   } catch {
     return normalized;
@@ -557,19 +508,13 @@ function resolvePathViaExistingAncestorSync(targetPath) {
   while (!isFilesystemRoot(cursor) && !fs.existsSync(cursor)) {
     missingSuffix.unshift(path.basename(cursor));
     const parent = path.dirname(cursor);
-    if (parent === cursor) {
-      break;
-    }
+    if (parent === cursor) break;
     cursor = parent;
   }
-  if (!fs.existsSync(cursor)) {
-    return normalized;
-  }
+  if (!fs.existsSync(cursor)) return normalized;
   try {
     const resolvedAncestor = path.resolve(fs.realpathSync(cursor));
-    if (missingSuffix.length === 0) {
-      return resolvedAncestor;
-    }
+    if (missingSuffix.length === 0) return resolvedAncestor;
     return path.resolve(resolvedAncestor, ...missingSuffix);
   } catch {
     return normalized;
@@ -584,12 +529,11 @@ async function getPathKind(absolutePath, preserveFinalSymlink) {
       ),
     };
   } catch (error) {
-    if (isNotFoundPathError(error)) {
+    if (isNotFoundPathError(error))
       return {
         exists: false,
         kind: "missing",
       };
-    }
     throw error;
   }
 }
@@ -602,41 +546,28 @@ function getPathKindSync(absolutePath, preserveFinalSymlink) {
       ),
     };
   } catch (error) {
-    if (isNotFoundPathError(error)) {
+    if (isNotFoundPathError(error))
       return {
         exists: false,
         kind: "missing",
       };
-    }
     throw error;
   }
 }
 function toResolvedKind(stat) {
-  if (stat.isFile()) {
-    return "file";
-  }
-  if (stat.isDirectory()) {
-    return "directory";
-  }
-  if (stat.isSymbolicLink()) {
-    return "symlink";
-  }
+  if (stat.isFile()) return "file";
+  if (stat.isDirectory()) return "directory";
+  if (stat.isSymbolicLink()) return "symlink";
   return "other";
 }
 function relativeInsideRoot(rootPath, targetPath) {
   const relative = path.relative(path.resolve(rootPath), path.resolve(targetPath));
-  if (!relative || relative === ".") {
-    return "";
-  }
-  if (relative.startsWith("..") || path.isAbsolute(relative)) {
-    return "";
-  }
+  if (!relative || relative === ".") return "";
+  if (relative.startsWith("..") || path.isAbsolute(relative)) return "";
   return relative;
 }
 function assertInsideBoundary(params) {
-  if (isPathInside(params.rootCanonicalPath, params.candidatePath)) {
-    return;
-  }
+  if (isPathInside(params.rootCanonicalPath, params.candidatePath)) return;
   throw new Error(
     `Path resolves outside ${params.boundaryLabel} (${shortPath$1(params.rootCanonicalPath)}): ${shortPath$1(params.absolutePath)}`,
   );
@@ -653,9 +584,7 @@ function symlinkEscapeError(params) {
 }
 function shortPath$1(value) {
   const home = os.homedir();
-  if (value.startsWith(home)) {
-    return `~${value.slice(home.length)}`;
-  }
+  if (value.startsWith(home)) return `~${value.slice(home.length)}`;
   return value;
 }
 function isFilesystemRoot(candidate) {
@@ -666,9 +595,7 @@ async function pathExists(targetPath) {
     await fs$1.lstat(targetPath);
     return true;
   } catch (error) {
-    if (isNotFoundPathError(error)) {
-      return false;
-    }
+    if (isNotFoundPathError(error)) return false;
     throw error;
   }
 }
@@ -676,9 +603,7 @@ async function resolveSymlinkHopPath(symlinkPath) {
   try {
     return path.resolve(await fs$1.realpath(symlinkPath));
   } catch (error) {
-    if (!isNotFoundPathError(error)) {
-      throw error;
-    }
+    if (!isNotFoundPathError(error)) throw error;
     const linkTarget = await fs$1.readlink(symlinkPath);
     return resolvePathViaExistingAncestor(path.resolve(path.dirname(symlinkPath), linkTarget));
   }
@@ -687,9 +612,7 @@ function resolveSymlinkHopPathSync(symlinkPath) {
   try {
     return path.resolve(fs.realpathSync(symlinkPath));
   } catch (error) {
-    if (!isNotFoundPathError(error)) {
-      throw error;
-    }
+    if (!isNotFoundPathError(error)) throw error;
     const linkTarget = fs.readlinkSync(symlinkPath);
     return resolvePathViaExistingAncestorSync(path.resolve(path.dirname(symlinkPath), linkTarget));
   }
@@ -697,31 +620,22 @@ function resolveSymlinkHopPathSync(symlinkPath) {
 //#endregion
 //#region src/infra/hardlink-guards.ts
 async function assertNoHardlinkedFinalPath(params) {
-  if (params.allowFinalHardlinkForUnlink) {
-    return;
-  }
+  if (params.allowFinalHardlinkForUnlink) return;
   let stat;
   try {
     stat = await fs$1.stat(params.filePath);
   } catch (err) {
-    if (isNotFoundPathError(err)) {
-      return;
-    }
+    if (isNotFoundPathError(err)) return;
     throw err;
   }
-  if (!stat.isFile()) {
-    return;
-  }
-  if (stat.nlink > 1) {
+  if (!stat.isFile()) return;
+  if (stat.nlink > 1)
     throw new Error(
       `Hardlinked path is not allowed under ${params.boundaryLabel} (${shortPath(params.root)}): ${shortPath(params.filePath)}`,
     );
-  }
 }
 function shortPath(value) {
-  if (value.startsWith(os.homedir())) {
-    return `~${value.slice(os.homedir().length)}`;
-  }
+  if (value.startsWith(os.homedir())) return `~${value.slice(os.homedir().length)}`;
   return value;
 }
 //#endregion
@@ -734,9 +648,7 @@ async function assertNoPathAliasEscape(params) {
     boundaryLabel: params.boundaryLabel,
     policy: params.policy,
   });
-  if (params.policy?.allowFinalSymlinkForUnlink === true && resolved.kind === "symlink") {
-    return;
-  }
+  if (params.policy?.allowFinalSymlinkForUnlink === true && resolved.kind === "symlink") return;
   await assertNoHardlinkedFinalPath({
     filePath: resolved.absolutePath,
     root: resolved.rootPath,
@@ -780,51 +692,35 @@ async function expandRelativePathWithHome(relativePath) {
 }
 async function openVerifiedLocalFile(filePath, options) {
   try {
-    if ((await fs$1.lstat(filePath)).isDirectory()) {
+    if ((await fs$1.lstat(filePath)).isDirectory())
       throw new SafeOpenError("not-file", "not a file");
-    }
   } catch (err) {
-    if (err instanceof SafeOpenError) {
-      throw err;
-    }
+    if (err instanceof SafeOpenError) throw err;
   }
   let handle;
   try {
     handle = await fs$1.open(filePath, OPEN_READ_FLAGS);
   } catch (err) {
-    if (isNotFoundPathError(err)) {
-      throw new SafeOpenError("not-found", "file not found");
-    }
-    if (isSymlinkOpenError(err)) {
+    if (isNotFoundPathError(err)) throw new SafeOpenError("not-found", "file not found");
+    if (isSymlinkOpenError(err))
       throw new SafeOpenError("symlink", "symlink open blocked", { cause: err });
-    }
-    if (hasNodeErrorCode(err, "EISDIR")) {
-      throw new SafeOpenError("not-file", "not a file");
-    }
+    if (hasNodeErrorCode(err, "EISDIR")) throw new SafeOpenError("not-file", "not a file");
     throw err;
   }
   try {
     const [stat, lstat] = await Promise.all([handle.stat(), fs$1.lstat(filePath)]);
-    if (lstat.isSymbolicLink()) {
-      throw new SafeOpenError("symlink", "symlink not allowed");
-    }
-    if (!stat.isFile()) {
-      throw new SafeOpenError("not-file", "not a file");
-    }
-    if (options?.rejectHardlinks && stat.nlink > 1) {
+    if (lstat.isSymbolicLink()) throw new SafeOpenError("symlink", "symlink not allowed");
+    if (!stat.isFile()) throw new SafeOpenError("not-file", "not a file");
+    if (options?.rejectHardlinks && stat.nlink > 1)
       throw new SafeOpenError("invalid-path", "hardlinked path not allowed");
-    }
-    if (!sameFileIdentity$1(stat, lstat)) {
+    if (!sameFileIdentity$1(stat, lstat))
       throw new SafeOpenError("path-mismatch", "path changed during read");
-    }
     const realPath = await fs$1.realpath(filePath);
     const realStat = await fs$1.stat(realPath);
-    if (options?.rejectHardlinks && realStat.nlink > 1) {
+    if (options?.rejectHardlinks && realStat.nlink > 1)
       throw new SafeOpenError("invalid-path", "hardlinked path not allowed");
-    }
-    if (!sameFileIdentity$1(stat, realStat)) {
+    if (!sameFileIdentity$1(stat, realStat))
       throw new SafeOpenError("path-mismatch", "path mismatch");
-    }
     return {
       handle,
       realPath,
@@ -832,12 +728,8 @@ async function openVerifiedLocalFile(filePath, options) {
     };
   } catch (err) {
     await handle.close().catch(() => {});
-    if (err instanceof SafeOpenError) {
-      throw err;
-    }
-    if (isNotFoundPathError(err)) {
-      throw new SafeOpenError("not-found", "file not found");
-    }
+    if (err instanceof SafeOpenError) throw err;
+    if (isNotFoundPathError(err)) throw new SafeOpenError("not-found", "file not found");
     throw err;
   }
 }
@@ -846,17 +738,14 @@ async function resolvePathWithinRoot(params) {
   try {
     rootReal = await fs$1.realpath(params.rootDir);
   } catch (err) {
-    if (isNotFoundPathError(err)) {
-      throw new SafeOpenError("not-found", "root dir not found");
-    }
+    if (isNotFoundPathError(err)) throw new SafeOpenError("not-found", "root dir not found");
     throw err;
   }
   const rootWithSep = ensureTrailingSep(rootReal);
   const expanded = await expandRelativePathWithHome(params.relativePath);
   const resolved = path.resolve(rootWithSep, expanded);
-  if (!isPathInside(rootWithSep, resolved)) {
+  if (!isPathInside(rootWithSep, resolved))
     throw new SafeOpenError("outside-workspace", "file is outside workspace root");
-  }
   return {
     rootReal,
     rootWithSep,
@@ -870,9 +759,7 @@ async function openFileWithinRoot(params) {
     opened = await openVerifiedLocalFile(resolved);
   } catch (err) {
     if (err instanceof SafeOpenError) {
-      if (err.code === "not-found") {
-        throw err;
-      }
+      if (err.code === "not-found") throw err;
       throw new SafeOpenError("invalid-path", "path is not a regular file under root", {
         cause: err,
       });
@@ -941,12 +828,11 @@ async function readLocalFileSafely(params) {
   }
 }
 async function readOpenedFileSafely(params) {
-  if (params.maxBytes !== void 0 && params.opened.stat.size > params.maxBytes) {
+  if (params.maxBytes !== void 0 && params.opened.stat.size > params.maxBytes)
     throw new SafeOpenError(
       "too-large",
       `file exceeds limit of ${params.maxBytes} bytes (got ${params.opened.stat.size})`,
     );
-  }
   return {
     buffer: await params.opened.handle.readFile(),
     realPath: params.opened.realPath,
@@ -964,11 +850,9 @@ function buildAtomicWriteTempPath(targetPath) {
 async function writeTempFileForAtomicReplace(params) {
   const tempHandle = await fs$1.open(params.tempPath, OPEN_WRITE_CREATE_FLAGS, params.mode);
   try {
-    if (typeof params.data === "string") {
+    if (typeof params.data === "string")
       await tempHandle.writeFile(params.data, params.encoding ?? "utf8");
-    } else {
-      await tempHandle.writeFile(params.data);
-    }
+    else await tempHandle.writeFile(params.data);
     return await tempHandle.stat();
   } finally {
     await tempHandle.close().catch(() => {});
@@ -978,12 +862,10 @@ async function verifyAtomicWriteResult(params) {
   const rootWithSep = ensureTrailingSep(await fs$1.realpath(params.rootDir));
   const opened = await openVerifiedLocalFile(params.targetPath, { rejectHardlinks: true });
   try {
-    if (!sameFileIdentity$1(opened.stat, params.expectedStat)) {
+    if (!sameFileIdentity$1(opened.stat, params.expectedStat))
       throw new SafeOpenError("path-mismatch", "path changed during write");
-    }
-    if (!isPathInside(rootWithSep, opened.realPath)) {
+    if (!isPathInside(rootWithSep, opened.realPath))
       throw new SafeOpenError("outside-workspace", "file is outside workspace root");
-    }
   } finally {
     await opened.handle.close().catch(() => {});
   }
@@ -992,9 +874,7 @@ async function resolveOpenedFileRealPathForHandle(handle, ioPath) {
   try {
     return await fs$1.realpath(ioPath);
   } catch (err) {
-    if (!isNotFoundPathError(err)) {
-      throw err;
-    }
+    if (!isNotFoundPathError(err)) throw err;
   }
   const fdCandidates =
     process.platform === "linux"
@@ -1002,11 +882,10 @@ async function resolveOpenedFileRealPathForHandle(handle, ioPath) {
       : process.platform === "win32"
         ? []
         : [`/dev/fd/${handle.fd}`];
-  for (const fdPath of fdCandidates) {
+  for (const fdPath of fdCandidates)
     try {
       return await fs$1.realpath(fdPath);
     } catch {}
-  }
   throw new SafeOpenError("path-mismatch", "unable to resolve opened file path");
 }
 async function openWritableFileWithinRoot(params) {
@@ -1020,23 +899,16 @@ async function openWritableFileWithinRoot(params) {
   } catch (err) {
     throw new SafeOpenError("invalid-path", "path alias escape blocked", { cause: err });
   }
-  if (params.mkdir !== false) {
-    await fs$1.mkdir(path.dirname(resolved), { recursive: true });
-  }
+  if (params.mkdir !== false) await fs$1.mkdir(path.dirname(resolved), { recursive: true });
   let ioPath = resolved;
   try {
     const resolvedRealPath = await fs$1.realpath(resolved);
-    if (!isPathInside(rootWithSep, resolvedRealPath)) {
+    if (!isPathInside(rootWithSep, resolvedRealPath))
       throw new SafeOpenError("outside-workspace", "file is outside workspace root");
-    }
     ioPath = resolvedRealPath;
   } catch (err) {
-    if (err instanceof SafeOpenError) {
-      throw err;
-    }
-    if (!isNotFoundPathError(err)) {
-      throw err;
-    }
+    if (err instanceof SafeOpenError) throw err;
+    if (!isNotFoundPathError(err)) throw err;
   }
   const fileMode = params.mode ?? 384;
   let handle;
@@ -1047,58 +919,41 @@ async function openWritableFileWithinRoot(params) {
     try {
       handle = await fs$1.open(ioPath, existingFlags, fileMode);
     } catch (err) {
-      if (!isNotFoundPathError(err)) {
-        throw err;
-      }
+      if (!isNotFoundPathError(err)) throw err;
       handle = await fs$1.open(ioPath, createFlags, fileMode);
       createdForWrite = true;
     }
   } catch (err) {
-    if (isNotFoundPathError(err)) {
-      throw new SafeOpenError("not-found", "file not found");
-    }
-    if (isSymlinkOpenError(err)) {
+    if (isNotFoundPathError(err)) throw new SafeOpenError("not-found", "file not found");
+    if (isSymlinkOpenError(err))
       throw new SafeOpenError("invalid-path", "symlink open blocked", { cause: err });
-    }
     throw err;
   }
   let openedRealPath = null;
   try {
     const stat = await handle.stat();
-    if (!stat.isFile()) {
+    if (!stat.isFile())
       throw new SafeOpenError("invalid-path", "path is not a regular file under root");
-    }
-    if (stat.nlink > 1) {
-      throw new SafeOpenError("invalid-path", "hardlinked path not allowed");
-    }
+    if (stat.nlink > 1) throw new SafeOpenError("invalid-path", "hardlinked path not allowed");
     try {
       const lstat = await fs$1.lstat(ioPath);
-      if (lstat.isSymbolicLink() || !lstat.isFile()) {
+      if (lstat.isSymbolicLink() || !lstat.isFile())
         throw new SafeOpenError("invalid-path", "path is not a regular file under root");
-      }
-      if (!sameFileIdentity$1(stat, lstat)) {
+      if (!sameFileIdentity$1(stat, lstat))
         throw new SafeOpenError("path-mismatch", "path changed during write");
-      }
     } catch (err) {
-      if (!isNotFoundPathError(err)) {
-        throw err;
-      }
+      if (!isNotFoundPathError(err)) throw err;
     }
     const realPath = await resolveOpenedFileRealPathForHandle(handle, ioPath);
     openedRealPath = realPath;
     const realStat = await fs$1.stat(realPath);
-    if (!sameFileIdentity$1(stat, realStat)) {
+    if (!sameFileIdentity$1(stat, realStat))
       throw new SafeOpenError("path-mismatch", "path mismatch");
-    }
-    if (realStat.nlink > 1) {
-      throw new SafeOpenError("invalid-path", "hardlinked path not allowed");
-    }
-    if (!isPathInside(rootWithSep, realPath)) {
+    if (realStat.nlink > 1) throw new SafeOpenError("invalid-path", "hardlinked path not allowed");
+    if (!isPathInside(rootWithSep, realPath))
       throw new SafeOpenError("outside-workspace", "file is outside workspace root");
-    }
-    if (params.append !== true && params.truncateExisting !== false && !createdForWrite) {
+    if (params.append !== true && params.truncateExisting !== false && !createdForWrite)
       await handle.truncate(0);
-    }
     return {
       handle,
       createdForWrite,
@@ -1109,9 +964,7 @@ async function openWritableFileWithinRoot(params) {
     const cleanupCreatedPath = createdForWrite && err instanceof SafeOpenError;
     const cleanupPath = openedRealPath ?? ioPath;
     await handle.close().catch(() => {});
-    if (cleanupCreatedPath) {
-      await fs$1.rm(cleanupPath, { force: true }).catch(() => {});
-    }
+    if (cleanupCreatedPath) await fs$1.rm(cleanupPath, { force: true }).catch(() => {});
     throw err;
   }
 }
@@ -1134,9 +987,7 @@ async function appendFileWithinRoot(params) {
     ) {
       const lastByte = Buffer.alloc(1);
       const { bytesRead } = await target.handle.read(lastByte, 0, 1, target.openedStat.size - 1);
-      if (bytesRead === 1 && lastByte[0] !== 10) {
-        prefix = "\n";
-      }
+      if (bytesRead === 1 && lastByte[0] !== 10) prefix = "\n";
     }
     if (typeof params.data === "string") {
       await target.handle.appendFile(`${prefix}${params.data}`, params.encoding ?? "utf8");
@@ -1181,9 +1032,7 @@ async function writeFileWithinRoot(params) {
       throw err;
     }
   } finally {
-    if (tempPath) {
-      await fs$1.rm(tempPath, { force: true }).catch(() => {});
-    }
+    if (tempPath) await fs$1.rm(tempPath, { force: true }).catch(() => {});
   }
 }
 async function copyFileWithinRoot(params) {
@@ -1244,23 +1093,14 @@ async function copyFileWithinRoot(params) {
       throw err;
     }
   } catch (err) {
-    if (target?.createdForWrite) {
+    if (target?.createdForWrite)
       await fs$1.rm(target.openedRealPath, { force: true }).catch(() => {});
-    }
     throw err;
   } finally {
-    if (tempPath) {
-      await fs$1.rm(tempPath, { force: true }).catch(() => {});
-    }
-    if (!sourceClosedByStream) {
-      await source.handle.close().catch(() => {});
-    }
-    if (tempHandle && !tempClosedByStream) {
-      await tempHandle.close().catch(() => {});
-    }
-    if (target && !targetClosedByUs) {
-      await target.handle.close().catch(() => {});
-    }
+    if (tempPath) await fs$1.rm(tempPath, { force: true }).catch(() => {});
+    if (!sourceClosedByStream) await source.handle.close().catch(() => {});
+    if (tempHandle && !tempClosedByStream) await tempHandle.close().catch(() => {});
+    if (target && !targetClosedByUs) await target.handle.close().catch(() => {});
   }
 }
 async function writeFileFromPathWithinRoot(params) {
@@ -1280,21 +1120,13 @@ async function writeFileFromPathWithinRoot(params) {
  */
 function parseAgentSessionKey(sessionKey) {
   const raw = (sessionKey ?? "").trim().toLowerCase();
-  if (!raw) {
-    return null;
-  }
+  if (!raw) return null;
   const parts = raw.split(":").filter(Boolean);
-  if (parts.length < 3) {
-    return null;
-  }
-  if (parts[0] !== "agent") {
-    return null;
-  }
+  if (parts.length < 3) return null;
+  if (parts[0] !== "agent") return null;
   const agentId = parts[1]?.trim();
   const rest = parts.slice(2).join(":");
-  if (!agentId || !rest) {
-    return null;
-  }
+  if (!agentId || !rest) return null;
   return {
     agentId,
     rest,
@@ -1305,78 +1137,50 @@ function parseAgentSessionKey(sessionKey) {
  */
 function deriveSessionChatType(sessionKey) {
   const raw = (sessionKey ?? "").trim().toLowerCase();
-  if (!raw) {
-    return "unknown";
-  }
+  if (!raw) return "unknown";
   const scoped = parseAgentSessionKey(raw)?.rest ?? raw;
   const tokens = new Set(scoped.split(":").filter(Boolean));
-  if (tokens.has("group")) {
-    return "group";
-  }
-  if (tokens.has("channel")) {
-    return "channel";
-  }
-  if (tokens.has("direct") || tokens.has("dm")) {
-    return "direct";
-  }
-  if (/^discord:(?:[^:]+:)?guild-[^:]+:channel-[^:]+$/.test(scoped)) {
-    return "channel";
-  }
+  if (tokens.has("group")) return "group";
+  if (tokens.has("channel")) return "channel";
+  if (tokens.has("direct") || tokens.has("dm")) return "direct";
+  if (/^discord:(?:[^:]+:)?guild-[^:]+:channel-[^:]+$/.test(scoped)) return "channel";
   return "unknown";
 }
 function isCronSessionKey(sessionKey) {
   const parsed = parseAgentSessionKey(sessionKey);
-  if (!parsed) {
-    return false;
-  }
+  if (!parsed) return false;
   return parsed.rest.toLowerCase().startsWith("cron:");
 }
 function isSubagentSessionKey(sessionKey) {
   const raw = (sessionKey ?? "").trim();
-  if (!raw) {
-    return false;
-  }
-  if (raw.toLowerCase().startsWith("subagent:")) {
-    return true;
-  }
+  if (!raw) return false;
+  if (raw.toLowerCase().startsWith("subagent:")) return true;
   const parsed = parseAgentSessionKey(raw);
   return Boolean((parsed?.rest ?? "").toLowerCase().startsWith("subagent:"));
 }
 function getSubagentDepth(sessionKey) {
   const raw = (sessionKey ?? "").trim().toLowerCase();
-  if (!raw) {
-    return 0;
-  }
+  if (!raw) return 0;
   return raw.split(":subagent:").length - 1;
 }
 function isAcpSessionKey(sessionKey) {
   const raw = (sessionKey ?? "").trim();
-  if (!raw) {
-    return false;
-  }
-  if (raw.toLowerCase().startsWith("acp:")) {
-    return true;
-  }
+  if (!raw) return false;
+  if (raw.toLowerCase().startsWith("acp:")) return true;
   const parsed = parseAgentSessionKey(raw);
   return Boolean((parsed?.rest ?? "").toLowerCase().startsWith("acp:"));
 }
 const THREAD_SESSION_MARKERS = [":thread:", ":topic:"];
 function resolveThreadParentSessionKey(sessionKey) {
   const raw = (sessionKey ?? "").trim();
-  if (!raw) {
-    return null;
-  }
+  if (!raw) return null;
   const normalized = raw.toLowerCase();
   let idx = -1;
   for (const marker of THREAD_SESSION_MARKERS) {
     const candidate = normalized.lastIndexOf(marker);
-    if (candidate > idx) {
-      idx = candidate;
-    }
+    if (candidate > idx) idx = candidate;
   }
-  if (idx <= 0) {
-    return null;
-  }
+  if (idx <= 0) return null;
   const parent = raw.slice(0, idx).trim();
   return parent ? parent : null;
 }
@@ -1397,9 +1201,7 @@ const ACCOUNT_ID_CACHE_MAX = 512;
 const normalizeAccountIdCache = /* @__PURE__ */ new Map();
 const normalizeOptionalAccountIdCache = /* @__PURE__ */ new Map();
 function canonicalizeAccountId(value) {
-  if (VALID_ID_RE$1.test(value)) {
-    return value.toLowerCase();
-  }
+  if (VALID_ID_RE$1.test(value)) return value.toLowerCase();
   return value
     .toLowerCase()
     .replace(INVALID_CHARS_RE$1, "-")
@@ -1409,45 +1211,32 @@ function canonicalizeAccountId(value) {
 }
 function normalizeCanonicalAccountId(value) {
   const canonical = canonicalizeAccountId(value);
-  if (!canonical || isBlockedObjectKey(canonical)) {
-    return;
-  }
+  if (!canonical || isBlockedObjectKey(canonical)) return;
   return canonical;
 }
 function normalizeAccountId(value) {
   const trimmed = (value ?? "").trim();
-  if (!trimmed) {
-    return DEFAULT_ACCOUNT_ID;
-  }
+  if (!trimmed) return DEFAULT_ACCOUNT_ID;
   const cached = normalizeAccountIdCache.get(trimmed);
-  if (cached) {
-    return cached;
-  }
+  if (cached) return cached;
   const normalized = normalizeCanonicalAccountId(trimmed) || "default";
   setNormalizeCache(normalizeAccountIdCache, trimmed, normalized);
   return normalized;
 }
 function normalizeOptionalAccountId(value) {
   const trimmed = (value ?? "").trim();
-  if (!trimmed) {
-    return;
-  }
-  if (normalizeOptionalAccountIdCache.has(trimmed)) {
+  if (!trimmed) return;
+  if (normalizeOptionalAccountIdCache.has(trimmed))
     return normalizeOptionalAccountIdCache.get(trimmed);
-  }
   const normalized = normalizeCanonicalAccountId(trimmed) || void 0;
   setNormalizeCache(normalizeOptionalAccountIdCache, trimmed, normalized);
   return normalized;
 }
 function setNormalizeCache(cache, key, value) {
   cache.set(key, value);
-  if (cache.size <= ACCOUNT_ID_CACHE_MAX) {
-    return;
-  }
+  if (cache.size <= ACCOUNT_ID_CACHE_MAX) return;
   const oldest = cache.keys().next();
-  if (!oldest.done) {
-    cache.delete(oldest.value);
-  }
+  if (!oldest.done) cache.delete(oldest.value);
 }
 //#endregion
 //#region src/routing/session-key.ts
@@ -1477,22 +1266,14 @@ function resolveAgentIdFromSessionKey(sessionKey) {
 }
 function classifySessionKeyShape(sessionKey) {
   const raw = (sessionKey ?? "").trim();
-  if (!raw) {
-    return "missing";
-  }
-  if (parseAgentSessionKey(raw)) {
-    return "agent";
-  }
+  if (!raw) return "missing";
+  if (parseAgentSessionKey(raw)) return "agent";
   return raw.toLowerCase().startsWith("agent:") ? "malformed_agent" : "legacy_or_alias";
 }
 function normalizeAgentId(value) {
   const trimmed = (value ?? "").trim();
-  if (!trimmed) {
-    return DEFAULT_AGENT_ID;
-  }
-  if (VALID_ID_RE.test(trimmed)) {
-    return trimmed.toLowerCase();
-  }
+  if (!trimmed) return DEFAULT_AGENT_ID;
+  if (VALID_ID_RE.test(trimmed)) return trimmed.toLowerCase();
   return (
     trimmed
       .toLowerCase()
@@ -1525,9 +1306,7 @@ function buildAgentPeerSessionKey(params) {
             channel: params.channel,
             peerId,
           });
-    if (linkedPeerId) {
-      peerId = linkedPeerId;
-    }
+    if (linkedPeerId) peerId = linkedPeerId;
     peerId = peerId.toLowerCase();
     if (dmScope === "per-account-channel-peer" && peerId) {
       const channel = (params.channel ?? "").trim().toLowerCase() || "unknown";
@@ -1538,9 +1317,8 @@ function buildAgentPeerSessionKey(params) {
       const channel = (params.channel ?? "").trim().toLowerCase() || "unknown";
       return `agent:${normalizeAgentId(params.agentId)}:${channel}:direct:${peerId}`;
     }
-    if (dmScope === "per-peer" && peerId) {
+    if (dmScope === "per-peer" && peerId)
       return `agent:${normalizeAgentId(params.agentId)}:direct:${peerId}`;
-    }
     return buildAgentMainSessionKey({
       agentId: params.agentId,
       mainKey: params.mainKey,
@@ -1552,41 +1330,25 @@ function buildAgentPeerSessionKey(params) {
 }
 function resolveLinkedPeerId(params) {
   const identityLinks = params.identityLinks;
-  if (!identityLinks) {
-    return null;
-  }
+  if (!identityLinks) return null;
   const peerId = params.peerId.trim();
-  if (!peerId) {
-    return null;
-  }
+  if (!peerId) return null;
   const candidates = /* @__PURE__ */ new Set();
   const rawCandidate = normalizeToken(peerId);
-  if (rawCandidate) {
-    candidates.add(rawCandidate);
-  }
+  if (rawCandidate) candidates.add(rawCandidate);
   const channel = normalizeToken(params.channel);
   if (channel) {
     const scopedCandidate = normalizeToken(`${channel}:${peerId}`);
-    if (scopedCandidate) {
-      candidates.add(scopedCandidate);
-    }
+    if (scopedCandidate) candidates.add(scopedCandidate);
   }
-  if (candidates.size === 0) {
-    return null;
-  }
+  if (candidates.size === 0) return null;
   for (const [canonical, ids] of Object.entries(identityLinks)) {
     const canonicalName = canonical.trim();
-    if (!canonicalName) {
-      continue;
-    }
-    if (!Array.isArray(ids)) {
-      continue;
-    }
+    if (!canonicalName) continue;
+    if (!Array.isArray(ids)) continue;
     for (const id of ids) {
       const normalized = normalizeToken(id);
-      if (normalized && candidates.has(normalized)) {
-        return canonicalName;
-      }
+      if (normalized && candidates.has(normalized)) return canonicalName;
     }
   }
   return null;
@@ -1599,12 +1361,11 @@ function buildGroupHistoryKey(params) {
 }
 function resolveThreadSessionKeys(params) {
   const threadId = (params.threadId ?? "").trim();
-  if (!threadId) {
+  if (!threadId)
     return {
       sessionKey: params.baseSessionKey,
       parentSessionKey: void 0,
     };
-  }
   const normalizedThreadId = (params.normalizeThreadId ?? ((value) => value.toLowerCase()))(
     threadId,
   );
@@ -1628,18 +1389,12 @@ function markOpenClawExecEnv(env) {
 //#endregion
 //#region src/config/model-input.ts
 function resolveAgentModelPrimaryValue(model) {
-  if (typeof model === "string") {
-    return model.trim() || void 0;
-  }
-  if (!model || typeof model !== "object") {
-    return;
-  }
+  if (typeof model === "string") return model.trim() || void 0;
+  if (!model || typeof model !== "object") return;
   return model.primary?.trim() || void 0;
 }
 function resolveAgentModelFallbackValues(model) {
-  if (!model || typeof model !== "object") {
-    return [];
-  }
+  if (!model || typeof model !== "object") return [];
   return Array.isArray(model.fallbacks) ? model.fallbacks : [];
 }
 function toAgentModelListLike(model) {
@@ -1647,9 +1402,7 @@ function toAgentModelListLike(model) {
     const primary = model.trim();
     return primary ? { primary } : void 0;
   }
-  if (!model || typeof model !== "object") {
-    return;
-  }
+  if (!model || typeof model !== "object") return;
   return model;
 }
 //#endregion
@@ -1662,9 +1415,7 @@ function normalizeStringEntriesLower(list) {
 }
 function normalizeHyphenSlug(raw) {
   const trimmed = raw?.trim().toLowerCase() ?? "";
-  if (!trimmed) {
-    return "";
-  }
+  if (!trimmed) return "";
   return trimmed
     .replace(/\s+/g, "-")
     .replace(/[^a-z0-9#@._+-]+/g, "-")
@@ -1673,9 +1424,7 @@ function normalizeHyphenSlug(raw) {
 }
 function normalizeAtHashSlug(raw) {
   const trimmed = raw?.trim().toLowerCase() ?? "";
-  if (!trimmed) {
-    return "";
-  }
+  if (!trimmed) return "";
   return trimmed
     .replace(/^[@#]+/, "")
     .replace(/[\s_]+/g, "-")
@@ -1686,9 +1435,7 @@ function normalizeAtHashSlug(raw) {
 //#endregion
 //#region src/agents/skills/filter.ts
 function normalizeSkillFilter(skillFilter) {
-  if (skillFilter === void 0) {
-    return;
-  }
+  if (skillFilter === void 0) return;
   return normalizeStringEntries(skillFilter);
 }
 //#endregion
@@ -1710,59 +1457,51 @@ function openVerifiedFileSync(params) {
   let fd = null;
   try {
     if (params.rejectPathSymlink) {
-      if (ioFs.lstatSync(params.filePath).isSymbolicLink()) {
+      if (ioFs.lstatSync(params.filePath).isSymbolicLink())
         return {
           ok: false,
           reason: "validation",
         };
-      }
     }
     const realPath = params.resolvedPath ?? ioFs.realpathSync(params.filePath);
     const preOpenStat = ioFs.lstatSync(realPath);
-    if (!isAllowedType(preOpenStat, allowedType)) {
+    if (!isAllowedType(preOpenStat, allowedType))
       return {
         ok: false,
         reason: "validation",
       };
-    }
-    if (params.rejectHardlinks && preOpenStat.isFile() && preOpenStat.nlink > 1) {
+    if (params.rejectHardlinks && preOpenStat.isFile() && preOpenStat.nlink > 1)
       return {
         ok: false,
         reason: "validation",
       };
-    }
-    if (params.maxBytes !== void 0 && preOpenStat.isFile() && preOpenStat.size > params.maxBytes) {
+    if (params.maxBytes !== void 0 && preOpenStat.isFile() && preOpenStat.size > params.maxBytes)
       return {
         ok: false,
         reason: "validation",
       };
-    }
     fd = ioFs.openSync(realPath, openReadFlags);
     const openedStat = ioFs.fstatSync(fd);
-    if (!isAllowedType(openedStat, allowedType)) {
+    if (!isAllowedType(openedStat, allowedType))
       return {
         ok: false,
         reason: "validation",
       };
-    }
-    if (params.rejectHardlinks && openedStat.isFile() && openedStat.nlink > 1) {
+    if (params.rejectHardlinks && openedStat.isFile() && openedStat.nlink > 1)
       return {
         ok: false,
         reason: "validation",
       };
-    }
-    if (params.maxBytes !== void 0 && openedStat.isFile() && openedStat.size > params.maxBytes) {
+    if (params.maxBytes !== void 0 && openedStat.isFile() && openedStat.size > params.maxBytes)
       return {
         ok: false,
         reason: "validation",
       };
-    }
-    if (!sameFileIdentity(preOpenStat, openedStat)) {
+    if (!sameFileIdentity(preOpenStat, openedStat))
       return {
         ok: false,
         reason: "validation",
       };
-    }
     const opened = {
       ok: true,
       path: realPath,
@@ -1772,28 +1511,23 @@ function openVerifiedFileSync(params) {
     fd = null;
     return opened;
   } catch (error) {
-    if (isExpectedPathError(error)) {
+    if (isExpectedPathError(error))
       return {
         ok: false,
         reason: "path",
         error,
       };
-    }
     return {
       ok: false,
       reason: "io",
       error,
     };
   } finally {
-    if (fd !== null) {
-      ioFs.closeSync(fd);
-    }
+    if (fd !== null) ioFs.closeSync(fd);
   }
 }
 function isAllowedType(stat, allowedType) {
-  if (allowedType === "directory") {
-    return stat.isDirectory();
-  }
+  if (allowedType === "directory") return stat.isDirectory();
   return stat.isFile();
 }
 //#endregion
@@ -1823,11 +1557,10 @@ function openBoundaryFileSync(params) {
         skipLexicalRootCheck: params.skipLexicalRootCheck,
       }),
   });
-  if (resolved instanceof Promise) {
+  if (resolved instanceof Promise)
     return toBoundaryValidationError(
       /* @__PURE__ */ new Error("Unexpected async boundary resolution"),
     );
-  }
   return finalizeBoundaryFileOpen({
     resolved,
     maxBytes: params.maxBytes,
@@ -1845,9 +1578,7 @@ function openBoundaryFileResolved(params) {
     allowedType: params.allowedType,
     ioFs: params.ioFs,
   });
-  if (!opened.ok) {
-    return opened;
-  }
+  if (!opened.ok) return opened;
   return {
     ok: true,
     path: opened.path,
@@ -1857,9 +1588,7 @@ function openBoundaryFileResolved(params) {
   };
 }
 function finalizeBoundaryFileOpen(params) {
-  if ("ok" in params.resolved) {
-    return params.resolved;
-  }
+  if ("ok" in params.resolved) return params.resolved;
   return openBoundaryFileResolved({
     absolutePath: params.resolved.absolutePath,
     resolvedPath: params.resolved.resolvedPath,
@@ -1910,11 +1639,10 @@ function resolveBoundaryFilePathGeneric(params) {
   const absolutePath = path.resolve(params.absolutePath);
   try {
     const resolved = params.resolve(absolutePath);
-    if (resolved instanceof Promise) {
+    if (resolved instanceof Promise)
       return resolved
         .then((value) => mapResolvedBoundaryPath(absolutePath, value))
         .catch((error) => toBoundaryValidationError(error));
-    }
     return mapResolvedBoundaryPath(absolutePath, resolved);
   } catch (error) {
     return toBoundaryValidationError(error);
@@ -1939,17 +1667,13 @@ async function spawnAndWaitForSpawn(spawnImpl, argv, options) {
       child.removeListener("spawn", onSpawn);
     };
     const finishResolve = () => {
-      if (settled) {
-        return;
-      }
+      if (settled) return;
       settled = true;
       cleanup();
       resolve(child);
     };
     const onError = (err) => {
-      if (settled) {
-        return;
-      }
+      if (settled) return;
       settled = true;
       cleanup();
       reject(err);
@@ -1960,9 +1684,7 @@ async function spawnAndWaitForSpawn(spawnImpl, argv, options) {
     child.once("error", onError);
     child.once("spawn", onSpawn);
     process.nextTick(() => {
-      if (typeof child.pid === "number") {
-        finishResolve();
-      }
+      if (typeof child.pid === "number") finishResolve();
     });
   });
 }
@@ -1993,9 +1715,7 @@ async function spawnWithFallback(params) {
     } catch (err) {
       lastError = err;
       const nextFallback = fallbacks[index];
-      if (!nextFallback || !shouldRetry(err, retryCodes)) {
-        throw err;
-      }
+      if (!nextFallback || !shouldRetry(err, retryCodes)) throw err;
       params.onFallback?.(err, nextFallback);
     }
   }
@@ -2004,16 +1724,10 @@ async function spawnWithFallback(params) {
 //#endregion
 //#region src/process/windows-command.ts
 function resolveWindowsCommandShim(params) {
-  if ((params.platform ?? process$1.platform) !== "win32") {
-    return params.command;
-  }
+  if ((params.platform ?? process$1.platform) !== "win32") return params.command;
   const basename = path.basename(params.command).toLowerCase();
-  if (path.extname(basename)) {
-    return params.command;
-  }
-  if (params.cmdCommands.includes(basename)) {
-    return `${params.command}.cmd`;
-  }
+  if (path.extname(basename)) return params.command;
+  if (params.cmdCommands.includes(basename)) return `${params.command}.cmd`;
   return params.command;
 }
 //#endregion
@@ -2021,21 +1735,16 @@ function resolveWindowsCommandShim(params) {
 const execFileAsync = promisify(execFile);
 const WINDOWS_UNSAFE_CMD_CHARS_RE = /[&|<>^%\r\n]/;
 function isWindowsBatchCommand(resolvedCommand) {
-  if (process$1.platform !== "win32") {
-    return false;
-  }
+  if (process$1.platform !== "win32") return false;
   const ext = path.extname(resolvedCommand).toLowerCase();
   return ext === ".cmd" || ext === ".bat";
 }
 function escapeForCmdExe(arg) {
-  if (WINDOWS_UNSAFE_CMD_CHARS_RE.test(arg)) {
+  if (WINDOWS_UNSAFE_CMD_CHARS_RE.test(arg))
     throw new Error(
       `Unsafe Windows cmd.exe argument detected: ${JSON.stringify(arg)}. Pass an explicit shell-wrapper argv at the call site instead.`,
     );
-  }
-  if (!arg.includes(" ") && !arg.includes('"')) {
-    return arg;
-  }
+  if (!arg.includes(" ") && !arg.includes('"')) return arg;
   return `"${arg.replace(/"/g, '""')}"`;
 }
 function buildCmdExeCommandLine(resolvedCommand, args) {
@@ -2047,17 +1756,13 @@ function buildCmdExeCommandLine(resolvedCommand, args) {
  * spawn node.exe instead of npm.cmd.
  */
 function resolveNpmArgvForWindows(argv) {
-  if (process$1.platform !== "win32" || argv.length === 0) {
-    return null;
-  }
+  if (process$1.platform !== "win32" || argv.length === 0) return null;
   const basename = path
     .basename(argv[0])
     .toLowerCase()
     .replace(/\.(cmd|exe|bat)$/, "");
   const cliName = basename === "npx" ? "npx-cli.js" : basename === "npm" ? "npm-cli.js" : null;
-  if (!cliName) {
-    return null;
-  }
+  if (!cliName) return null;
   const nodeDir = path.dirname(process$1.execPath);
   const cliPath = path.join(nodeDir, "node_modules", "npm", "bin", cliName);
   if (!fs.existsSync(cliPath)) {
@@ -2121,21 +1826,15 @@ async function runExec(command, args, opts = 1e4) {
         )
       : await execFileAsync(execCommand, execArgs, options);
     if (shouldLogVerbose()) {
-      if (stdout.trim()) {
-        logDebug(stdout.trim());
-      }
-      if (stderr.trim()) {
-        logError(stderr.trim());
-      }
+      if (stdout.trim()) logDebug(stdout.trim());
+      if (stderr.trim()) logError(stderr.trim());
     }
     return {
       stdout,
       stderr,
     };
   } catch (err) {
-    if (shouldLogVerbose()) {
-      logError(danger(`Command failed: ${command} ${args.join(" ")}`));
-    }
+    if (shouldLogVerbose()) logError(danger(`Command failed: ${command} ${args.join(" ")}`));
     throw err;
   }
 }
@@ -2144,12 +1843,8 @@ function resolveCommandEnv(params) {
   const argv = params.argv;
   const shouldSuppressNpmFund = (() => {
     const cmd = path.basename(argv[0] ?? "");
-    if (cmd === "npm" || cmd === "npm.cmd" || cmd === "npm.exe") {
-      return true;
-    }
-    if (cmd === "node" || cmd === "node.exe") {
-      return (argv[1] ?? "").includes("npm-cli.js");
-    }
+    if (cmd === "npm" || cmd === "npm.cmd" || cmd === "npm.exe") return true;
+    if (cmd === "node" || cmd === "node.exe") return (argv[1] ?? "").includes("npm-cli.js");
     return false;
   })();
   const mergedEnv = params.env
@@ -2164,12 +1859,8 @@ function resolveCommandEnv(params) {
       .map(([key, value]) => [key, String(value)]),
   );
   if (shouldSuppressNpmFund) {
-    if (resolvedEnv.NPM_CONFIG_FUND == null) {
-      resolvedEnv.NPM_CONFIG_FUND = "false";
-    }
-    if (resolvedEnv.npm_config_fund == null) {
-      resolvedEnv.npm_config_fund = "false";
-    }
+    if (resolvedEnv.NPM_CONFIG_FUND == null) resolvedEnv.NPM_CONFIG_FUND = "false";
+    if (resolvedEnv.npm_config_fund == null) resolvedEnv.npm_config_fund = "false";
   }
   return markOpenClawExecEnv(resolvedEnv);
 }
@@ -2221,32 +1912,22 @@ async function runCommandWithTimeout(argv, optionsOrTimeout) {
       Number.isFinite(noOutputTimeoutMs) &&
       noOutputTimeoutMs > 0;
     const clearNoOutputTimer = () => {
-      if (!noOutputTimer) {
-        return;
-      }
+      if (!noOutputTimer) return;
       clearTimeout(noOutputTimer);
       noOutputTimer = null;
     };
     const armNoOutputTimer = () => {
-      if (!shouldTrackOutputTimeout || settled) {
-        return;
-      }
+      if (!shouldTrackOutputTimeout || settled) return;
       clearNoOutputTimer();
       noOutputTimer = setTimeout(() => {
-        if (settled) {
-          return;
-        }
+        if (settled) return;
         noOutputTimedOut = true;
-        if (typeof child.kill === "function") {
-          child.kill("SIGKILL");
-        }
+        if (typeof child.kill === "function") child.kill("SIGKILL");
       }, Math.floor(noOutputTimeoutMs));
     };
     const timer = setTimeout(() => {
       timedOut = true;
-      if (typeof child.kill === "function") {
-        child.kill("SIGKILL");
-      }
+      if (typeof child.kill === "function") child.kill("SIGKILL");
     }, timeoutMs);
     armNoOutputTimer();
     if (hasInput && child.stdin) {
@@ -2262,18 +1943,14 @@ async function runCommandWithTimeout(argv, optionsOrTimeout) {
       armNoOutputTimer();
     });
     child.on("error", (err) => {
-      if (settled) {
-        return;
-      }
+      if (settled) return;
       settled = true;
       clearTimeout(timer);
       clearNoOutputTimer();
       reject(err);
     });
     child.on("close", (code, signal) => {
-      if (settled) {
-        return;
-      }
+      if (settled) return;
       settled = true;
       clearTimeout(timer);
       clearNoOutputTimer();
@@ -2321,18 +1998,14 @@ function readPackageNameSync(dir) {
 async function findPackageRoot(startDir, maxDepth = 12) {
   for (const current of iterAncestorDirs(startDir, maxDepth)) {
     const name = await readPackageName(current);
-    if (name && CORE_PACKAGE_NAMES.has(name)) {
-      return current;
-    }
+    if (name && CORE_PACKAGE_NAMES.has(name)) return current;
   }
   return null;
 }
 function findPackageRootSync(startDir, maxDepth = 12) {
   for (const current of iterAncestorDirs(startDir, maxDepth)) {
     const name = readPackageNameSync(current);
-    if (name && CORE_PACKAGE_NAMES.has(name)) {
-      return current;
-    }
+    if (name && CORE_PACKAGE_NAMES.has(name)) return current;
   }
   return null;
 }
@@ -2341,9 +2014,7 @@ function* iterAncestorDirs(startDir, maxDepth) {
   for (let i = 0; i < maxDepth; i += 1) {
     yield current;
     const parent = path.dirname(current);
-    if (parent === current) {
-      break;
-    }
+    if (parent === current) break;
     current = parent;
   }
 }
@@ -2352,9 +2023,7 @@ function candidateDirsFromArgv1(argv1) {
   const candidates = [path.dirname(normalized)];
   try {
     const resolved = fs.realpathSync(normalized);
-    if (resolved !== normalized) {
-      candidates.push(path.dirname(resolved));
-    }
+    if (resolved !== normalized) candidates.push(path.dirname(resolved));
   } catch {}
   const parts = normalized.split(path.sep);
   const binIndex = parts.lastIndexOf(".bin");
@@ -2368,34 +2037,25 @@ function candidateDirsFromArgv1(argv1) {
 async function resolveOpenClawPackageRoot(opts) {
   for (const candidate of buildCandidates(opts)) {
     const found = await findPackageRoot(candidate);
-    if (found) {
-      return found;
-    }
+    if (found) return found;
   }
   return null;
 }
 function resolveOpenClawPackageRootSync(opts) {
   for (const candidate of buildCandidates(opts)) {
     const found = findPackageRootSync(candidate);
-    if (found) {
-      return found;
-    }
+    if (found) return found;
   }
   return null;
 }
 function buildCandidates(opts) {
   const candidates = [];
-  if (opts.moduleUrl) {
+  if (opts.moduleUrl)
     try {
       candidates.push(path.dirname(fileURLToPath(opts.moduleUrl)));
     } catch {}
-  }
-  if (opts.argv1) {
-    candidates.push(...candidateDirsFromArgv1(opts.argv1));
-  }
-  if (opts.cwd) {
-    candidates.push(opts.cwd);
-  }
+  if (opts.argv1) candidates.push(...candidateDirsFromArgv1(opts.argv1));
+  if (opts.cwd) candidates.push(opts.cwd);
   return candidates;
 }
 //#endregion
@@ -2407,12 +2067,8 @@ const FALLBACK_TEMPLATE_DIR = path.resolve(
 let cachedTemplateDir;
 let resolvingTemplateDir;
 async function resolveWorkspaceTemplateDir(opts) {
-  if (cachedTemplateDir) {
-    return cachedTemplateDir;
-  }
-  if (resolvingTemplateDir) {
-    return resolvingTemplateDir;
-  }
+  if (cachedTemplateDir) return cachedTemplateDir;
+  if (resolvingTemplateDir) return resolvingTemplateDir;
   resolvingTemplateDir = (async () => {
     const moduleUrl = opts?.moduleUrl ?? import.meta.url;
     const argv1 = opts?.argv1 ?? process.argv[1];
@@ -2427,12 +2083,11 @@ async function resolveWorkspaceTemplateDir(opts) {
       cwd ? path.resolve(cwd, "docs", "reference", "templates") : null,
       FALLBACK_TEMPLATE_DIR,
     ].filter(Boolean);
-    for (const candidate of candidates) {
+    for (const candidate of candidates)
       if (await pathExists$1(candidate)) {
         cachedTemplateDir = candidate;
         return candidate;
       }
-    }
     cachedTemplateDir = candidates[0] ?? FALLBACK_TEMPLATE_DIR;
     return cachedTemplateDir;
   })();
@@ -2447,9 +2102,8 @@ async function resolveWorkspaceTemplateDir(opts) {
 function resolveDefaultAgentWorkspaceDir(env = process.env, homedir = os.homedir) {
   const home = resolveRequiredHomeDir(env, homedir);
   const profile = env.OPENCLAW_PROFILE?.trim();
-  if (profile && profile.toLowerCase() !== "default") {
+  if (profile && profile.toLowerCase() !== "default")
     return path.join(home, ".openclaw", `workspace-${profile}`);
-  }
   return path.join(home, ".openclaw", "workspace");
 }
 const DEFAULT_AGENT_WORKSPACE_DIR = resolveDefaultAgentWorkspaceDir();
@@ -2514,13 +2168,9 @@ async function readWorkspaceFileWithGuards(params) {
   }
 }
 function stripFrontMatter(content) {
-  if (!content.startsWith("---")) {
-    return content;
-  }
+  if (!content.startsWith("---")) return content;
   const endIndex = content.indexOf("\n---", 3);
-  if (endIndex === -1) {
-    return content;
-  }
+  if (endIndex === -1) return content;
   const start = endIndex + 4;
   let trimmed = content.slice(start);
   trimmed = trimmed.replace(/^\s+/, "");
@@ -2528,9 +2178,7 @@ function stripFrontMatter(content) {
 }
 async function loadTemplate(name) {
   const cached = workspaceTemplateCache.get(name);
-  if (cached) {
-    return cached;
-  }
+  if (cached) return cached;
   const pending = (async () => {
     const templateDir = await resolveWorkspaceTemplateDir();
     const templatePath = path.join(templateDir, name);
@@ -2558,9 +2206,7 @@ async function writeFileIfMissing(filePath, content) {
     });
     return true;
   } catch (err) {
-    if (err.code !== "EEXIST") {
-      throw err;
-    }
+    if (err.code !== "EEXIST") throw err;
     return false;
   }
 }
@@ -2578,9 +2224,7 @@ function resolveWorkspaceStatePath(dir) {
 function parseWorkspaceOnboardingState(raw) {
   try {
     const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object") {
-      return null;
-    }
+    if (!parsed || typeof parsed !== "object") return null;
     return {
       version: WORKSPACE_STATE_VERSION,
       bootstrapSeededAt:
@@ -2600,9 +2244,7 @@ async function readWorkspaceOnboardingState(statePath) {
       }
     );
   } catch (err) {
-    if (err.code !== "ENOENT") {
-      throw err;
-    }
+    if (err.code !== "ENOENT") throw err;
     return { version: WORKSPACE_STATE_VERSION };
   }
 }
@@ -2627,9 +2269,7 @@ async function hasGitRepo(dir) {
   }
 }
 async function isGitAvailable() {
-  if (gitAvailabilityPromise) {
-    return gitAvailabilityPromise;
-  }
+  if (gitAvailabilityPromise) return gitAvailabilityPromise;
   gitAvailabilityPromise = (async () => {
     try {
       return (await runCommandWithTimeout(["git", "--version"], { timeoutMs: 2e3 })).code === 0;
@@ -2640,15 +2280,9 @@ async function isGitAvailable() {
   return gitAvailabilityPromise;
 }
 async function ensureGitRepo(dir, isBrandNewWorkspace) {
-  if (!isBrandNewWorkspace) {
-    return;
-  }
-  if (await hasGitRepo(dir)) {
-    return;
-  }
-  if (!(await isGitAvailable())) {
-    return;
-  }
+  if (!isBrandNewWorkspace) return;
+  if (await hasGitRepo(dir)) return;
+  if (!(await isGitAvailable())) return;
   try {
     await runCommandWithTimeout(["git", "init"], {
       cwd: dir,
@@ -2661,9 +2295,7 @@ async function ensureAgentWorkspace(params) {
     params?.dir?.trim() ? params.dir.trim() : DEFAULT_AGENT_WORKSPACE_DIR,
   );
   await fs$1.mkdir(dir, { recursive: true });
-  if (!params?.ensureBootstrapFiles) {
-    return { dir };
-  }
+  if (!params?.ensureBootstrapFiles) return { dir };
   const agentsPath = path.join(dir, DEFAULT_AGENTS_FILENAME);
   const soulPath = path.join(dir, DEFAULT_SOUL_FILENAME);
   const toolsPath = path.join(dir, DEFAULT_TOOLS_FILENAME);
@@ -2716,12 +2348,9 @@ async function ensureAgentWorkspace(params) {
   };
   const nowIso = () => /* @__PURE__ */ new Date().toISOString();
   let bootstrapExists = await fileExists(bootstrapPath);
-  if (!state.bootstrapSeededAt && bootstrapExists) {
-    markState({ bootstrapSeededAt: nowIso() });
-  }
-  if (!state.onboardingCompletedAt && state.bootstrapSeededAt && !bootstrapExists) {
+  if (!state.bootstrapSeededAt && bootstrapExists) markState({ bootstrapSeededAt: nowIso() });
+  if (!state.onboardingCompletedAt && state.bootstrapSeededAt && !bootstrapExists)
     markState({ onboardingCompletedAt: nowIso() });
-  }
   if (!state.bootstrapSeededAt && !state.onboardingCompletedAt && !bootstrapExists) {
     const [identityContent, userContent] = await Promise.all([
       fs$1.readFile(identityPath, "utf-8"),
@@ -2733,30 +2362,23 @@ async function ensureAgentWorkspace(params) {
         path.join(dir, DEFAULT_MEMORY_FILENAME),
         path.join(dir, ".git"),
       ];
-      for (const indicator of indicators) {
+      for (const indicator of indicators)
         try {
           await fs$1.access(indicator);
           return true;
         } catch {}
-      }
       return false;
     })();
-    if (identityContent !== identityTemplate || userContent !== userTemplate || hasUserContent) {
+    if (identityContent !== identityTemplate || userContent !== userTemplate || hasUserContent)
       markState({ onboardingCompletedAt: nowIso() });
-    } else {
-      if (!(await writeFileIfMissing(bootstrapPath, await loadTemplate("BOOTSTRAP.md")))) {
+    else {
+      if (!(await writeFileIfMissing(bootstrapPath, await loadTemplate("BOOTSTRAP.md"))))
         bootstrapExists = await fileExists(bootstrapPath);
-      } else {
-        bootstrapExists = true;
-      }
-      if (bootstrapExists && !state.bootstrapSeededAt) {
-        markState({ bootstrapSeededAt: nowIso() });
-      }
+      else bootstrapExists = true;
+      if (bootstrapExists && !state.bootstrapSeededAt) markState({ bootstrapSeededAt: nowIso() });
     }
   }
-  if (stateDirty) {
-    await writeWorkspaceOnboardingState(statePath, state);
-  }
+  if (stateDirty) await writeWorkspaceOnboardingState(statePath, state);
   await ensureGitRepo(dir, isBrandNewWorkspace);
   return {
     dir,
@@ -2782,9 +2404,7 @@ async function resolveMemoryBootstrapEntries(resolvedDir) {
       });
     } catch {}
   }
-  if (entries.length <= 1) {
-    return entries;
-  }
+  if (entries.length <= 1) return entries;
   const seen = /* @__PURE__ */ new Set();
   const deduped = [];
   for (const entry of entries) {
@@ -2792,9 +2412,7 @@ async function resolveMemoryBootstrapEntries(resolvedDir) {
     try {
       key = await fs$1.realpath(entry.filePath);
     } catch {}
-    if (seen.has(key)) {
-      continue;
-    }
+    if (seen.has(key)) continue;
     seen.add(key);
     deduped.push(entry);
   }
@@ -2839,20 +2457,19 @@ async function loadWorkspaceBootstrapFiles(dir) {
       filePath: entry.filePath,
       workspaceDir: resolvedDir,
     });
-    if (loaded.ok) {
+    if (loaded.ok)
       result.push({
         name: entry.name,
         path: entry.filePath,
         content: loaded.content,
         missing: false,
       });
-    } else {
+    else
       result.push({
         name: entry.name,
         path: entry.filePath,
         missing: true,
       });
-    }
   }
   return result;
 }
@@ -2864,9 +2481,8 @@ const MINIMAL_BOOTSTRAP_ALLOWLIST = new Set([
   DEFAULT_USER_FILENAME,
 ]);
 function filterBootstrapFilesForSession(files, sessionKey) {
-  if (!sessionKey || (!isSubagentSessionKey(sessionKey) && !isCronSessionKey(sessionKey))) {
+  if (!sessionKey || (!isSubagentSessionKey(sessionKey) && !isCronSessionKey(sessionKey)))
     return files;
-  }
   return files.filter((file) => MINIMAL_BOOTSTRAP_ALLOWLIST.has(file.name));
 }
 //#endregion
@@ -2879,23 +2495,17 @@ function stripNullBytes(s) {
 let defaultAgentWarned = false;
 function listAgentEntries(cfg) {
   const list = cfg.agents?.list;
-  if (!Array.isArray(list)) {
-    return [];
-  }
+  if (!Array.isArray(list)) return [];
   return list.filter((entry) => Boolean(entry && typeof entry === "object"));
 }
 function listAgentIds(cfg) {
   const agents = listAgentEntries(cfg);
-  if (agents.length === 0) {
-    return [DEFAULT_AGENT_ID];
-  }
+  if (agents.length === 0) return [DEFAULT_AGENT_ID];
   const seen = /* @__PURE__ */ new Set();
   const ids = [];
   for (const entry of agents) {
     const id = normalizeAgentId(entry?.id);
-    if (seen.has(id)) {
-      continue;
-    }
+    if (seen.has(id)) continue;
     seen.add(id);
     ids.push(id);
   }
@@ -2903,9 +2513,7 @@ function listAgentIds(cfg) {
 }
 function resolveDefaultAgentId(cfg) {
   const agents = listAgentEntries(cfg);
-  if (agents.length === 0) {
-    return DEFAULT_AGENT_ID;
-  }
+  if (agents.length === 0) return DEFAULT_AGENT_ID;
   const defaults = agents.filter((agent) => agent?.default);
   if (defaults.length > 1 && !defaultAgentWarned) {
     defaultAgentWarned = true;
@@ -2937,9 +2545,7 @@ function resolveAgentEntry(cfg, agentId) {
 }
 function resolveAgentConfig(cfg, agentId) {
   const entry = resolveAgentEntry(cfg, normalizeAgentId(agentId));
-  if (!entry) {
-    return;
-  }
+  if (!entry) return;
   return {
     name: typeof entry.name === "string" ? entry.name : void 0,
     workspace: typeof entry.workspace === "string" ? entry.workspace : void 0,
@@ -2963,16 +2569,10 @@ function resolveAgentSkillsFilter(cfg, agentId) {
   return normalizeSkillFilter(resolveAgentConfig(cfg, agentId)?.skills);
 }
 function resolveModelPrimary(raw) {
-  if (typeof raw === "string") {
-    return raw.trim() || void 0;
-  }
-  if (!raw || typeof raw !== "object") {
-    return;
-  }
+  if (typeof raw === "string") return raw.trim() || void 0;
+  if (!raw || typeof raw !== "object") return;
   const primary = raw.primary;
-  if (typeof primary !== "string") {
-    return;
-  }
+  if (typeof primary !== "string") return;
   return primary.trim() || void 0;
 }
 function resolveAgentExplicitModelPrimary(cfg, agentId) {
@@ -2987,25 +2587,17 @@ function resolveAgentEffectiveModelPrimary(cfg, agentId) {
 }
 function resolveAgentModelFallbacksOverride(cfg, agentId) {
   const raw = resolveAgentConfig(cfg, agentId)?.model;
-  if (!raw || typeof raw === "string") {
-    return;
-  }
-  if (!Object.hasOwn(raw, "fallbacks")) {
-    return;
-  }
+  if (!raw || typeof raw === "string") return;
+  if (!Object.hasOwn(raw, "fallbacks")) return;
   return Array.isArray(raw.fallbacks) ? raw.fallbacks : void 0;
 }
 function resolveFallbackAgentId(params) {
   const explicitAgentId = typeof params.agentId === "string" ? params.agentId.trim() : "";
-  if (explicitAgentId) {
-    return normalizeAgentId(explicitAgentId);
-  }
+  if (explicitAgentId) return normalizeAgentId(explicitAgentId);
   return resolveAgentIdFromSessionKey(params.sessionKey);
 }
 function resolveRunModelFallbacksOverride(params) {
-  if (!params.cfg) {
-    return;
-  }
+  if (!params.cfg) return;
   return resolveAgentModelFallbacksOverride(
     params.cfg,
     resolveFallbackAgentId({
@@ -3021,23 +2613,17 @@ function hasConfiguredModelFallbacks(params) {
 }
 function resolveEffectiveModelFallbacks(params) {
   const agentFallbacksOverride = resolveAgentModelFallbacksOverride(params.cfg, params.agentId);
-  if (!params.hasSessionModelOverride) {
-    return agentFallbacksOverride;
-  }
+  if (!params.hasSessionModelOverride) return agentFallbacksOverride;
   const defaultFallbacks = resolveAgentModelFallbackValues(params.cfg.agents?.defaults?.model);
   return agentFallbacksOverride ?? defaultFallbacks;
 }
 function resolveAgentWorkspaceDir(cfg, agentId) {
   const id = normalizeAgentId(agentId);
   const configured = resolveAgentConfig(cfg, id)?.workspace?.trim();
-  if (configured) {
-    return stripNullBytes(resolveUserPath(configured));
-  }
+  if (configured) return stripNullBytes(resolveUserPath(configured));
   if (id === resolveDefaultAgentId(cfg)) {
     const fallback = cfg.agents?.defaults?.workspace?.trim();
-    if (fallback) {
-      return stripNullBytes(resolveUserPath(fallback));
-    }
+    if (fallback) return stripNullBytes(resolveUserPath(fallback));
     return stripNullBytes(resolveDefaultAgentWorkspaceDir(process.env));
   }
   const stateDir = resolveStateDir(process.env);
@@ -3046,9 +2632,7 @@ function resolveAgentWorkspaceDir(cfg, agentId) {
 function resolveAgentDir(cfg, agentId) {
   const id = normalizeAgentId(agentId);
   const configured = resolveAgentConfig(cfg, id)?.agentDir?.trim();
-  if (configured) {
-    return resolveUserPath(configured);
-  }
+  if (configured) return resolveUserPath(configured);
   const root = resolveStateDir(process.env);
   return path.join(root, "agents", id, "agent");
 }
@@ -3057,13 +2641,12 @@ function resolveAgentDir(cfg, agentId) {
 async function runTasksWithConcurrency(params) {
   const { tasks, limit, onTaskError } = params;
   const errorMode = params.errorMode ?? "continue";
-  if (tasks.length === 0) {
+  if (tasks.length === 0)
     return {
       results: [],
       firstError: void 0,
       hasError: false,
     };
-  }
   const resolvedLimit = Math.max(1, Math.min(limit, tasks.length));
   const results = Array.from({ length: tasks.length });
   let next = 0;
@@ -3071,14 +2654,10 @@ async function runTasksWithConcurrency(params) {
   let hasError = false;
   const workers = Array.from({ length: resolvedLimit }, async () => {
     while (true) {
-      if (errorMode === "stop" && hasError) {
-        return;
-      }
+      if (errorMode === "stop" && hasError) return;
       const index = next;
       next += 1;
-      if (index >= tasks.length) {
-        return;
-      }
+      if (index >= tasks.length) return;
       try {
         results[index] = await tasks[index]();
       } catch (error) {
@@ -3087,9 +2666,7 @@ async function runTasksWithConcurrency(params) {
           hasError = true;
         }
         onTaskError?.(error, index);
-        if (errorMode === "stop") {
-          return;
-        }
+        if (errorMode === "stop") return;
       }
     }
   });
@@ -3117,15 +2694,11 @@ function createParseFrame() {
   };
 }
 function addLength(left, right) {
-  if (!Number.isFinite(left) || !Number.isFinite(right)) {
-    return Number.POSITIVE_INFINITY;
-  }
+  if (!Number.isFinite(left) || !Number.isFinite(right)) return Number.POSITIVE_INFINITY;
   return left + right;
 }
 function multiplyLength(length, factor) {
-  if (!Number.isFinite(length)) {
-    return factor === 0 ? 0 : Number.POSITIVE_INFINITY;
-  }
+  if (!Number.isFinite(length)) return factor === 0 ? 0 : Number.POSITIVE_INFINITY;
   return length * factor;
 }
 function recordAlternative(frame) {
@@ -3140,57 +2713,40 @@ function recordAlternative(frame) {
 function readQuantifier(source, index) {
   const ch = source[index];
   const consumed = source[index + 1] === "?" ? 2 : 1;
-  if (ch === "*") {
+  if (ch === "*")
     return {
       consumed,
       minRepeat: 0,
       maxRepeat: null,
     };
-  }
-  if (ch === "+") {
+  if (ch === "+")
     return {
       consumed,
       minRepeat: 1,
       maxRepeat: null,
     };
-  }
-  if (ch === "?") {
+  if (ch === "?")
     return {
       consumed,
       minRepeat: 0,
       maxRepeat: 1,
     };
-  }
-  if (ch !== "{") {
-    return null;
-  }
+  if (ch !== "{") return null;
   let i = index + 1;
-  while (i < source.length && /\d/.test(source[i])) {
-    i += 1;
-  }
-  if (i === index + 1) {
-    return null;
-  }
+  while (i < source.length && /\d/.test(source[i])) i += 1;
+  if (i === index + 1) return null;
   const minRepeat = Number.parseInt(source.slice(index + 1, i), 10);
   let maxRepeat = minRepeat;
   if (source[i] === ",") {
     i += 1;
     const maxStart = i;
-    while (i < source.length && /\d/.test(source[i])) {
-      i += 1;
-    }
+    while (i < source.length && /\d/.test(source[i])) i += 1;
     maxRepeat = i === maxStart ? null : Number.parseInt(source.slice(maxStart, i), 10);
   }
-  if (source[i] !== "}") {
-    return null;
-  }
+  if (source[i] !== "}") return null;
   i += 1;
-  if (source[i] === "?") {
-    i += 1;
-  }
-  if (maxRepeat !== null && maxRepeat < minRepeat) {
-    return null;
-  }
+  if (source[i] === "?") i += 1;
+  if (maxRepeat !== null && maxRepeat < minRepeat) return null;
   return {
     consumed: i - index,
     minRepeat,
@@ -3208,9 +2764,7 @@ function tokenizePattern(source) {
       continue;
     }
     if (inCharClass) {
-      if (ch === "]") {
-        inCharClass = false;
-      }
+      if (ch === "]") inCharClass = false;
       continue;
     }
     if (ch === "[") {
@@ -3248,9 +2802,7 @@ function analyzeTokensForNestedRepetition(tokens) {
   const emitToken = (token) => {
     const frame = frames[frames.length - 1];
     frame.lastToken = token;
-    if (token.containsRepetition) {
-      frame.containsRepetition = true;
-    }
+    if (token.containsRepetition) frame.containsRepetition = true;
     frame.branchMinLength = addLength(frame.branchMinLength, token.minLength);
     frame.branchMaxLength = addLength(frame.branchMaxLength, token.maxLength);
   };
@@ -3274,9 +2826,7 @@ function analyzeTokensForNestedRepetition(tokens) {
     if (token.kind === "group-close") {
       if (frames.length > 1) {
         const frame = frames.pop();
-        if (frame.hasAlternation) {
-          recordAlternative(frame);
-        }
+        if (frame.hasAlternation) recordAlternative(frame);
         const groupMinLength = frame.hasAlternation
           ? (frame.altMinLength ?? 0)
           : frame.branchMinLength;
@@ -3307,15 +2857,9 @@ function analyzeTokensForNestedRepetition(tokens) {
     }
     const frame = frames[frames.length - 1];
     const previousToken = frame.lastToken;
-    if (!previousToken) {
-      continue;
-    }
-    if (previousToken.containsRepetition) {
-      return true;
-    }
-    if (previousToken.hasAmbiguousAlternation && token.quantifier.maxRepeat === null) {
-      return true;
-    }
+    if (!previousToken) continue;
+    if (previousToken.containsRepetition) return true;
+    if (previousToken.hasAmbiguousAlternation && token.quantifier.maxRepeat === null) return true;
     const previousMinLength = previousToken.minLength;
     const previousMaxLength = previousToken.maxLength;
     previousToken.minLength = multiplyLength(previousToken.minLength, token.quantifier.minRepeat);
@@ -3340,15 +2884,9 @@ function testRegexFromStart(regex, value) {
   return regex.test(value);
 }
 function testRegexWithBoundedInput(regex, input, maxWindow = SAFE_REGEX_TEST_WINDOW) {
-  if (maxWindow <= 0) {
-    return false;
-  }
-  if (input.length <= maxWindow) {
-    return testRegexFromStart(regex, input);
-  }
-  if (testRegexFromStart(regex, input.slice(0, maxWindow))) {
-    return true;
-  }
+  if (maxWindow <= 0) return false;
+  if (input.length <= maxWindow) return testRegexFromStart(regex, input);
+  if (testRegexFromStart(regex, input.slice(0, maxWindow))) return true;
   return testRegexFromStart(regex, input.slice(-maxWindow));
 }
 function hasNestedRepetition(source) {
@@ -3356,40 +2894,31 @@ function hasNestedRepetition(source) {
 }
 function compileSafeRegex(source, flags = "") {
   const trimmed = source.trim();
-  if (!trimmed) {
-    return null;
-  }
+  if (!trimmed) return null;
   const cacheKey = `${flags}::${trimmed}`;
-  if (safeRegexCache.has(cacheKey)) {
-    return safeRegexCache.get(cacheKey) ?? null;
-  }
+  if (safeRegexCache.has(cacheKey)) return safeRegexCache.get(cacheKey) ?? null;
   let compiled = null;
-  if (!hasNestedRepetition(trimmed)) {
+  if (!hasNestedRepetition(trimmed))
     try {
       compiled = new RegExp(trimmed, flags);
     } catch {
       compiled = null;
     }
-  }
   safeRegexCache.set(cacheKey, compiled);
   if (safeRegexCache.size > SAFE_REGEX_CACHE_MAX) {
     const oldestKey = safeRegexCache.keys().next().value;
-    if (oldestKey) {
-      safeRegexCache.delete(oldestKey);
-    }
+    if (oldestKey) safeRegexCache.delete(oldestKey);
   }
   return compiled;
 }
 function replacePatternBounded(text, pattern, replacer, options) {
   const chunkThreshold = options?.chunkThreshold ?? 32768;
   const chunkSize = options?.chunkSize ?? 16384;
-  if (chunkThreshold <= 0 || chunkSize <= 0 || text.length <= chunkThreshold) {
+  if (chunkThreshold <= 0 || chunkSize <= 0 || text.length <= chunkThreshold)
     return text.replace(pattern, replacer);
-  }
   let output = "";
-  for (let index = 0; index < text.length; index += chunkSize) {
+  for (let index = 0; index < text.length; index += chunkSize)
     output += text.slice(index, index + chunkSize).replace(pattern, replacer);
-  }
   return output;
 }
 //#endregion
@@ -3422,9 +2951,7 @@ function normalizeMode(value) {
   return value === "off" ? "off" : DEFAULT_REDACT_MODE;
 }
 function parsePattern(raw) {
-  if (!raw.trim()) {
-    return null;
-  }
+  if (!raw.trim()) return null;
   const match = raw.match(/^\/(.+)\/([gimsuy]*)$/);
   if (match) {
     const flags = match[2].includes("g") ? match[2] : `${match[2]}g`;
@@ -3438,37 +2965,28 @@ function resolvePatterns(value) {
     .filter((re) => Boolean(re));
 }
 function maskToken(token) {
-  if (token.length < DEFAULT_REDACT_MIN_LENGTH) {
-    return "***";
-  }
+  if (token.length < DEFAULT_REDACT_MIN_LENGTH) return "***";
   return `${token.slice(0, DEFAULT_REDACT_KEEP_START)}…${token.slice(-DEFAULT_REDACT_KEEP_END)}`;
 }
 function redactPemBlock(block) {
   const lines = block.split(/\r?\n/).filter(Boolean);
-  if (lines.length < 2) {
-    return "***";
-  }
+  if (lines.length < 2) return "***";
   return `${lines[0]}\n…redacted…\n${lines[lines.length - 1]}`;
 }
 function redactMatch(match, groups) {
-  if (match.includes("PRIVATE KEY-----")) {
-    return redactPemBlock(match);
-  }
+  if (match.includes("PRIVATE KEY-----")) return redactPemBlock(match);
   const token =
     groups.filter((value) => typeof value === "string" && value.length > 0).at(-1) ?? match;
   const masked = maskToken(token);
-  if (token === match) {
-    return masked;
-  }
+  if (token === match) return masked;
   return match.replace(token, masked);
 }
 function redactText(text, patterns) {
   let next = text;
-  for (const pattern of patterns) {
+  for (const pattern of patterns)
     next = replacePatternBounded(next, pattern, (...args) =>
       redactMatch(args[0], args.slice(1, args.length - 2)),
     );
-  }
   return next;
 }
 function resolveConfigRedaction() {
@@ -3484,24 +3002,16 @@ function resolveConfigRedaction() {
   };
 }
 function redactSensitiveText(text, options) {
-  if (!text) {
-    return text;
-  }
+  if (!text) return text;
   const resolved = options ?? resolveConfigRedaction();
-  if (normalizeMode(resolved.mode) === "off") {
-    return text;
-  }
+  if (normalizeMode(resolved.mode) === "off") return text;
   const patterns = resolvePatterns(resolved.patterns);
-  if (!patterns.length) {
-    return text;
-  }
+  if (!patterns.length) return text;
   return redactText(text, patterns);
 }
 function redactToolDetail(detail) {
   const resolved = resolveConfigRedaction();
-  if (normalizeMode(resolved.mode) !== "tools") {
-    return detail;
-  }
+  if (normalizeMode(resolved.mode) !== "tools") return detail;
   return redactSensitiveText(detail, resolved);
 }
 function getDefaultRedactPatterns() {
@@ -3517,9 +3027,7 @@ function isFilePath(candidate) {
   }
 }
 function resolveWindowsExecutablePath(command, env) {
-  if (command.includes("/") || command.includes("\\") || path.isAbsolute(command)) {
-    return command;
-  }
+  if (command.includes("/") || command.includes("\\") || path.isAbsolute(command)) return command;
   const pathEntries = (env.PATH ?? env.Path ?? process.env.PATH ?? process.env.Path ?? "")
     .split(";")
     .map((entry) => entry.trim())
@@ -3538,32 +3046,25 @@ function resolveWindowsExecutablePath(command, env) {
         .map((ext) => ext.trim())
         .filter(Boolean)
         .map((ext) => (ext.startsWith(".") ? ext : `.${ext}`));
-  for (const dir of pathEntries) {
+  for (const dir of pathEntries)
     for (const ext of pathExt)
       for (const candidateExt of [ext, ext.toLowerCase(), ext.toUpperCase()]) {
         const candidate = path.join(dir, `${command}${candidateExt}`);
         if (isFilePath(candidate)) return candidate;
       }
-  }
   return command;
 }
 function resolveEntrypointFromCmdShim(wrapperPath) {
-  if (!isFilePath(wrapperPath)) {
-    return null;
-  }
+  if (!isFilePath(wrapperPath)) return null;
   try {
     const content = readFileSync(wrapperPath, "utf8");
     const candidates = [];
     for (const match of content.matchAll(/"([^"\r\n]*)"/g)) {
       const relative = (match[1] ?? "").match(/%~?dp0%?\s*[\\/]*(.*)$/i)?.[1]?.trim();
-      if (!relative) {
-        continue;
-      }
+      if (!relative) continue;
       const normalizedRelative = relative.replace(/[\\/]+/g, path.sep).replace(/^[\\/]+/, "");
       const candidate = path.resolve(path.dirname(wrapperPath), normalizedRelative);
-      if (isFilePath(candidate)) {
-        candidates.push(candidate);
-      }
+      if (isFilePath(candidate)) candidates.push(candidate);
     }
     return (
       candidates.find((candidate) => {
@@ -3576,27 +3077,18 @@ function resolveEntrypointFromCmdShim(wrapperPath) {
   }
 }
 function resolveBinEntry(packageName, binField) {
-  if (typeof binField === "string") {
-    return binField.trim() || null;
-  }
-  if (!binField || typeof binField !== "object") {
-    return null;
-  }
+  if (typeof binField === "string") return binField.trim() || null;
+  if (!binField || typeof binField !== "object") return null;
   if (packageName) {
     const preferred = binField[packageName];
-    if (typeof preferred === "string" && preferred.trim()) {
-      return preferred.trim();
-    }
+    if (typeof preferred === "string" && preferred.trim()) return preferred.trim();
   }
-  for (const value of Object.values(binField)) {
+  for (const value of Object.values(binField))
     if (typeof value === "string" && value.trim()) return value.trim();
-  }
   return null;
 }
 function resolveEntrypointFromPackageJson(wrapperPath, packageName) {
-  if (!packageName) {
-    return null;
-  }
+  if (!packageName) return null;
   const wrapperDir = path.dirname(wrapperPath);
   const packageDirs = [
     path.resolve(wrapperDir, "..", packageName),
@@ -3604,21 +3096,15 @@ function resolveEntrypointFromPackageJson(wrapperPath, packageName) {
   ];
   for (const packageDir of packageDirs) {
     const packageJsonPath = path.join(packageDir, "package.json");
-    if (!isFilePath(packageJsonPath)) {
-      continue;
-    }
+    if (!isFilePath(packageJsonPath)) continue;
     try {
       const entryRel = resolveBinEntry(
         packageName,
         JSON.parse(readFileSync(packageJsonPath, "utf8")).bin,
       );
-      if (!entryRel) {
-        continue;
-      }
+      if (!entryRel) continue;
       const entryPath = path.resolve(packageDir, entryRel);
-      if (isFilePath(entryPath)) {
-        return entryPath;
-      }
+      if (isFilePath(entryPath)) return entryPath;
     } catch {}
   }
   return null;
@@ -3627,36 +3113,33 @@ function resolveWindowsSpawnProgramCandidate(params) {
   const platform = params.platform ?? process.platform;
   const env = params.env ?? process.env;
   const execPath = params.execPath ?? process.execPath;
-  if (platform !== "win32") {
+  if (platform !== "win32")
     return {
       command: params.command,
       leadingArgv: [],
       resolution: "direct",
     };
-  }
   const resolvedCommand = resolveWindowsExecutablePath(params.command, env);
   const ext = path.extname(resolvedCommand).toLowerCase();
-  if (ext === ".js" || ext === ".cjs" || ext === ".mjs") {
+  if (ext === ".js" || ext === ".cjs" || ext === ".mjs")
     return {
       command: execPath,
       leadingArgv: [resolvedCommand],
       resolution: "node-entrypoint",
       windowsHide: true,
     };
-  }
   if (ext === ".cmd" || ext === ".bat") {
     const entrypoint =
       resolveEntrypointFromCmdShim(resolvedCommand) ??
       resolveEntrypointFromPackageJson(resolvedCommand, params.packageName);
     if (entrypoint) {
-      if (path.extname(entrypoint).toLowerCase() === ".exe") {
+      if (path.extname(entrypoint).toLowerCase() === ".exe")
         return {
           command: entrypoint,
           leadingArgv: [],
           resolution: "exe-entrypoint",
           windowsHide: true,
         };
-      }
       return {
         command: execPath,
         leadingArgv: [entrypoint],
@@ -3677,22 +3160,20 @@ function resolveWindowsSpawnProgramCandidate(params) {
   };
 }
 function applyWindowsSpawnProgramPolicy(params) {
-  if (params.candidate.resolution !== "unresolved-wrapper") {
+  if (params.candidate.resolution !== "unresolved-wrapper")
     return {
       command: params.candidate.command,
       leadingArgv: params.candidate.leadingArgv,
       resolution: params.candidate.resolution,
       windowsHide: params.candidate.windowsHide,
     };
-  }
-  if (params.allowShellFallback !== false) {
+  if (params.allowShellFallback !== false)
     return {
       command: params.candidate.command,
       leadingArgv: [],
       resolution: "shell-fallback",
       shell: true,
     };
-  }
   throw new Error(
     `${path.basename(params.candidate.command)} wrapper resolved, but no executable/Node entrypoint could be resolved without shell execution.`,
   );
@@ -3746,23 +3227,17 @@ function resolveSessionFilePathOptions(params) {
         }
       : { sessionsDir };
   }
-  if (agentId) {
-    return { agentId };
-  }
+  if (agentId) return { agentId };
 }
 const SAFE_SESSION_ID_RE = /^[a-z0-9][a-z0-9._-]{0,127}$/i;
 function validateSessionId(sessionId) {
   const trimmed = sessionId.trim();
-  if (!SAFE_SESSION_ID_RE.test(trimmed)) {
-    throw new Error(`Invalid session ID: ${sessionId}`);
-  }
+  if (!SAFE_SESSION_ID_RE.test(trimmed)) throw new Error(`Invalid session ID: ${sessionId}`);
   return trimmed;
 }
 function resolveSessionsDir(opts) {
   const sessionsDir = opts?.sessionsDir?.trim();
-  if (sessionsDir) {
-    return path.resolve(sessionsDir);
-  }
+  if (sessionsDir) return path.resolve(sessionsDir);
   return resolveAgentSessionsDir(opts?.agentId);
 }
 function resolvePathFromAgentSessionsDir(agentSessionsDir, candidateAbsPath) {
@@ -3770,30 +3245,22 @@ function resolvePathFromAgentSessionsDir(agentSessionsDir, candidateAbsPath) {
     safeRealpathSync(path.resolve(agentSessionsDir)) ?? path.resolve(agentSessionsDir);
   const realCandidate = safeRealpathSync(candidateAbsPath) ?? candidateAbsPath;
   const relative = path.relative(agentBase, realCandidate);
-  if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) {
-    return;
-  }
+  if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) return;
   return path.resolve(agentBase, relative);
 }
 function resolveSiblingAgentSessionsDir(baseSessionsDir, agentId) {
   const resolvedBase = path.resolve(baseSessionsDir);
-  if (path.basename(resolvedBase) !== "sessions") {
-    return;
-  }
+  if (path.basename(resolvedBase) !== "sessions") return;
   const baseAgentDir = path.dirname(resolvedBase);
   const baseAgentsDir = path.dirname(baseAgentDir);
-  if (path.basename(baseAgentsDir) !== "agents") {
-    return;
-  }
+  if (path.basename(baseAgentsDir) !== "agents") return;
   const rootDir = path.dirname(baseAgentsDir);
   return path.join(rootDir, "agents", normalizeAgentId(agentId), "sessions");
 }
 function resolveAgentSessionsPathParts(candidateAbsPath) {
   const parts = path.normalize(path.resolve(candidateAbsPath)).split(path.sep).filter(Boolean);
   const sessionsIndex = parts.lastIndexOf("sessions");
-  if (sessionsIndex < 2 || parts[sessionsIndex - 2] !== "agents") {
-    return null;
-  }
+  if (sessionsIndex < 2 || parts[sessionsIndex - 2] !== "agents") return null;
   return {
     parts,
     sessionsIndex,
@@ -3801,37 +3268,23 @@ function resolveAgentSessionsPathParts(candidateAbsPath) {
 }
 function extractAgentIdFromAbsoluteSessionPath(candidateAbsPath) {
   const parsed = resolveAgentSessionsPathParts(candidateAbsPath);
-  if (!parsed) {
-    return;
-  }
+  if (!parsed) return;
   const { parts, sessionsIndex } = parsed;
   return parts[sessionsIndex - 1] || void 0;
 }
 function resolveStructuralSessionFallbackPath(candidateAbsPath, expectedAgentId) {
   const parsed = resolveAgentSessionsPathParts(candidateAbsPath);
-  if (!parsed) {
-    return;
-  }
+  if (!parsed) return;
   const { parts, sessionsIndex } = parsed;
   const agentIdPart = parts[sessionsIndex - 1];
-  if (!agentIdPart) {
-    return;
-  }
+  if (!agentIdPart) return;
   const normalizedAgentId = normalizeAgentId(agentIdPart);
-  if (normalizedAgentId !== agentIdPart.toLowerCase()) {
-    return;
-  }
-  if (normalizedAgentId !== normalizeAgentId(expectedAgentId)) {
-    return;
-  }
+  if (normalizedAgentId !== agentIdPart.toLowerCase()) return;
+  if (normalizedAgentId !== normalizeAgentId(expectedAgentId)) return;
   const relativeSegments = parts.slice(sessionsIndex + 1);
-  if (relativeSegments.length !== 1) {
-    return;
-  }
+  if (relativeSegments.length !== 1) return;
   const fileName = relativeSegments[0];
-  if (!fileName || fileName === "." || fileName === "..") {
-    return;
-  }
+  if (!fileName || fileName === "." || fileName === "..") return;
   return path.normalize(path.resolve(candidateAbsPath));
 }
 function safeRealpathSync(filePath) {
@@ -3843,9 +3296,7 @@ function safeRealpathSync(filePath) {
 }
 function resolvePathWithinSessionsDir(sessionsDir, candidate, opts) {
   const trimmed = candidate.trim();
-  if (!trimmed) {
-    throw new Error("Session file path must not be empty");
-  }
+  if (!trimmed) throw new Error("Session file path must not be empty");
   const resolvedBase = path.resolve(sessionsDir);
   const realBase = safeRealpathSync(resolvedBase) ?? resolvedBase;
   const realTrimmed = path.isAbsolute(trimmed) ? (safeRealpathSync(trimmed) ?? trimmed) : trimmed;
@@ -3858,9 +3309,7 @@ function resolvePathWithinSessionsDir(sessionsDir, candidate, opts) {
       const siblingSessionsDir = resolveSiblingAgentSessionsDir(realBase, normalizedAgentId);
       if (siblingSessionsDir) {
         const siblingResolved = resolvePathFromAgentSessionsDir(siblingSessionsDir, realTrimmed);
-        if (siblingResolved) {
-          return siblingResolved;
-        }
+        if (siblingResolved) return siblingResolved;
       }
       return resolvePathFromAgentSessionsDir(
         resolveAgentSessionsDir(normalizedAgentId),
@@ -3870,28 +3319,21 @@ function resolvePathWithinSessionsDir(sessionsDir, candidate, opts) {
     const explicitAgentId = opts?.agentId?.trim();
     if (explicitAgentId) {
       const resolvedFromAgent = tryAgentFallback(explicitAgentId);
-      if (resolvedFromAgent) {
-        return resolvedFromAgent;
-      }
+      if (resolvedFromAgent) return resolvedFromAgent;
     }
     const extractedAgentId = extractAgentIdFromAbsoluteSessionPath(realTrimmed);
     if (extractedAgentId) {
       const resolvedFromPath = tryAgentFallback(extractedAgentId);
-      if (resolvedFromPath) {
-        return resolvedFromPath;
-      }
+      if (resolvedFromPath) return resolvedFromPath;
       const structuralFallback = resolveStructuralSessionFallbackPath(
         realTrimmed,
         extractedAgentId,
       );
-      if (structuralFallback) {
-        return structuralFallback;
-      }
+      if (structuralFallback) return structuralFallback;
     }
   }
-  if (!normalized || normalized.startsWith("..") || path.isAbsolute(normalized)) {
+  if (!normalized || normalized.startsWith("..") || path.isAbsolute(normalized))
     throw new Error("Session file path must be within sessions directory");
-  }
   return path.resolve(realBase, normalized);
 }
 function resolveSessionTranscriptPathInDir(sessionId, sessionsDir, topicId) {
@@ -3915,21 +3357,18 @@ function resolveSessionTranscriptPath(sessionId, agentId, topicId) {
 function resolveSessionFilePath(sessionId, entry, opts) {
   const sessionsDir = resolveSessionsDir(opts);
   const candidate = entry?.sessionFile?.trim();
-  if (candidate) {
+  if (candidate)
     try {
       return resolvePathWithinSessionsDir(sessionsDir, candidate, { agentId: opts?.agentId });
     } catch {}
-  }
   return resolveSessionTranscriptPathInDir(sessionId, sessionsDir);
 }
 function resolveStorePath(store, opts) {
   const agentId = normalizeAgentId(opts?.agentId ?? "main");
-  if (!store) {
-    return resolveDefaultSessionStorePath(agentId);
-  }
+  if (!store) return resolveDefaultSessionStorePath(agentId);
   if (store.includes("{agentId}")) {
     const expanded = store.replaceAll("{agentId}", agentId);
-    if (expanded.startsWith("~")) {
+    if (expanded.startsWith("~"))
       return path.resolve(
         expandHomePrefix(expanded, {
           home: resolveRequiredHomeDir(process.env, os.homedir),
@@ -3937,10 +3376,9 @@ function resolveStorePath(store, opts) {
           homedir: os.homedir,
         }),
       );
-    }
     return path.resolve(expanded);
   }
-  if (store.startsWith("~")) {
+  if (store.startsWith("~"))
     return path.resolve(
       expandHomePrefix(store, {
         home: resolveRequiredHomeDir(process.env, os.homedir),
@@ -3948,7 +3386,6 @@ function resolveStorePath(store, opts) {
         homedir: os.homedir,
       }),
     );
-  }
   return path.resolve(store);
 }
 //#endregion
