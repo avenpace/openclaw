@@ -60,7 +60,11 @@ export type {
 
 function extractScriptTargetFromCommand(
   command: string,
-): { kind: "python"; relOrAbsPath: string } | { kind: "node"; relOrAbsPath: string } | null {
+):
+  | { kind: "python"; relOrAbsPath: string }
+  | { kind: "node"; relOrAbsPath: string }
+  | { kind: "php"; relOrAbsPath: string }
+  | null {
   const raw = command.trim();
   if (!raw) {
     return null;
@@ -70,6 +74,8 @@ function extractScriptTargetFromCommand(
   //   python file.py
   //   python3 -u file.py
   //   node --experimental-something file.js
+  //   php file.php
+  //   php -f file.php
   // If the command is more complex (pipes, heredocs, quoted paths with spaces), skip preflight.
   const pythonMatch = raw.match(/^\s*(python3?|python)\s+(?:-[^\s]+\s+)*([^\s]+\.py)\b/i);
   if (pythonMatch?.[2]) {
@@ -78,6 +84,11 @@ function extractScriptTargetFromCommand(
   const nodeMatch = raw.match(/^\s*(node)\s+(?:--[^\s]+\s+)*([^\s]+\.js)\b/i);
   if (nodeMatch?.[2]) {
     return { kind: "node", relOrAbsPath: nodeMatch[2] };
+  }
+  // PHP: match php script.php or php -f script.php
+  const phpMatch = raw.match(/^\s*php\s+(?:-[^\s]+\s+)*([^\s]+\.php)\b/i);
+  if (phpMatch?.[1]) {
+    return { kind: "php", relOrAbsPath: phpMatch[1] };
   }
 
   return null;
@@ -117,8 +128,9 @@ async function validateScriptFileForShellBleed(params: {
 
   const content = await fs.readFile(absPath, "utf-8");
 
-  // Common failure mode: shell env var syntax leaking into Python/JS.
+  // Common failure mode: shell env var syntax leaking into Python/JS/PHP.
   // We deliberately match all-caps/underscore vars to avoid false positives with `$` as a JS identifier.
+  // For PHP, $VAR syntax is valid but shell-style $ENV_VAR should use getenv().
   const envVarRegex = /\$[A-Z_][A-Z0-9_]{1,}/g;
   const first = envVarRegex.exec(content);
   if (first) {
@@ -126,17 +138,40 @@ async function validateScriptFileForShellBleed(params: {
     const before = content.slice(0, idx);
     const line = before.split("\n").length;
     const token = first[0];
-    throw new Error(
-      [
-        `exec preflight: detected likely shell variable injection (${token}) in ${target.kind} script: ${path.basename(
-          absPath,
-        )}:${line}.`,
+
+    // For PHP, only flag if it looks like shell injection (not inside quotes/strings)
+    // This is a heuristic - $HOME, $PATH, etc. are likely shell vars
+    const shellEnvVars = new Set([
+      "$HOME",
+      "$PATH",
+      "$USER",
+      "$PWD",
+      "$SHELL",
+      "$TERM",
+      "$LANG",
+      "$LC_ALL",
+    ]);
+    const isProbablyShellVar =
+      shellEnvVars.has(token) || token.startsWith("$OPENCLAW") || token.startsWith("$API");
+
+    if (target.kind !== "php" || isProbablyShellVar) {
+      const hint =
         target.kind === "python"
           ? `In Python, use os.environ.get(${JSON.stringify(token.slice(1))}) instead of raw ${token}.`
-          : `In Node.js, use process.env[${JSON.stringify(token.slice(1))}] instead of raw ${token}.`,
-        "(If this is inside a string literal on purpose, escape it or restructure the code.)",
-      ].join("\n"),
-    );
+          : target.kind === "node"
+            ? `In Node.js, use process.env[${JSON.stringify(token.slice(1))}] instead of raw ${token}.`
+            : `In PHP, use getenv(${JSON.stringify(token.slice(1))}) or $_ENV[${JSON.stringify(token.slice(1))}] instead of raw ${token}.`;
+
+      throw new Error(
+        [
+          `exec preflight: detected likely shell variable injection (${token}) in ${target.kind} script: ${path.basename(
+            absPath,
+          )}:${line}.`,
+          hint,
+          "(If this is inside a string literal on purpose, escape it or restructure the code.)",
+        ].join("\n"),
+      );
+    }
   }
 
   // Another recurring pattern from the issue: shell commands accidentally emitted as JS.
@@ -149,6 +184,25 @@ async function validateScriptFileForShellBleed(params: {
       throw new Error(
         `exec preflight: JS file starts with shell syntax (${firstNonEmpty}). ` +
           `This looks like a shell command, not JavaScript.`,
+      );
+    }
+  }
+
+  // PHP: check for shell command syntax at the start of file
+  if (target.kind === "php") {
+    const firstNonEmpty = content
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .find((l) => l.length > 0);
+    // PHP files should start with <?php, not shell commands
+    if (
+      firstNonEmpty &&
+      !firstNonEmpty.startsWith("<?") &&
+      /^(php|bash|sh)\b/i.test(firstNonEmpty)
+    ) {
+      throw new Error(
+        `exec preflight: PHP file starts with shell syntax (${firstNonEmpty}). ` +
+          `This looks like a shell command, not PHP. PHP files should start with <?php`,
       );
     }
   }
@@ -246,6 +300,9 @@ export function createExecTool(
         "googlechat",
         "webchat",
         "zalo",
+        // Platform internal channels - also use safe-bin routing
+        "marketplace",
+        "internal",
       ]);
       const isExternalChannel = EXTERNAL_CHANNEL_PROVIDERS.has(messageProvider ?? "");
       const execProxy = defaults?.proxy;
@@ -318,12 +375,34 @@ export function createExecTool(
         // WORKSPACE PATH VALIDATION for file operation commands
         // Prevent access outside the agent's workspace directory
         const workspaceRoot = defaults?.cwd || process.cwd();
+
+        // Resolve effective workdir - this is where the command will actually run
+        // and where relative paths should be resolved from
+        const effectiveWorkdir = params.workdir?.trim() || workspaceRoot;
+        const resolvedWorkdir = path.resolve(effectiveWorkdir);
+        const normalizedWorkspaceRoot = path.resolve(workspaceRoot);
+
+        // Security: Verify the workdir is within the workspace root
+        // This prevents escaping workspace via workdir parameter
+        if (
+          !resolvedWorkdir.startsWith(normalizedWorkspaceRoot + path.sep) &&
+          resolvedWorkdir !== normalizedWorkspaceRoot
+        ) {
+          console.log(`[Security] Blocked workdir outside workspace: ${effectiveWorkdir}`);
+          throw new Error(
+            `Working directory "${effectiveWorkdir}" is outside your workspace. ` +
+              `File operations are restricted to your workspace directory.`,
+          );
+        }
+
+        // Validate paths relative to the effective workdir (where command runs)
+        // This allows relative paths like "tests/run.php" when workdir is the website directory
         for (const segment of analysis.segments) {
           const execName = segment.resolution?.executableName?.toLowerCase() ?? "";
           if (WORKSPACE_RESTRICTED_BINS.has(execName)) {
             const pathValidation = validateWorkspacePaths({
               argv: segment.argv,
-              workspaceRoot,
+              workspaceRoot: resolvedWorkdir,
             });
             if (!pathValidation.ok) {
               console.log(
