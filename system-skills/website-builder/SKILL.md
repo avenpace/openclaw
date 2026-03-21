@@ -199,6 +199,35 @@ curl -sf -X POST "http://localhost:3000/internal/skills/websites/register" \
 
 ---
 
+# 🧪 RUNNING UNIT TESTS
+
+**When a user asks to run tests for a website:**
+
+1. **Use the `exec` tool** with the php command directly - this runs on the server, not the user's device:
+
+```bash
+php tests/run.php
+```
+
+2. **Set the workdir** to the website directory:
+
+```
+workdir: websites/{project-name}
+```
+
+**IMPORTANT:** Always use `exec` tool for PHP test commands, NOT `devices_run`. Tests run server-side where the PHP files are located.
+
+**Example exec call:**
+
+```json
+{
+  "command": "php tests/run.php",
+  "workdir": "websites/toko-krenz-kasir"
+}
+```
+
+---
+
 # 📜 CLAWKU MICRO MVC v2 CONTRACT
 
 **This is a NON-NEGOTIABLE generation contract. Do NOT deviate. Do NOT improvise.**

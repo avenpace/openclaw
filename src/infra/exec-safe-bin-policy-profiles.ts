@@ -214,6 +214,47 @@ export const SAFE_BIN_PROFILE_FIXTURES: Record<string, SafeBinProfileFixture> = 
     maxPositional: 0,
     deniedFlags: ["--files0-from"],
   },
+  // PHP for server-side script execution (website-builder tests).
+  // Script path must be validated separately via WORKSPACE_RESTRICTED_BINS.
+  php: {
+    // Require exactly 1 positional: the script file path
+    minPositional: 1,
+    maxPositional: 1,
+    // Allow safe flags that don't enable arbitrary code execution
+    allowedValueFlags: [
+      "-f", // explicit script file (same as positional)
+    ],
+    // Block dangerous flags that could execute arbitrary code or bypass security
+    deniedFlags: [
+      "-r", // run inline code
+      "--run",
+      "-a", // interactive mode
+      "--interactive",
+      "-B", // code to run BEFORE each file
+      "--process-begin",
+      "-R", // code to run for each input line
+      "--process-code",
+      "-F", // PHP file to run for each input line
+      "--process-file",
+      "-E", // code to run AFTER each line
+      "--process-end",
+      "-c", // custom config file path
+      "-d", // set ini directive (could override disable_functions)
+      "-n", // no config file (bypasses restrictions)
+      "--no-php-ini",
+      "-i", // phpinfo (info disclosure)
+      "--info",
+      "-l", // lint only (not useful for test execution)
+      "--syntax-check",
+      "-s", // display source with syntax highlighting
+      "--syntax-highlight",
+      "-w", // show source without comments
+      "--strip",
+      "-S", // built-in web server (starts a server)
+      "-t", // document root (for built-in server)
+      "-H", // hide script name (for CGI)
+    ],
+  },
 };
 
 export const SAFE_BIN_PROFILES: Record<string, SafeBinProfile> =
