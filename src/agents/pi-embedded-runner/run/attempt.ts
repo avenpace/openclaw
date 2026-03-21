@@ -859,6 +859,8 @@ export async function runEmbeddedAttempt(
           exec: {
             ...params.execOverrides,
             elevated: params.bashElevated,
+            // Platform: pass installed skill count for exec gating on external channels
+            installedSkillCount: params.installedSkillCount,
           },
           sandbox,
           messageProvider: params.messageChannel ?? params.messageProvider,
@@ -879,6 +881,11 @@ export async function runEmbeddedAttempt(
           runId: params.runId,
           agentDir,
           workspaceDir: effectiveWorkspace,
+          // Working directory offset for spawned subagents (e.g., "websites/my-project")
+          cwd: params.cwd,
+          // Pass the real workspace for subagent inheritance when sandbox uses a copy
+          // This ensures spawned subagents work in the actual persona workspace, not the sandbox copy
+          spawnWorkspaceDir: sandbox?.agentWorkspaceDir ?? resolvedWorkspace,
           config: params.config,
           abortSignal: runAbortController.signal,
           modelProvider: params.model.provider,

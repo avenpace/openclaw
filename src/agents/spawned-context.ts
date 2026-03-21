@@ -8,6 +8,10 @@ export type SpawnedRunMetadata = {
   groupChannel?: string | null;
   groupSpace?: string | null;
   workspaceDir?: string | null;
+  /** Working directory offset relative to workspaceDir (e.g., "websites/my-project") */
+  cwd?: string | null;
+  // Platform: inherited skill count for exec gating
+  installedSkillCount?: number | null;
 };
 
 export type SpawnedToolContext = {
@@ -15,6 +19,10 @@ export type SpawnedToolContext = {
   agentGroupChannel?: string | null;
   agentGroupSpace?: string | null;
   workspaceDir?: string;
+  /** Working directory offset relative to workspaceDir (e.g., "websites/my-project") */
+  cwd?: string;
+  // Platform: inherited skill count for exec gating
+  installedSkillCount?: number;
 };
 
 export type NormalizedSpawnedRunMetadata = {
@@ -23,6 +31,10 @@ export type NormalizedSpawnedRunMetadata = {
   groupChannel?: string;
   groupSpace?: string;
   workspaceDir?: string;
+  /** Working directory offset relative to workspaceDir (e.g., "websites/my-project") */
+  cwd?: string;
+  // Platform: inherited skill count for exec gating
+  installedSkillCount?: number;
 };
 
 function normalizeOptionalText(value?: string | null): string | undefined {
@@ -31,6 +43,13 @@ function normalizeOptionalText(value?: string | null): string | undefined {
   }
   const trimmed = value.trim();
   return trimmed || undefined;
+}
+
+function normalizeOptionalNumber(value?: number | null): number | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return undefined;
+  }
+  return value;
 }
 
 export function normalizeSpawnedRunMetadata(
@@ -42,17 +61,24 @@ export function normalizeSpawnedRunMetadata(
     groupChannel: normalizeOptionalText(value?.groupChannel),
     groupSpace: normalizeOptionalText(value?.groupSpace),
     workspaceDir: normalizeOptionalText(value?.workspaceDir),
+    cwd: normalizeOptionalText(value?.cwd),
+    installedSkillCount: normalizeOptionalNumber(value?.installedSkillCount),
   };
 }
 
 export function mapToolContextToSpawnedRunMetadata(
   value?: SpawnedToolContext | null,
-): Pick<NormalizedSpawnedRunMetadata, "groupId" | "groupChannel" | "groupSpace" | "workspaceDir"> {
+): Pick<
+  NormalizedSpawnedRunMetadata,
+  "groupId" | "groupChannel" | "groupSpace" | "workspaceDir" | "cwd" | "installedSkillCount"
+> {
   return {
     groupId: normalizeOptionalText(value?.agentGroupId),
     groupChannel: normalizeOptionalText(value?.agentGroupChannel),
     groupSpace: normalizeOptionalText(value?.agentGroupSpace),
     workspaceDir: normalizeOptionalText(value?.workspaceDir),
+    cwd: normalizeOptionalText(value?.cwd),
+    installedSkillCount: normalizeOptionalNumber(value?.installedSkillCount),
   };
 }
 

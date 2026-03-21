@@ -186,6 +186,7 @@ export function createSessionsSpawnTool(
           cleanup,
           sandbox,
           expectsCompletionMessage: true,
+          cwd,
           attachments,
           attachMountPath:
             params.attachAs && typeof params.attachAs === "object"
@@ -203,6 +204,8 @@ export function createSessionsSpawnTool(
           agentGroupSpace: opts?.agentGroupSpace,
           requesterAgentIdOverride: opts?.requesterAgentIdOverride,
           workspaceDir: opts?.workspaceDir,
+          // Platform: pass inherited skill count for exec gating
+          installedSkillCount: opts?.installedSkillCount,
         },
       );
 

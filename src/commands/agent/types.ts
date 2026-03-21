@@ -82,6 +82,10 @@ export type AgentCommandOpts = {
   streamParams?: AgentStreamParams;
   /** Explicit workspace directory override (for subagents to inherit parent workspace). */
   workspaceDir?: SpawnedRunMetadata["workspaceDir"];
+  /** Working directory offset relative to workspaceDir (e.g., "websites/my-project"). */
+  cwd?: SpawnedRunMetadata["cwd"];
+  /** Platform: inherited skill count for exec gating on external channels. */
+  installedSkillCount?: SpawnedRunMetadata["installedSkillCount"];
 };
 
 export type AgentCommandIngressOpts = Omit<AgentCommandOpts, "senderIsOwner"> & {

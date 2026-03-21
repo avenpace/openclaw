@@ -327,6 +327,8 @@ function runAgentAttempt(params: {
   sessionAgentId: string;
   sessionFile: string;
   workspaceDir: string;
+  /** Working directory offset relative to workspaceDir (e.g., "websites/my-project"). */
+  cwd?: string;
   body: string;
   isFallbackRetry: boolean;
   resolvedThinkLevel: ThinkLevel;
@@ -475,6 +477,7 @@ function runAgentAttempt(params: {
     senderIsOwner: params.opts.senderIsOwner,
     sessionFile: params.sessionFile,
     workspaceDir: params.workspaceDir,
+    cwd: params.cwd,
     config: params.cfg,
     skillsSnapshot: params.skillsSnapshot,
     prompt: effectivePrompt,
@@ -498,6 +501,8 @@ function runAgentAttempt(params: {
     onAgentEvent: params.onAgentEvent,
     bootstrapPromptWarningSignaturesSeen,
     bootstrapPromptWarningSignature,
+    // Platform: pass inherited skill count for exec gating on external channels
+    installedSkillCount: params.opts.installedSkillCount ?? undefined,
   });
 }
 
@@ -538,6 +543,7 @@ async function prepareAgentCommandExecution(
     groupChannel: opts.groupChannel,
     groupSpace: opts.groupSpace,
     workspaceDir: opts.workspaceDir,
+    cwd: opts.cwd,
   });
   for (const entry of diagnostics) {
     runtime.log(`[secrets] ${entry}`);
@@ -1088,6 +1094,8 @@ async function agentCommandInternal(
         opts.replyChannel ?? opts.channel,
       );
       const spawnedBy = normalizedSpawned.spawnedBy ?? sessionEntry?.spawnedBy;
+      // cwd offset for spawned subagents (e.g., "websites/my-project")
+      const cwd = normalizedSpawned.cwd;
       // Keep fallback candidate resolution centralized so session model overrides,
       // per-agent overrides, and default fallbacks stay consistent across callers.
       const effectiveFallbacksOverride = resolveEffectiveModelFallbacks({
@@ -1119,6 +1127,7 @@ async function agentCommandInternal(
             sessionAgentId,
             sessionFile,
             workspaceDir,
+            cwd,
             body,
             isFallbackRetry,
             resolvedThinkLevel,

@@ -70,6 +70,8 @@ export type RunEmbeddedPiAgentParams = {
   disableMessageTool?: boolean;
   sessionFile: string;
   workspaceDir: string;
+  /** Working directory offset relative to workspaceDir (e.g., "websites/my-project"). */
+  cwd?: string;
   agentDir?: string;
   config?: OpenClawConfig;
   skillsSnapshot?: SkillSnapshot;

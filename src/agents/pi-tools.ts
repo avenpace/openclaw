@@ -1,3 +1,4 @@
+import path from "node:path";
 import { codingTools, createReadTool, readTool } from "@mariozechner/pi-coding-agent";
 import type { OpenClawConfig } from "../config/config.js";
 import type { ToolLoopDetectionConfig } from "../config/types.tools.js";
@@ -223,6 +224,11 @@ export function createOpenClawCodingTools(options?: {
    * Defaults to workspaceDir when not set.
    */
   spawnWorkspaceDir?: string;
+  /**
+   * Working directory offset relative to workspaceDir (e.g., "websites/my-project").
+   * When set, the exec tool's cwd will be workspaceDir + cwd instead of just workspaceDir.
+   */
+  cwd?: string;
   config?: OpenClawConfig;
   abortSignal?: AbortSignal;
   /**
@@ -353,6 +359,8 @@ export function createOpenClawCodingTools(options?: {
   const sandboxFsBridge = sandbox?.fsBridge;
   const allowWorkspaceWrites = sandbox?.workspaceAccess !== "ro";
   const workspaceRoot = resolveWorkspaceRoot(options?.workspaceDir);
+  // Compute effective exec cwd: workspaceRoot + optional cwd offset (e.g., "websites/my-project")
+  const execCwd = options?.cwd ? path.join(workspaceRoot, options.cwd) : workspaceRoot;
   const workspaceOnly = fsPolicy.workspaceOnly;
   const applyPatchConfig = execConfig.applyPatch;
   // Secure by default: apply_patch is workspace-contained unless explicitly disabled.
@@ -427,7 +435,7 @@ export function createOpenClawCodingTools(options?: {
     safeBinTrustedDirs: options?.exec?.safeBinTrustedDirs ?? execConfig.safeBinTrustedDirs,
     safeBinProfiles: options?.exec?.safeBinProfiles ?? execConfig.safeBinProfiles,
     agentId,
-    cwd: workspaceRoot,
+    cwd: execCwd,
     allowBackground,
     scopeKey,
     sessionKey: options?.sessionKey,
@@ -542,6 +550,8 @@ export function createOpenClawCodingTools(options?: {
       senderIsOwner: options?.senderIsOwner,
       browserHandler: options?.browserHandler,
       sessionId: options?.sessionId,
+      // Platform: pass inherited skill count for exec gating
+      installedSkillCount: options?.exec?.installedSkillCount,
     }),
   ];
   const toolsForMemoryFlush =

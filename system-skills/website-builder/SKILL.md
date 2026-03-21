@@ -50,6 +50,61 @@ Ready to build? Reply "go" to start.
 
 ---
 
+# 🤖 SPAWN SUBAGENT - DO NOT CODE DIRECTLY 🤖
+
+## After User Confirms: DELEGATE TO SUBAGENT
+
+**CRITICAL: You are the MAIN agent. You have a 10-minute timeout.**
+
+Website builds take 15-30 minutes. If you code directly, you WILL timeout and the build WILL fail.
+
+### CORRECT FLOW (MANDATORY):
+
+1. ✅ Present plan to user (done above)
+2. ✅ Wait for "go" confirmation
+3. ✅ **SPAWN SUBAGENT** with `sessions_spawn`:
+
+```
+sessions_spawn({
+  task: "Build {project-name}: {copy full requirements here}",
+  mode: "run",
+  cwd: "websites/{project-name}"
+})
+```
+
+4. ✅ Tell user: "Building in background. I'll notify you when complete."
+5. ✅ **STOP** - You're done. Subagent handles the rest.
+
+### ❌ WRONG - NEVER DO THIS:
+
+- ❌ Using `write` tool directly after user confirms
+- ❌ Using `exec` tool directly for PHP evaluation
+- ❌ Calling `process` tool directly
+- ❌ ANY direct file writing from main agent
+
+### WHY SUBAGENT?
+
+| Main Agent              | Subagent                         |
+| ----------------------- | -------------------------------- |
+| 10-min timeout          | No timeout (runs to completion)  |
+| User waiting            | Runs in background               |
+| Timeouts = failed build | Completes fully                  |
+| User frustrated         | User gets notification when done |
+
+The subagent receives ALL the coding instructions below and executes them. You just spawn it.
+
+---
+
+# ═══════════════════════════════════════════════════════
+
+# SUBAGENT INSTRUCTIONS BELOW
+
+# (Read only if you ARE the spawned subagent, not main agent)
+
+# ═══════════════════════════════════════════════════════
+
+---
+
 # 🔥🔥🔥 ZERO TOLERANCE: NO SKELETON BUILDS 🔥🔥🔥
 
 ## THIS IS NON-NEGOTIABLE - READ EVERY WORD
@@ -899,6 +954,221 @@ $price = Request::float('price');      // Float or 0.0
 
 ---
 
+## 🚨 CRITICAL: COMMON FAILURES TO AVOID 🚨
+
+**These issues make apps unusable. NEVER ship code with these problems.**
+
+### FAILURE 1: Auth Returns 401 Instead of Redirect
+
+**WRONG - Returns 401, user sees error page:**
+
+```php
+class AuthMiddleware {
+    public function handle() {
+        if (!Auth::check()) {
+            Response::status(401);
+            return false; // ❌ BROKEN - user sees ugly 401
+        }
+    }
+}
+```
+
+**CORRECT - Redirects to login:**
+
+```php
+class AuthMiddleware {
+    public function handle() {
+        if (!Auth::check()) {
+            Response::redirect('./login'); // ✅ Good UX
+            return false;
+        }
+        return true;
+    }
+}
+```
+
+### FAILURE 2: White Blank Page on Error (500)
+
+**WRONG - No error display:**
+
+```php
+// config/app.php
+'debug' => false, // ❌ User sees blank page
+```
+
+**CORRECT - Show errors in development:**
+
+```php
+// config/app.php
+'debug' => true, // ✅ Shows helpful error messages
+
+// Also in App.php bootstrap:
+ini_set('display_errors', 1);
+error_reporting(E_ALL);
+```
+
+### FAILURE 3: Migrations Not Auto-Run
+
+**Users should NOT need to run migrations manually. Auto-migrate on boot!**
+
+**CORRECT - Auto-migrate in App.php:**
+
+```php
+class App {
+    public static function boot() {
+        // ... autoloader, config, session ...
+
+        // Auto-migrate: run pending migrations on every boot
+        // Safe because migrations check if already applied
+        Database::migrate();
+
+        // ... routes, dispatch ...
+    }
+}
+```
+
+**In Database.php - Safe migration check:**
+
+```php
+public static function migrate() {
+    $migrationsDir = BASE_PATH . '/migrations';
+    if (!is_dir($migrationsDir)) return;
+
+    // Create migrations table if not exists
+    self::$pdo->exec('CREATE TABLE IF NOT EXISTS migrations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE,
+        applied_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )');
+
+    // Get applied migrations
+    $applied = self::$pdo->query('SELECT name FROM migrations')
+        ->fetchAll(PDO::FETCH_COLUMN);
+
+    // Run pending migrations
+    foreach (glob($migrationsDir . '/*.sql') as $file) {
+        $name = basename($file);
+        if (!in_array($name, $applied)) {
+            self::$pdo->exec(file_get_contents($file));
+            self::$pdo->prepare('INSERT INTO migrations (name) VALUES (?)')
+                ->execute([$name]);
+        }
+    }
+}
+```
+
+### FAILURE 4: Session Not Started Before Auth Check
+
+**WRONG - Session not started:**
+
+```php
+// index.php
+require 'app/Core/App.php';
+App::boot(); // ❌ If boot() doesn't start session first...
+
+// AuthMiddleware
+if (!isset($_SESSION['user_id'])) // ❌ Session not started = always false
+```
+
+**CORRECT - Session FIRST in boot:**
+
+```php
+class App {
+    public static function boot() {
+        // 1. Paths and autoloader
+        define('BASE_PATH', dirname(__DIR__));
+        spl_autoload_register(...);
+
+        // 2. START SESSION BEFORE ANYTHING ELSE
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+
+        // 3. Then config, database, routes...
+    }
+}
+```
+
+### FAILURE 5: Model References Column Not in Migration (SCHEMA MISMATCH)
+
+**This is the #1 cause of "no such column" errors. ALWAYS check your migrations!**
+
+**WRONG - Model uses `discount` but migration doesn't have it:**
+
+```php
+// Migration: 001_create_transactions.php
+CREATE TABLE transactions (
+    id INTEGER PRIMARY KEY,
+    product_id INTEGER,
+    quantity INTEGER,
+    total DECIMAL(10,2),  // ❌ No discount column!
+    created_at DATETIME
+);
+
+// Model: Transaction.php
+public static function todayStats() {
+    return Database::query("
+        SELECT SUM(total) as revenue, SUM(discount) as discounts  // ❌ CRASH!
+        FROM transactions WHERE DATE(created_at) = DATE('now')
+    ")->fetch();
+}
+```
+
+**CORRECT - Every column in Model queries MUST exist in Migration:**
+
+```php
+// Migration: 001_create_transactions.php
+CREATE TABLE transactions (
+    id INTEGER PRIMARY KEY,
+    product_id INTEGER,
+    quantity INTEGER,
+    discount DECIMAL(10,2) DEFAULT 0,  // ✅ Column exists
+    total DECIMAL(10,2),
+    created_at DATETIME
+);
+
+// Model: Transaction.php - Now works!
+public static function todayStats() {
+    return Database::query("
+        SELECT SUM(total) as revenue, SUM(discount) as discounts  // ✅ Works
+        FROM transactions WHERE DATE(created_at) = DATE('now')
+    ")->fetch();
+}
+```
+
+**CHECKLIST before writing Model methods:**
+
+```
+For EVERY SQL column reference in Model:
+□ Is this column in the CREATE TABLE statement?
+□ If it's a joined table, is the column in THAT table's migration?
+□ Did I spell the column name correctly?
+```
+
+### FAILURE 6: Routes Don't Match Form Actions
+
+**WRONG - Form posts to `/staff/store` but route is `/staff`:**
+
+```php
+// App.php routes
+'POST /staff' => ['StaffController', 'store'],
+
+// View form
+<form action="./staff/store" method="POST">  // ❌ 404!
+```
+
+**CORRECT - Form action matches route path:**
+
+```php
+// App.php routes
+'POST /staff' => ['StaffController', 'store'],
+
+// View form
+<form action="./staff" method="POST">  // ✅ Matches route
+```
+
+---
+
 ## ERROR HANDLING RULES
 
 Errors MUST be handled consistently by response type.
@@ -954,9 +1224,12 @@ if (!$contact) {
 7. Dispatch request
 ```
 
+### REQUIRED at Boot
+
+- ✅ `Database::migrate()` - AUTO-RUN migrations for good UX (safe - checks if already applied)
+
 ### FORBIDDEN at Boot
 
-- ❌ `Database::migrate()` - migrations via CLI only
 - ❌ Heavy computations
 - ❌ External API calls
 - ❌ File system scans
@@ -1631,7 +1904,7 @@ After generating all code, run these checks. Each issue has a code for targeted 
 │                                                                  │
 │  FRAMEWORK CONTRACT                                              │
 │  ──────────────────────────────────────────────────────────────│
-│  □ NO Database::migrate() in App.php boot  │  F001-MIGRATE-ON-BOOT │
+│  ✓ Database::migrate() in App.php boot     │  F001-AUTO-MIGRATE    │
 │  □ NO absolute URLs (no leading /)         │  F002-ABSOLUTE-URL    │
 │  □ NO public/ directory created            │  F003-PUBLIC-DIR      │
 │  □ index.php at project root               │  F004-INDEX-LOCATION  │
@@ -1780,12 +2053,13 @@ Create app/Controllers/{Entity}Controller.php extending Core\Controller with:
 - AgentAPI::register() in constructor
 ```
 
-**F001-MIGRATE-ON-BOOT**: Remove auto-migrate
+**F001-AUTO-MIGRATE**: Ensure auto-migrate is present
 
 ```
-In app/Core/App.php constructor:
-- REMOVE: Database::migrate();
-- Migrations run via CLI only: php migrate.php
+In app/Core/App.php boot():
+- REQUIRED: Database::migrate(); // Auto-run migrations for good UX
+- This is safe - migrations check if already applied before running
+- Users should NOT need to run migrations manually
 ```
 
 **F002-ABSOLUTE-URL**: Fix to relative URLs
