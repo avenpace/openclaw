@@ -262,6 +262,30 @@ export const SAFE_BIN_PROFILE_FIXTURES: Record<string, SafeBinProfileFixture> = 
   },
   // PHP for server-side script execution (website-builder tests).
   // Script path must be validated separately via WORKSPACE_RESTRICTED_BINS.
+  sqlite3: {
+    // Database file + optional SQL command
+    minPositional: 1,
+    maxPositional: 2,
+    allowedValueFlags: [
+      "-separator",
+      "-nullvalue",
+      "-header",
+      "-noheader",
+      "-column",
+      "-csv",
+      "-json",
+      "-line",
+      "-list",
+      "-html",
+      "-ascii",
+      "-bail",
+      "-readonly",
+    ],
+    deniedFlags: [
+      "-init", // Run commands from file
+      "-cmd", // Run SQL before input (could be dangerous)
+    ],
+  },
   php: {
     // Require exactly 1 positional: the script file path
     minPositional: 1,
