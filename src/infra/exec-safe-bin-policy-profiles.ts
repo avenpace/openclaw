@@ -214,6 +214,52 @@ export const SAFE_BIN_PROFILE_FIXTURES: Record<string, SafeBinProfileFixture> = 
     maxPositional: 0,
     deniedFlags: ["--files0-from"],
   },
+  // Curl for HTTP requests (website registration, API calls).
+  // Restricted to safe operations - no file writes or uploads.
+  curl: {
+    minPositional: 1, // URL required
+    maxPositional: 1,
+    allowedValueFlags: [
+      "-X",
+      "--request", // HTTP method
+      "-H",
+      "--header", // Headers
+      "-d",
+      "--data", // POST data
+      "--data-raw",
+      "--data-binary",
+      "-A",
+      "--user-agent",
+      "-e",
+      "--referer",
+      "--connect-timeout",
+      "--max-time",
+      "-m",
+      "-L",
+      "--location", // Follow redirects (boolean but sometimes takes value)
+    ],
+    deniedFlags: [
+      "-o",
+      "--output", // Write to file
+      "-O",
+      "--remote-name", // Write to file with remote name
+      "-T",
+      "--upload-file", // Upload file
+      "-K",
+      "--config", // Load config file
+      "--netrc", // Use netrc for auth
+      "--netrc-file",
+      "-u",
+      "--user", // Could leak creds in logs
+      "--proxy-user",
+      "--cert", // Client cert
+      "--key", // Private key
+      "--cacert",
+      "-F",
+      "--form", // File upload
+      "--form-string",
+    ],
+  },
   // PHP for server-side script execution (website-builder tests).
   // Script path must be validated separately via WORKSPACE_RESTRICTED_BINS.
   php: {
