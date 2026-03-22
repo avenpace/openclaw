@@ -4,94 +4,130 @@ description: Create AJAX-native web applications with PHP MVC micro-framework + 
 metadata: { "clawdbot": { "emoji": "🌐" } }
 ---
 
-# Website Builder
+# ⛔⛔⛔ MANDATORY CONTRACT - NO SKIPPING STEPS ⛔⛔⛔
 
----
+**DO NOT USE write/edit TOOLS DIRECTLY FOR CODE. YOU WILL TIMEOUT.**
 
-# 🚨🚨🚨 STOP - READ THIS FIRST 🚨🚨🚨
+## WORKFLOW - FOLLOW EXACTLY
 
-## MANDATORY: Present Plan & Wait for User Approval
+### STEP 1: PLANNING MODE - Present plan and WAIT for approval
 
-**Before writing ANY code, you MUST:**
+Present a complete plan to the user:
 
-1. **PRESENT a plan** to the user showing:
-   - Entities and their fields
-   - Features to be built
-   - Pages to be created
-   - Estimated file count
+- Project name (kebab-case, e.g., "toko-elektronik")
+- List ALL entities with their fields
+- List ALL features/pages
+- Database schema overview
+- End with: "Reply **go** to approve this plan and start building"
 
-2. **ASK for confirmation**: "Reply 'go' to start building"
+**⛔ DO NOT PROCEED UNTIL USER SAYS "go" ⛔**
 
-3. **WAIT for user response** - DO NOT proceed until user confirms!
-
-### Example Response (MUST follow this format):
+### STEP 2: Check project name availability
 
 ```
-📋 **Website Build Plan: {project-name}**
-
-**Entities:**
-- Product: name, price, stock, category
-- Category: name, description
-
-**Features:**
-- Dashboard with sales stats
-- Product management (CRUD)
-- Category management (CRUD)
-- Authentication (login/logout)
-
-**Pages:** Dashboard, Products, Categories, Login
-
-**Estimated:** ~25 files, ~3 minutes build time
-
-Ready to build? Reply "go" to start.
+read: websites/{project-name}/BUILD-SPEC.md
 ```
 
-⛔ **DO NOT generate code until user says "go", "yes", "ok", "proceed", or similar!**
+If exists → ask user to choose different name or confirm overwrite.
 
----
+### STEP 3: Write BUILD-SPEC.md with EXPLICIT paths
 
-# 🤖 SPAWN SUBAGENT - DO NOT CODE DIRECTLY 🤖
+Write the spec file (directory auto-created by write tool):
 
-## After User Confirms: DELEGATE TO SUBAGENT
+```
+write to: websites/{project-name}/BUILD-SPEC.md
 
-**CRITICAL: You are the MAIN agent. You have a 10-minute timeout.**
+# {Project Name} Build Specification
 
-Website builds take 15-30 minutes. If you code directly, you WILL timeout and the build WILL fail.
+## ⛔⛔⛔ CRITICAL: FILE PATH PREFIX ⛔⛔⛔
 
-### CORRECT FLOW (MANDATORY):
+PROJECT DIRECTORY: websites/{project-name}/
 
-1. ✅ Present plan to user (done above)
-2. ✅ Wait for "go" confirmation
-3. ✅ **SPAWN SUBAGENT** with `sessions_spawn`:
+EVERY file you write MUST use this FULL PATH:
+- websites/{project-name}/index.php
+- websites/{project-name}/app/Core/App.php
+- websites/{project-name}/views/home.php
+- websites/{project-name}/tests/run.php
+
+❌ NEVER write to: index.php (missing prefix!)
+❌ NEVER write to: app/Core/App.php (missing prefix!)
+❌ NEVER write to: {project-name}/index.php (missing websites/)
+
+## Database Location
+DATABASE: databases/{project-name}/database.sqlite
+(Outside webapp for security - not web-accessible)
+
+## Requirements
+{detailed requirements from user}
+
+## Entities
+{list all entities with fields}
+
+## Features
+{list all features}
+
+## Pages
+{list all pages/views}
+```
+
+### STEP 4: Spawn subagent with EXPLICIT path instruction
 
 ```
 sessions_spawn({
-  task: "Build {project-name}: {copy full requirements here}",
-  mode: "run",
-  cwd: "websites/{project-name}"
+  task: "BUILD websites/{project-name}/ - Read websites/{project-name}/BUILD-SPEC.md first. CRITICAL: Every write MUST use prefix 'websites/{project-name}/' - Example: write('websites/{project-name}/index.php'). Send progress updates to user via message tool.",
+  mode: "run"
 })
 ```
 
-4. ✅ Tell user: "Building in background. I'll notify you when complete."
-5. ✅ **STOP** - You're done. Subagent handles the rest.
+### STEP 5: Notify user and WAIT
 
-### ❌ WRONG - NEVER DO THIS:
+Tell user: "🔨 Building in background. You'll receive progress updates."
 
-- ❌ Using `write` tool directly after user confirms
-- ❌ Using `exec` tool directly for PHP evaluation
-- ❌ Calling `process` tool directly
-- ❌ ANY direct file writing from main agent
+Wait for subagent completion event.
 
-### WHY SUBAGENT?
+### STEP 6: Run tests (MANDATORY)
 
-| Main Agent              | Subagent                         |
-| ----------------------- | -------------------------------- |
-| 10-min timeout          | No timeout (runs to completion)  |
-| User waiting            | Runs in background               |
-| Timeouts = failed build | Completes fully                  |
-| User frustrated         | User gets notification when done |
+```
+exec: php websites/{project-name}/tests/run.php
+```
 
-The subagent receives ALL the coding instructions below and executes them. You just spawn it.
+If tests FAIL → spawn repair agent, then re-run tests. Max 3 attempts.
+
+### STEP 7: Run eval-runner (MANDATORY)
+
+```
+exec: php /app/openclaw/system-skills/website-builder/eval-runner.php websites/{project-name} --quiet
+```
+
+If `ready_to_run: false` → spawn repair agent with failures, re-run eval. Max 3 attempts.
+
+### STEP 8: Register webapp (MANDATORY)
+
+After ALL tests pass:
+
+```
+curl -X POST http://localhost:3000/internal/websites/{project-name}/register \
+  -H "Content-Type: application/json" \
+  -d '{"userId": "{user-id}"}'
+```
+
+### STEP 9: Notify user with preview link
+
+"✅ Your app is ready!
+Preview: https://{project-name}.clawku.co"
+
+---
+
+## 🚨 CONTRACT VIOLATIONS = BUILD FAILS 🚨
+
+| Skip This     | Result                          |
+| ------------- | ------------------------------- |
+| Planning mode | User gets unexpected app        |
+| BUILD-SPEC.md | Subagent writes to wrong path   |
+| Path prefix   | Files created in wrong location |
+| Tests         | Broken app deployed             |
+| Eval-runner   | Security/framework violations   |
+| Registration  | User can't access app           |
 
 ---
 
@@ -102,6 +138,73 @@ The subagent receives ALL the coding instructions below and executes them. You j
 # (Read only if you ARE the spawned subagent, not main agent)
 
 # ═══════════════════════════════════════════════════════
+
+---
+
+# ⛔⛔⛔ CRITICAL: PATH REQUIREMENTS ⛔⛔⛔
+
+## YOU ARE A SUBAGENT - YOUR WORKING DIRECTORY IS NOT THE PROJECT!
+
+**Your task will contain a path like `websites/{project}/BUILD-SPEC.md`.**
+
+**EVERY SINGLE FILE YOU CREATE MUST INCLUDE THE FULL PATH PREFIX:**
+
+```
+websites/{project}/index.php
+websites/{project}/migrate.php
+websites/{project}/config.php
+websites/{project}/app/Core/Database.php
+websites/{project}/views/login.php
+websites/{project}/assets/style.css
+```
+
+**⛔ IF YOU WRITE TO `index.php` or `migrate.php` WITHOUT THE PREFIX = BUILD FAILS ⛔**
+
+### Step 1: Read your task, extract the project path
+
+Your task says something like: "Read websites/contact-keeper/BUILD-SPEC.md..."
+
+Extract: `websites/contact-keeper/` - this is YOUR PROJECT PATH.
+
+### Step 2: EVERY write tool call MUST include this prefix
+
+```
+❌ WRONG: write to "index.php"
+❌ WRONG: write to "migrate.php"
+❌ WRONG: write to "app/Core/App.php"
+
+✅ CORRECT: write to "websites/contact-keeper/index.php"
+✅ CORRECT: write to "websites/contact-keeper/migrate.php"
+✅ CORRECT: write to "websites/contact-keeper/app/Core/App.php"
+```
+
+### Step 3: ALL files including CLI scripts
+
+These ALL go inside `websites/{project}/`:
+
+- index.php
+- migrate.php (CLI migration)
+- config.php
+- tests/run.php
+- ALL app/ files
+- ALL assets/ files
+- ALL views/ files
+
+### Example: If BUILD-SPEC.md is at `websites/toko-krenz/BUILD-SPEC.md`:
+
+- ✅ Write to: `websites/toko-krenz/index.php`
+- ✅ Write to: `websites/toko-krenz/migrate.php`
+- ✅ Write to: `websites/toko-krenz/app/Core/Database.php`
+- ❌ NEVER: `toko-krenz/index.php` (missing websites/ prefix)
+- ❌ NEVER: `index.php` (in persona root)
+- ❌ NEVER: `migrate.php` (in persona root)
+
+### DEFINITION: "project root" = `websites/{project}/`
+
+When this document says "project root" or "at project root", it means `websites/{project}/`, NOT the persona workspace. Example:
+
+- "index.php at project root" means `websites/contact-keeper/index.php`
+- "assets/ at project root" means `websites/contact-keeper/assets/`
 
 ---
 
@@ -231,6 +334,10 @@ You MUST verify ALL of these before saying "your app is ready":
 □ No console errors
 □ No broken links
 □ No placeholder text like "Lorem ipsum" or "Coming soon"
+□ Unit tests pass (`php tests/run.php`)
+□ PHP LINT passes - ALL .php files have no syntax errors
+□ SMOKE TEST passes - App loads without 500 error
+□ Website registered (curl to /internal/skills/websites/register)
 ```
 
 **If ANY item fails → DO NOT announce completion. Fix it first.**
@@ -331,6 +438,81 @@ websites/{project-name}/build-status.json
 
 ---
 
+# 📢 USER MESSAGE FORMATTING CONTRACT
+
+**When sending messages to users (via message tool), NEVER include raw JSON or tool results!**
+
+## ✅ CORRECT Message Format
+
+```
+🔨 Building your app...
+
+✓ Created database schema
+✓ Created 8 models
+✓ Working on controllers (5/12)
+```
+
+## ❌ FORBIDDEN Message Formats
+
+```
+# NEVER show raw tool output to user:
+❌ Tool result (exec): {"status": "error", "output": "..."}
+❌ [non-text content: toolCall]
+❌ {"success": false, "error": "..."}
+❌ exec returned: {"status": "ok", ...}
+```
+
+## Error Handling - Clean Messages Only
+
+When a tool returns an error, format it CLEANLY for the user:
+
+**Tool returns:**
+
+```json
+{
+  "status": "error",
+  "output": "PHP Parse error: syntax error in /app/websites/my-app/index.php on line 42"
+}
+```
+
+**WRONG - Sending raw JSON:**
+
+```
+Tool result (exec): {"status": "error", "output": "PHP Parse error..."}
+```
+
+**CORRECT - Clean formatted message:**
+
+```
+⚠️ PHP syntax error found in index.php (line 42)
+Fixing now...
+```
+
+## Progress Update Format
+
+When sending progress updates via message tool:
+
+```
+🔨 Building: Creating models (4/8 complete)
+```
+
+NOT:
+
+```
+Tool result: {"status": "ok"} - Created ProductModel
+```
+
+## Summary
+
+| Do This                           | Not This                           |
+| --------------------------------- | ---------------------------------- |
+| "✓ Created 5 files"               | "write returned success"           |
+| "⚠️ Error in config.php - fixing" | "exec: {\"status\": \"error\"...}" |
+| "🔨 Building controllers..."      | "[non-text content: toolCall]"     |
+| "✅ Tests passed!"                | "exec php tests returned 0"        |
+
+---
+
 # 🔑 MANDATORY REGISTRATION (Before Announcing Completion)
 
 **You MUST register the website BEFORE announcing the URL to the user!**
@@ -412,6 +594,78 @@ workdir: websites/{project-name}
   "workdir": "websites/toko-krenz-kasir"
 }
 ```
+
+---
+
+# 🔍 PHP LINT - MANDATORY SYNTAX CHECK
+
+**Unit tests do NOT catch PHP syntax errors!** Tests only load files when needed. A syntax error in Auth.php won't be caught if no test uses Auth.
+
+**AFTER running unit tests, you MUST lint ALL PHP files:**
+
+```bash
+# Run from project directory
+find . -name "*.php" -exec php -l {} \; 2>&1 | grep -v "No syntax errors"
+```
+
+**If ANY file has syntax errors:**
+
+1. The output will show: `Parse error: syntax error... in /path/to/file.php on line X`
+2. **FIX THE ERROR** before proceeding
+3. Re-run lint until ALL files pass
+
+**Common syntax errors to watch for:**
+
+- Missing semicolons
+- Unclosed brackets/braces
+- Invalid null-safe operator usage (e.g., `$arr?['key']` is WRONG, use `$arr['key'] ?? null`)
+- Typos in keywords
+
+**Example exec call:**
+
+```json
+{
+  "command": "find . -name '*.php' -exec php -l {} \\; 2>&1 | grep -v 'No syntax errors'",
+  "workdir": "websites/my-project"
+}
+```
+
+**Expected output when all files pass:** Empty (no output)
+**If you see ANY Parse error:** FIX IT before continuing!
+
+---
+
+# 🌐 SMOKE TEST - VERIFY APP LOADS
+
+**After lint passes, verify the app actually loads without 500 errors:**
+
+```bash
+# Make a test request to the app
+php -r "
+\$_SERVER['REQUEST_METHOD'] = 'GET';
+\$_SERVER['REQUEST_URI'] = '/';
+\$_SERVER['HTTP_HOST'] = 'localhost';
+chdir('$(pwd)');
+ob_start();
+try {
+    include 'index.php';
+    \$output = ob_get_clean();
+    echo strlen(\$output) > 0 ? '✅ App loads OK (' . strlen(\$output) . ' bytes)' : '❌ Empty response';
+} catch (Throwable \$e) {
+    ob_end_clean();
+    echo '❌ FATAL: ' . \$e->getMessage() . ' in ' . \$e->getFile() . ':' . \$e->getLine();
+    exit(1);
+}
+"
+```
+
+**If smoke test fails:**
+
+1. Check the error message
+2. Fix the issue (usually a missing include, bad autoload, or runtime error)
+3. Re-run until it passes
+
+**Only proceed to registration after BOTH lint AND smoke test pass!**
 
 ---
 
@@ -1322,18 +1576,20 @@ Before completing generation, verify:
 
 | Allowed               | Correct Usage                                                      |
 | --------------------- | ------------------------------------------------------------------ |
-| `file_get_contents()` | Relative paths only: `file_get_contents('data/config.json')`       |
-| `file_put_contents()` | Relative paths only: `file_put_contents('data/cache.json', $data)` |
+| `file_get_contents()` | Relative paths only: `file_get_contents('cache/config.json')`      |
+| `file_put_contents()` | Relative paths only: `file_put_contents('cache/data.json', $data)` |
 | `fopen/fread/fwrite`  | Relative paths only: `fopen('logs/app.log', 'a')`                  |
 | `include/require`     | Relative or `__DIR__`: `include __DIR__ . '/views/header.php'`     |
-| SQLite                | In `data/` directory: `new PDO('sqlite:data/database.sqlite')`     |
+| SQLite                | Via DATABASE_PATH env: `new PDO('sqlite:' . DATABASE_PATH)`        |
 
 ### Examples
 
 ```php
-// ✅ CORRECT - relative paths
-$data = file_get_contents('data/config.json');
+// ✅ CORRECT - relative paths for cache/logs
+$data = file_get_contents('cache/config.json');
 $content = file_get_contents(__DIR__ . '/templates/email.html');
+// Database uses DATABASE_PATH constant (set by platform)
+$db = new PDO('sqlite:' . DATABASE_PATH);
 include 'views/header.php';
 
 // ❌ FORBIDDEN - will fail eval
@@ -1438,6 +1694,12 @@ STEP 7: views/**/*.php (layouts, auth, dashboard, entities)
 STEP 8: tests/*.php (ONLY after ALL above are complete)
         ↓
 STEP 9: Run tests with `php tests/run.php`
+        ↓
+STEP 10: PHP LINT ALL FILES (catches syntax errors tests miss!)
+        ↓
+STEP 11: SMOKE TEST (verify app actually loads)
+        ↓
+STEP 12: Register website and announce URL
 ```
 
 **WHY THIS ORDER MATTERS**:
@@ -2589,19 +2851,26 @@ websites/{project}/
 │   └── 002_create_{entity}_table.sql
 ├── config/
 │   └── app.php
-├── storage/
+├── cache/                      # For temporary files only
 └── tests/                      # 🧪 MANDATORY TEST DIRECTORY
     ├── run.php                 # Test runner (MUST exist)
     ├── TestCase.php            # Base test class
     ├── AuthTest.php            # Auth tests
     ├── {Entity}Test.php        # Entity CRUD tests
     └── ApiTest.php             # Agent API tests
-    └── database.sqlite
 ```
+
+**📦 DATABASE LOCATION (SECURITY)**
+
+Database is stored OUTSIDE webapp at `databases/{project}/database.sqlite`:
+
+- NOT web-accessible (security)
+- User can manage via cloud storage file explorer
+- Path provided via DATABASE_PATH constant
 
 **⚠️ CRITICAL: URL Path Rules**
 
-The app runs at `/websites/preview/{personaId}/{project}/`, NOT at domain root.
+The app runs at `https://{project}.clawku.co` (subdomain, at ROOT level).
 
 1. **Assets at project root** - Put `assets/` directory at project root level
 2. **Use relative paths** - Links should be relative, NOT absolute:
@@ -2627,6 +2896,10 @@ The app runs at `/websites/preview/{personaId}/{project}/`, NOT at domain root.
  */
 
 define('BASE_PATH', __DIR__);
+
+// Database path injected by platform (OUTSIDE webapp for security)
+// Falls back to local data/ for CLI/testing
+define('DATABASE_PATH', getenv('DATABASE_PATH') ?: BASE_PATH . '/data/database.sqlite');
 
 // Autoload
 spl_autoload_register(function ($class) {
@@ -2660,6 +2933,10 @@ if (php_sapi_name() !== 'cli') {
 }
 
 define('BASE_PATH', __DIR__);
+
+// Database path - use env if available (when run via platform)
+// Falls back to local data/ for direct CLI execution
+define('DATABASE_PATH', getenv('DATABASE_PATH') ?: BASE_PATH . '/data/database.sqlite');
 
 // Autoload
 spl_autoload_register(function ($class) {
@@ -2865,7 +3142,9 @@ class Database {
 
     public static function connection(): PDO {
         if (self::$pdo === null) {
-            $path = self::$config['path'] ?? BASE_PATH . '/storage/database.sqlite';
+            // DATABASE_PATH constant is set in index.php (from platform env var)
+            // Falls back to local data/ directory for CLI/testing
+            $path = DATABASE_PATH;
             $dir = dirname($path);
             if (!is_dir($dir)) mkdir($dir, 0755, true);
 
@@ -4849,7 +5128,8 @@ return [
     'debug' => false,
 
     'database' => [
-        'path' => BASE_PATH . '/storage/database.sqlite',
+        // DATABASE_PATH constant defined in index.php (from platform env)
+        'path' => DATABASE_PATH,
     ],
 
     // Agent API token - used by Clawku agents

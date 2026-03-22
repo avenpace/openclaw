@@ -626,6 +626,236 @@ if (!empty($formRouteErrors)) {
     ]);
 }
 
+// ============ SCHEMA-MODEL CONSISTENCY CHECK ============
+
+logMsg("\n🗄️ SCHEMA-MODEL VALIDATION\n");
+
+// Step 1: Parse migrations to extract table schemas
+$schemaColumns = []; // table => [column1, column2, ...]
+
+// Check multiple possible migration directories and file types
+$migrationDirs = [
+    "{$projectPath}/database/migrations" => '*.php',
+    "{$projectPath}/migrations" => '*.sql',
+];
+
+foreach ($migrationDirs as $migrationDir => $pattern) {
+    if (!is_dir($migrationDir)) continue;
+
+    $migrationFiles = glob("{$migrationDir}/{$pattern}") ?: [];
+    foreach ($migrationFiles as $migrationFile) {
+        $content = file_get_contents($migrationFile);
+
+        // Match CREATE TABLE statements
+        // Pattern: CREATE TABLE IF NOT EXISTS tablename (
+        if (preg_match_all('/CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?[`"\']?(\w+)[`"\']?\s*\(([\s\S]*?)\);/i', $content, $tableMatches, PREG_SET_ORDER)) {
+            foreach ($tableMatches as $tableMatch) {
+                $tableName = $tableMatch[1];
+                $columnDefs = $tableMatch[2];
+
+                // Extract column names from column definitions
+                // Match: column_name TYPE or `column_name` TYPE
+                preg_match_all('/^\s*[`"\']?(\w+)[`"\']?\s+(?:INTEGER|TEXT|REAL|BLOB|VARCHAR|INT|DATETIME|TIMESTAMP|BOOLEAN|DECIMAL|FLOAT|DOUBLE|DATE|TIME|CHAR)/mi', $columnDefs, $colMatches);
+
+                if (!isset($schemaColumns[$tableName])) {
+                    $schemaColumns[$tableName] = [];
+                }
+                foreach ($colMatches[1] as $col) {
+                    $schemaColumns[$tableName][] = strtolower($col);
+                }
+            }
+        }
+
+        // Also match ALTER TABLE ADD COLUMN
+        if (preg_match_all('/ALTER\s+TABLE\s+[`"\']?(\w+)[`"\']?\s+ADD\s+(?:COLUMN\s+)?[`"\']?(\w+)[`"\']?\s+/i', $content, $alterMatches, PREG_SET_ORDER)) {
+            foreach ($alterMatches as $alterMatch) {
+                $tableName = $alterMatch[1];
+                $colName = strtolower($alterMatch[2]);
+                if (!isset($schemaColumns[$tableName])) {
+                    $schemaColumns[$tableName] = [];
+                }
+                $schemaColumns[$tableName][] = $colName;
+            }
+        }
+    }
+}
+
+// Step 2: Parse Model files and extract column references from SQL
+$modelFiles = glob("{$projectPath}/app/Models/*.php") ?: [];
+$schemaErrors = [];
+
+foreach ($modelFiles as $modelFile) {
+    $content = file_get_contents($modelFile);
+    $relativePath = str_replace($projectPath . '/', '', $modelFile);
+    $modelName = basename($modelFile, '.php');
+
+    // Determine table name from model (class property or convention)
+    $tableName = null;
+    if (preg_match('/protected\s+static\s+\$table\s*=\s*[\'"](\w+)[\'"]/', $content, $tableMatch)) {
+        $tableName = $tableMatch[1];
+    } else {
+        // Convention: Model name to table name (Product -> products, Category -> categories)
+        $tableName = strtolower($modelName) . 's';
+        // Handle special cases
+        if (str_ends_with($modelName, 'y')) {
+            $tableName = strtolower(substr($modelName, 0, -1)) . 'ies';
+        }
+    }
+
+    if (!isset($schemaColumns[$tableName])) {
+        // Try singular form
+        $singularTable = rtrim($tableName, 's');
+        if (isset($schemaColumns[$singularTable])) {
+            $tableName = $singularTable;
+        }
+    }
+
+    // Extract column references from SQL queries
+    // Pattern 1: SELECT column1, column2, column3 FROM
+    preg_match_all('/SELECT\s+([\w\s,.*`]+)\s+FROM/i', $content, $selectMatches);
+
+    // Pattern 2: Column references in WHERE, ORDER BY, GROUP BY
+    preg_match_all('/(?:WHERE|AND|OR|ORDER\s+BY|GROUP\s+BY|HAVING|SET)\s+[`"\']?(\w+)[`"\']?\s*(?:=|<|>|!=|<>|LIKE|IS|IN|ASC|DESC|,)/i', $content, $whereMatches);
+
+    // Pattern 3: INSERT columns
+    preg_match_all('/INSERT\s+INTO\s+\w+\s*\(([\w\s,`]+)\)/i', $content, $insertMatches);
+
+    // Pattern 4: UPDATE SET column =
+    preg_match_all('/SET\s+[`"\']?(\w+)[`"\']?\s*=/i', $content, $updateMatches);
+
+    // Pattern 5: SUM(column), COUNT(column), AVG(column), etc.
+    preg_match_all('/(?:SUM|COUNT|AVG|MIN|MAX)\s*\(\s*[`"\']?(\w+)[`"\']?\s*\)/i', $content, $aggMatches);
+
+    // Pattern 6: column AS alias or column alias
+    preg_match_all('/[`"\']?(\w+)[`"\']?\s+AS\s+\w+/i', $content, $aliasMatches);
+
+    $referencedColumns = [];
+
+    // Process SELECT columns
+    foreach ($selectMatches[1] as $selectList) {
+        // Skip * and table.* patterns
+        if (trim($selectList) === '*') continue;
+
+        $cols = preg_split('/\s*,\s*/', $selectList);
+        foreach ($cols as $col) {
+            $col = trim($col);
+            // Remove table prefix (e.g., t.column_name -> column_name)
+            if (preg_match('/(?:\w+\.)?[`"\']?(\w+)[`"\']?/', $col, $m)) {
+                if ($m[1] !== '*' && !in_array(strtoupper($m[1]), ['AS', 'FROM', 'WHERE', 'AND', 'OR', 'ON'])) {
+                    $referencedColumns[strtolower($m[1])] = true;
+                }
+            }
+        }
+    }
+
+    // Process WHERE columns
+    foreach ($whereMatches[1] as $col) {
+        $col = strtolower(trim($col));
+        if (!in_array($col, ['and', 'or', 'not', 'null', 'true', 'false', 'is', 'in', 'like', 'between'])) {
+            $referencedColumns[$col] = true;
+        }
+    }
+
+    // Process INSERT columns
+    foreach ($insertMatches[1] as $insertList) {
+        $cols = preg_split('/\s*,\s*/', $insertList);
+        foreach ($cols as $col) {
+            $col = trim($col, " \t\n\r\0\x0B`\"'");
+            if (!empty($col)) {
+                $referencedColumns[strtolower($col)] = true;
+            }
+        }
+    }
+
+    // Process UPDATE SET columns
+    foreach ($updateMatches[1] as $col) {
+        $referencedColumns[strtolower(trim($col))] = true;
+    }
+
+    // Process aggregate columns
+    foreach ($aggMatches[1] as $col) {
+        $col = strtolower(trim($col));
+        if ($col !== '*') {
+            $referencedColumns[$col] = true;
+        }
+    }
+
+    // Process alias source columns
+    foreach ($aliasMatches[1] as $col) {
+        $referencedColumns[strtolower(trim($col))] = true;
+    }
+
+    // Remove common SQL keywords that might be false positives
+    $sqlKeywords = ['id', 'null', 'true', 'false', 'count', 'sum', 'avg', 'min', 'max',
+                    'select', 'from', 'where', 'and', 'or', 'not', 'in', 'like', 'between',
+                    'order', 'by', 'group', 'having', 'limit', 'offset', 'as', 'on', 'join',
+                    'inner', 'left', 'right', 'outer', 'asc', 'desc', 'distinct', 'all'];
+
+    // Check each referenced column against schema
+    if (isset($schemaColumns[$tableName])) {
+        $tableColumns = $schemaColumns[$tableName];
+
+        foreach (array_keys($referencedColumns) as $col) {
+            // Skip if it's a SQL keyword or very common column
+            if (in_array($col, $sqlKeywords)) continue;
+            if (in_array($col, ['created_at', 'updated_at', 'deleted_at'])) continue;
+
+            // Skip if column exists
+            if (in_array($col, $tableColumns)) continue;
+
+            // Skip if it looks like a joined table column (contains underscore prefix pattern)
+            // This is a heuristic - might need refinement
+
+            // Column not found - this is an error!
+            $schemaErrors[] = [
+                'model' => $modelName,
+                'file' => $relativePath,
+                'table' => $tableName,
+                'column' => $col,
+                'available' => implode(', ', $tableColumns),
+            ];
+        }
+    }
+}
+
+// Report schema validation results
+if (!empty($schemaErrors)) {
+    logMsg("  ✗ " . count($schemaErrors) . " schema-model mismatch(es) found\n");
+    foreach ($schemaErrors as $error) {
+        logMsg("    - {$error['file']}: Column '{$error['column']}' not in table '{$error['table']}'\n");
+        logMsg("      Available: {$error['available']}\n");
+        addCheck('consistency', [
+            'id' => 'SCHEMA_MODEL_MATCH',
+            'status' => 'fail',
+            'severity' => 'critical',
+            'file' => $error['file'],
+            'message' => "Model references column '{$error['column']}' that doesn't exist in migration for table '{$error['table']}'",
+            'details' => [
+                'model' => $error['model'],
+                'table' => $error['table'],
+                'missing_column' => $error['column'],
+                'available_columns' => $error['available'],
+            ],
+            'expected' => "Column '{$error['column']}' must be defined in migration",
+            'actual' => "Column not found in table schema",
+        ]);
+    }
+} else {
+    $modelCount = count($modelFiles);
+    $tableCount = count($schemaColumns);
+    logMsg("  ✓ All model column references match migration schemas ({$modelCount} models, {$tableCount} tables)\n");
+    addCheck('consistency', [
+        'id' => 'SCHEMA_MODEL_MATCH',
+        'status' => 'pass',
+        'severity' => 'critical',
+        'file' => '',
+        'message' => 'All model column references exist in migration schemas',
+        'details' => ['models_checked' => $modelCount, 'tables_found' => $tableCount],
+        'expected' => 'Model columns match schema',
+        'actual' => 'All columns valid',
+    ]);
+}
+
 // ============ FRAMEWORK CONTRACT CHECKS ============
 
 logMsg("\n📋 FRAMEWORK CONTRACT\n");
@@ -647,28 +877,28 @@ if ($appPhp) {
     }
 
     if ($migrateOnBoot) {
-        logMsg("  ✗ Database::migrate() in App.php boot [FORBIDDEN]\n");
+        logMsg("  ✓ Auto-migrate on boot [REQUIRED for good UX]\n");
         addCheck('framework_contract', [
-            'id' => 'NO_MIGRATION_ON_BOOT',
-            'status' => 'fail',
-            'severity' => 'high',
+            'id' => 'AUTO_MIGRATE_ON_BOOT',
+            'status' => 'pass',
+            'severity' => 'critical',
             'file' => 'app/Core/App.php',
-            'message' => 'Database::migrate() called during normal app boot',
+            'message' => 'Database::migrate() correctly called on boot for instant usability',
             'details' => [],
-            'expected' => 'Migrations only via CLI/setup mode',
-            'actual' => 'Automatic migrate in constructor',
+            'expected' => 'Auto-migrate on boot for good UX',
+            'actual' => 'Correct - migrations run automatically',
         ]);
     } else {
-        logMsg("  ✓ No auto-migrate on boot\n");
+        logMsg("  ✗ No auto-migrate on boot [BAD UX - users get schema errors]\n");
         addCheck('framework_contract', [
-            'id' => 'NO_MIGRATION_ON_BOOT',
-            'status' => 'pass',
-            'severity' => 'high',
+            'id' => 'AUTO_MIGRATE_ON_BOOT',
+            'status' => 'fail',
+            'severity' => 'critical',
             'file' => 'app/Core/App.php',
-            'message' => 'Migrations correctly excluded from boot',
-            'details' => [],
-            'expected' => 'No Database::migrate() on boot',
-            'actual' => 'Correct - migrations via CLI only',
+            'message' => 'Missing Database::migrate() in App.php boot - users will get "no such column" errors',
+            'details' => ['fix' => 'Add Database::migrate() call in App.php boot() or __construct()'],
+            'expected' => 'Database::migrate() must be called on boot',
+            'actual' => 'No auto-migrate - BAD UX',
         ]);
     }
 }
