@@ -74,36 +74,115 @@ DATABASE: databases/{project-name}/database.sqlite
 
 ```
 sessions_spawn({
-  task: "BUILD websites/{project-name}/ - Read websites/{project-name}/BUILD-SPEC.md first. CRITICAL: Every write MUST use prefix 'websites/{project-name}/' - Example: write('websites/{project-name}/index.php'). Send progress updates to user via message tool.",
-  mode: "run"
+  task: "BUILD websites/{project-name}/ - Read websites/{project-name}/BUILD-SPEC.md first. CRITICAL: Every write MUST use prefix 'websites/{project-name}/' - Example: write('websites/{project-name}/index.php'). When done building ALL files, send 'BUILD_COMPLETE' to main agent via sessions_send.",
+  mode: "session"
 })
 ```
 
-### STEP 5: Notify user and WAIT
+**Important**: Use `mode: "session"` (not "run") so you can poll status and send fix instructions.
 
-Tell user: "🔨 Building in background. You'll receive progress updates."
+### STEP 5: Notify user and START POLLING SUPERVISION
 
-Wait for subagent completion event.
+Tell user: "🔨 Building in background. I'll verify and let you know when it's ready."
 
-### STEP 6: Run tests (MANDATORY)
+**POLLING SUPERVISION LOOP** (Level 3 - Trust but Verify):
 
-```
-exec: php websites/{project-name}/tests/run.php
-```
-
-If tests FAIL → spawn repair agent, then re-run tests. Max 3 attempts.
-
-### STEP 7: Run eval-runner (MANDATORY)
+**5A. Store supervision state in MEMORY.md**:
 
 ```
-exec: php /app/openclaw/system-skills/website-builder/eval-runner.php websites/{project-name} --quiet
+edit MEMORY.md to append:
+
+## 🔨 ACTIVE BUILD SUPERVISION
+- Project: websites/{project-name}
+- SubagentKey: {subagent-session-key from spawn result}
+- Phase: POLLING
+- StartedAt: {ISO timestamp}
+- MaxRetries: 3
+- CurrentRetry: 0
 ```
 
-If `ready_to_run: false` → spawn repair agent with failures, re-run eval. Max 3 attempts.
+**5B. Schedule polling check in 1 minute**:
 
-### STEP 8: Register webapp (MANDATORY)
+```
+cron add schedule="in 1 minute" text="CHECK_BUILD: websites/{project-name}"
+```
 
-After ALL tests pass:
+**5C. On each polling wake (cron fires)**:
+
+1. Read MEMORY.md to get subagent session key and phase
+2. Use `sessions_list` to check if subagent is still active
+3. Use `sessions_send` to ask subagent: "Status report - are you done?"
+4. Check subagent's last message:
+   - If contains "BUILD_COMPLETE" → proceed to STEP 6 (VERIFICATION)
+   - If subagent still working → schedule another poll: `cron add schedule="in 1 minute" text="CHECK_BUILD: websites/{project-name}"`
+   - If subagent error/timeout → report failure to user
+
+### STEP 6: VERIFICATION (Trust but Verify - DO NOT SKIP)
+
+⛔ **NEVER trust subagent claims. ALWAYS verify independently.**
+
+When subagent reports BUILD_COMPLETE, YOU (main agent) must verify:
+
+**6A. Read and verify BUILD-SPEC.md requirements**:
+
+```
+read: websites/{project-name}/BUILD-SPEC.md
+```
+
+Extract all required entities, features, and pages.
+
+**6B. Check all required files exist**:
+
+```
+glob: websites/{project-name}/**/*.php
+glob: websites/{project-name}/assets/*.css
+```
+
+Verify against BUILD-SPEC.md requirements.
+
+**6C. Run tests (MANDATORY)**:
+
+```
+php_exec: script="websites/{project-name}/tests/run.php"
+```
+
+**6D. Run eval-runner (MANDATORY)**:
+
+```
+php_exec: script="/app/openclaw/system-skills/website-builder/eval-runner.php", args=["websites/{project-name}", "--quiet"]
+```
+
+### STEP 7: Handle verification results
+
+**If ALL verification passes** (tests pass + eval ready_to_run: true):
+
+- Update MEMORY.md: Phase = VERIFIED
+- Proceed to STEP 8
+
+**If ANY verification fails**:
+
+1. Increment retry counter in MEMORY.md
+2. If retries < 3:
+   - Send fix instructions to subagent via sessions_send:
+     ```
+     sessions_send({
+       sessionKey: "{subagent-session-key}",
+       message: "FIXES REQUIRED:\n{list specific failures from tests/eval}\n\nFix these issues and send BUILD_COMPLETE when done."
+     })
+     ```
+   - Update MEMORY.md: Phase = AWAITING_FIX, CurrentRetry += 1
+   - Schedule next poll: `cron add schedule="in 1 minute" text="CHECK_BUILD: websites/{project-name}"`
+   - Wait for next poll cycle (cron will wake you)
+3. If retries >= 3:
+   - Report failure to user with specific issues
+   - Remove supervision section from MEMORY.md
+   - DO NOT proceed to registration
+
+### STEP 8: Register webapp (MANDATORY - AFTER verification passes)
+
+⛔ **YOU MUST REGISTER BEFORE announcing the URL. User will get 404 otherwise!**
+
+Only after VERIFICATION passes (STEP 6 + STEP 7):
 
 ```
 curl -X POST http://localhost:3000/internal/websites/{project-name}/register \
@@ -111,7 +190,11 @@ curl -X POST http://localhost:3000/internal/websites/{project-name}/register \
   -d '{"userId": "{user-id}"}'
 ```
 
-### STEP 9: Notify user with preview link
+If registration fails → Debug and retry. DO NOT announce URL until registration succeeds.
+
+### STEP 9: Notify user with preview link (ONLY after ALL steps succeed)
+
+Remove "ACTIVE BUILD SUPERVISION" section from MEMORY.md (task complete).
 
 "✅ Your app is ready!
 Preview: https://{project-name}.clawku.co"
@@ -120,14 +203,29 @@ Preview: https://{project-name}.clawku.co"
 
 ## 🚨 CONTRACT VIOLATIONS = BUILD FAILS 🚨
 
-| Skip This     | Result                          |
-| ------------- | ------------------------------- |
-| Planning mode | User gets unexpected app        |
-| BUILD-SPEC.md | Subagent writes to wrong path   |
-| Path prefix   | Files created in wrong location |
-| Tests         | Broken app deployed             |
-| Eval-runner   | Security/framework violations   |
-| Registration  | User can't access app           |
+**These steps are NON-NEGOTIABLE. Skip ANY step = FAIL.**
+
+| Step             | Requirement                              | Skip = FAILURE                               |
+| ---------------- | ---------------------------------------- | -------------------------------------------- |
+| Planning mode    | Present plan, WAIT for "go"              | User gets unexpected app                     |
+| BUILD-SPEC.md    | Write spec with explicit paths           | Subagent writes to wrong location            |
+| Path prefix      | All files use `websites/{project}/`      | Files created in wrong directory             |
+| **Supervision**  | Poll subagent + verify before announcing | **BROKEN APP ANNOUNCED - UNACCEPTABLE**      |
+| **Tests**        | Run `php_exec tests/run.php`             | **BROKEN APP DEPLOYED - UNACCEPTABLE**       |
+| **Eval-runner**  | Run eval-runner.php                      | **SECURITY VIOLATIONS MISSED**               |
+| **Registration** | Call registration BEFORE announcing URL  | **User gets 404 - NEVER ANNOUNCE URL FIRST** |
+
+### EXPLICIT FAILURE CONDITIONS:
+
+1. **NO tests/run.php exists** → Subagent MUST create it with at least 1 test per entity
+2. **Tests not run** → You MUST run tests before announcing completion
+3. **Tests fail** → Fix and re-run, max 3 attempts. If still failing, report failure to user
+4. **Eval-runner not run** → You MUST run eval-runner after tests pass
+5. **Eval-runner fails** → Fix violations and re-run, max 3 attempts
+6. **URL announced before registration** → **VIOLATION** - user will get 404
+7. **Registration fails** → Debug and retry, do NOT announce URL until registration succeeds
+8. **Trusting subagent blindly** → **VIOLATION** - always verify with tests + eval before announcing
+9. **Announcing before verification** → **VIOLATION** - subagent claims mean nothing without proof
 
 ---
 
@@ -205,6 +303,41 @@ When this document says "project root" or "at project root", it means `websites/
 
 - "index.php at project root" means `websites/contact-keeper/index.php`
 - "assets/ at project root" means `websites/contact-keeper/assets/`
+
+---
+
+# 📡 SUBAGENT COMPLETION SIGNALING (Level 3)
+
+## When you finish building ALL files, you MUST signal completion
+
+⛔ **DO NOT just stop working. You MUST explicitly signal BUILD_COMPLETE.**
+
+After you have:
+
+1. Written ALL required files (Core framework, models, controllers, views, assets)
+2. Created tests/run.php with tests for each entity
+3. Verified all files exist and have proper content
+
+**Send completion signal to main agent**:
+
+```
+sessions_send({
+  message: "BUILD_COMPLETE\n\nFiles created:\n- {list all files}\n\nTests: tests/run.php created with {N} tests\n\nReady for verification."
+})
+```
+
+**If main agent sends FIXES REQUIRED**:
+
+1. Read the fix instructions carefully
+2. Make the required fixes
+3. Send BUILD_COMPLETE again when done
+
+**DO NOT**:
+
+- Stop without sending BUILD_COMPLETE
+- Send BUILD_COMPLETE before ALL files are written
+- Ignore fix instructions from main agent
+- Message the user directly (main agent handles user communication)
 
 ---
 
@@ -509,7 +642,7 @@ Tool result: {"status": "ok"} - Created ProductModel
 | "✓ Created 5 files"               | "write returned success"           |
 | "⚠️ Error in config.php - fixing" | "exec: {\"status\": \"error\"...}" |
 | "🔨 Building controllers..."      | "[non-text content: toolCall]"     |
-| "✅ Tests passed!"                | "exec php tests returned 0"        |
+| "✅ Tests passed!"                | "php_exec returned 0"              |
 
 ---
 
@@ -572,26 +705,25 @@ curl -sf -X POST "http://localhost:3000/internal/skills/websites/register" \
 
 **When a user asks to run tests for a website:**
 
-1. **Use the `exec` tool** with the php command directly - this runs on the server, not the user's device:
-
-```bash
-php tests/run.php
-```
-
-2. **Set the workdir** to the website directory:
-
-```
-workdir: websites/{project-name}
-```
-
-**IMPORTANT:** Always use `exec` tool for PHP test commands, NOT `devices_run`. Tests run server-side where the PHP files are located.
-
-**Example exec call:**
+Use the `php_exec` tool - this runs PHP directly on the server in a sandboxed environment:
 
 ```json
 {
-  "command": "php tests/run.php",
-  "workdir": "websites/toko-krenz-kasir"
+  "script": "tests/run.php"
+}
+```
+
+**IMPORTANT:**
+
+- Use `php_exec` tool for PHP test commands, NOT `exec` or `devices_run`
+- Tests run server-side where the PHP files are located
+- The script path is relative to the workspace (websites/{project-name}/)
+
+**Example php_exec call for toko-krenz-kasir:**
+
+```json
+{
+  "script": "tests/run.php"
 }
 ```
 
@@ -2024,7 +2156,7 @@ Only after user replies with confirmation (go/yes/ok/proceed/build it/start), th
 │   PHASE 3: TEST (only after eval passes!)                      │
 │   ─────────────────────────────────────────────────             │
 │   10. WRITE test runner + TestCase + feature tests ─────────► │
-│   11. RUN TESTS: exec `php tests/run.php`                      │
+│   11. RUN TESTS: php_exec `tests/run.php`                      │
 │   12. ALL PASS? ────────── NO ──► Fix APP CODE, re-test        │
 │              │                                                  │
 │              YES                                                │
@@ -5078,19 +5210,15 @@ Every feature MUST have tests for:
 
 ### Running Tests
 
-After writing all code, ALWAYS run tests **from the website directory**:
+After writing all code, ALWAYS run tests using the `php_exec` tool:
 
-```bash
-# IMPORTANT: Set workdir to the website directory when running tests
-# Use the exec tool with workdir parameter:
-exec(command="php tests/run.php", workdir="/path/to/websites/{project-name}")
-
-# Example for toko-krenz-kasir:
-exec(command="php tests/run.php", workdir="websites/toko-krenz-kasir")
+```json
+// Use php_exec tool - script path is relative to workspace
+php_exec({ "script": "tests/run.php" })
 ```
 
-⚠️ **CRITICAL**: You MUST specify the `workdir` parameter pointing to the website directory.
-Without it, the command will fail because `tests/run.php` won't be found.
+⚠️ **CRITICAL**: Use `php_exec` tool for PHP execution. Do NOT use `exec` tool - it is blocked for subagents.
+The php_exec tool automatically runs in the workspace context (websites/{project-name}/).
 
 Expected output for PASSING tests:
 
