@@ -152,6 +152,47 @@ php_exec: script="websites/{project-name}/tests/run.php"
 php_exec: script="/app/openclaw/system-skills/website-builder/eval-runner.php", args=["websites/{project-name}", "--quiet"]
 ```
 
+Eval-runner now includes JavaScript syntax checking:
+
+- Validates standalone `.js` files in `assets/`
+- Extracts and validates inline `<script>` blocks from PHP files
+- Reports syntax errors with file paths and line numbers
+
+**6E. UI Smoke Test (if browser available)**:
+
+For production-ready apps, run UI smoke test to catch JavaScript runtime errors that syntax checking can't detect:
+
+```bash
+node /app/openclaw/system-skills/website-builder/ui-smoke-test.js websites/{project-name} --base-url=http://localhost:8080 --quiet
+```
+
+**What it checks:**
+
+- Page loads without HTTP errors
+- No JavaScript console errors
+- No uncaught JavaScript exceptions
+- Required DOM elements exist (forms, navigation, etc.)
+- AJAX data actually renders (not just received)
+
+**Smoke test failure examples:**
+
+- `console.log(undefindVariable)` → Runtime JS error caught
+- API returns data but JS fails to render it → DOM check fails
+- Button click handler throws error → Page error caught
+
+**When to run:**
+
+- After eval-runner passes
+- When app has client-side JavaScript rendering
+- When app makes AJAX calls to display data
+
+**If UI smoke test fails:**
+
+- Fix JavaScript errors in client-side code
+- Check AJAX response handling
+- Verify DOM selectors match actual elements
+- Re-run until it passes
+
 ### STEP 7: Handle verification results
 
 **If ALL verification passes** (tests pass + eval ready_to_run: true):
@@ -201,6 +242,437 @@ Preview: https://{project-name}.clawku.co"
 
 ---
 
+## 🔍 VERIFY EXISTING WEBAPP
+
+When user asks to **verify**, **check**, or **test** an existing webapp:
+
+**Trigger phrases:** "verify my app", "check toko-krenz", "test my website", "run tests on my app", "is my app working"
+
+### Verification Steps:
+
+**1. Find the webapp directory:**
+
+```
+glob: websites/{project-name}/**/*.php
+```
+
+If not found, check user's persona websites via API.
+
+**2. Run tests:**
+
+```
+php_exec: script="websites/{project-name}/tests/run.php"
+```
+
+**3. Run eval-runner (includes JS syntax check):**
+
+```
+php_exec: script="/app/openclaw/system-skills/website-builder/eval-runner.php", args=["websites/{project-name}", "--quiet"]
+```
+
+**4. Run UI smoke test (if browser available):**
+
+```bash
+node /app/openclaw/system-skills/website-builder/ui-smoke-test.js websites/{project-name} --base-url=https://{project-name}.clawku.co --quiet
+```
+
+**5. Report results to user:**
+
+- ✅ All checks pass → "Your app is healthy!"
+- ❌ Issues found → List specific failures with file:line references
+
+### Quick Verify (single command):
+
+If user just wants a quick check without full details:
+
+```
+php_exec: script="/app/openclaw/system-skills/website-builder/eval-runner.php", args=["websites/{project-name}", "--quiet"]
+```
+
+Parse JSON output and report `ready_to_run` status.
+
+---
+
+## 🎨 REFINE UI / IMPROVE DESIGN
+
+When user asks to **refine**, **improve**, **fix styling**, or **make UI better** on an existing webapp:
+
+**Trigger phrases:** "refine the UI", "improve the design", "make it look better", "fix the styling", "upgrade the look", "it looks too generic", "make it more professional"
+
+### UI Refinement Steps:
+
+**1. FIRST - Find the layout file (name varies by project!):**
+
+Layout files have different names. **Search for them, don't assume!**
+
+```
+glob: websites/{project-name}/views/layouts/*.php
+```
+
+Common layout file names:
+
+- `views/layouts/app.php` ← Most common
+- `views/layouts/main.php` ← Also common
+- `views/layouts/header.php` ← Sometimes used
+- `views/base.php` ← Simple apps
+
+**Read the layout file you find** to check what CSS framework is used.
+
+**2. Check current CSS framework in the layout file's `<head>`:**
+
+Look for these patterns:
+
+- `bootstrap` in CDN URL → Needs full migration to Tailwind + daisyUI
+- `tailwindcss.com` already present → Already migrated, just refine components/theme
+- No CSS framework → Add Tailwind + daisyUI
+
+**If already using Tailwind + daisyUI:**
+
+The app is ALREADY migrated! Check these refinement options:
+
+a) **Check the theme** - Is it appropriate for the app type?
+
+- POS/CRM/Admin → should be `corporate` or `business`
+- Shop/Restaurant → should be `cupcake` or `autumn`
+- SaaS/Portal → should be `winter` or `nord`
+
+b) **Look for leftover Bootstrap classes** in view files:
+
+- `form-control` → `input input-bordered`
+- `form-select` → `select select-bordered`
+- `btn-danger` → `btn-error`
+- `bg-light` → `bg-base-200`
+- `text-muted` → `text-base-content/60`
+
+c) **Check for generic labels** that should be domain-specific
+
+d) **If everything looks good** → Tell the user: "This app already uses Tailwind + daisyUI with the {theme} theme. What specific improvements would you like?"
+
+**Skip to step 4 if migration is already done.**
+
+---
+
+**3. Apply Clawku Design System (only if NOT already using Tailwind):**
+
+a) **Add Tailwind + daisyUI CDN** (if not present):
+
+```html
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css" rel="stylesheet" />
+```
+
+b) **Choose appropriate daisyUI theme** based on app type:
+| App Type | Theme |
+|----------|-------|
+| POS, CRM, Admin, Finance | `corporate` or `business` |
+| Shop, Restaurant, Booking | `cupcake` or `autumn` |
+| SaaS, Analytics, Portal | `winter` or `nord` |
+
+c) **Set theme on html element:**
+
+```html
+<html data-theme="corporate"></html>
+```
+
+**3. Migrate components to daisyUI:**
+
+| Old (Bootstrap/Plain)              | New (daisyUI)                                                |
+| ---------------------------------- | ------------------------------------------------------------ |
+| `<button class="btn btn-primary">` | `<button class="btn btn-primary">` (same but daisyUI styled) |
+| `<input class="form-control">`     | `<input class="input input-bordered w-full">`                |
+| `<select class="form-select">`     | `<select class="select select-bordered w-full">`             |
+| `<div class="card">`               | `<div class="card bg-base-100 shadow-sm">`                   |
+| `<table class="table">`            | `<table class="table table-zebra">`                          |
+| `<div class="modal">`              | `<dialog class="modal">`                                     |
+| `<div class="alert">`              | `<div class="alert alert-success">`                          |
+
+**4. Fix generic labels:**
+
+Replace AI-generic labels with domain-specific ones:
+
+```
+"Dashboard"      → "Sales Overview" / "Today's Orders"
+"Manage Items"   → "Products" / "Inventory" / "Menu"
+"Add New"        → "Add Product" / "New Order"
+"Submit"         → "Save Changes" / "Place Order"
+"Data"           → "Transactions" / "Customers"
+```
+
+**5. Apply layout pattern:**
+
+Check if app matches one of these patterns, apply if not:
+
+- `sidebar-workspace` - For multi-section admin/CRM
+- `topnav-operations` - For POS/cashier
+- `list-detail` - For tickets/contacts/orders
+
+**6. Fix common UI issues:**
+
+```
+❌ shadow-xl, shadow-2xl     → ✅ shadow-sm or shadow
+❌ rounded-3xl everywhere    → ✅ default daisyUI radius
+❌ Plain "No data" text      → ✅ Empty state with icon + CTA button
+❌ No loading states         → ✅ btn loading class
+❌ Silent form saves         → ✅ alert alert-success toast
+```
+
+**7. Run eval after changes:**
+
+```
+php_exec: script="/app/openclaw/system-skills/website-builder/eval-runner.php", args=["websites/{project-name}"]
+```
+
+---
+
+### 📋 BOOTSTRAP → daisyUI CLASS MAPPING (COMPLETE REFERENCE)
+
+**Use this mapping when migrating ANY app from Bootstrap to Tailwind + daisyUI.**
+
+#### Layout File Changes (app.php / main.php / header.php)
+
+**IMPORTANT:** Layout file names vary! Common names: `app.php`, `main.php`, `header.php`, `base.php`
+
+**In the layout file's `<head>`, FIND and REMOVE Bootstrap:**
+
+```html
+<link
+  href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
+  rel="stylesheet"
+/>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+```
+
+**REPLACE with Tailwind + daisyUI:**
+
+```html
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css" rel="stylesheet" />
+```
+
+**ADD `data-theme` to `<html>` tag:**
+
+```html
+<html data-theme="corporate"></html>
+```
+
+Theme options: `corporate`, `business`, `cupcake`, `autumn`, `winter`, `nord`
+
+#### Class Mapping Tables
+
+**BUTTONS:**
+| Bootstrap | daisyUI |
+|-----------|---------|
+| `btn btn-primary` | `btn btn-primary` |
+| `btn btn-secondary` | `btn btn-neutral` |
+| `btn btn-success` | `btn btn-success` |
+| `btn btn-danger` | `btn btn-error` |
+| `btn btn-warning` | `btn btn-warning` |
+| `btn btn-info` | `btn btn-info` |
+| `btn btn-light` | `btn btn-ghost` |
+| `btn btn-outline-primary` | `btn btn-outline btn-primary` |
+| `btn btn-outline-secondary` | `btn btn-outline` |
+| `btn btn-sm` | `btn btn-sm` |
+| `btn btn-lg` | `btn btn-lg` |
+| `btn-close` | `btn btn-sm btn-circle btn-ghost` |
+| `w-100` (on buttons) | `w-full` |
+
+**FORMS:**
+| Bootstrap | daisyUI |
+|-----------|---------|
+| `form-control` | `input input-bordered w-full` |
+| `form-control-sm` | `input input-bordered input-sm w-full` |
+| `form-control-lg` | `input input-bordered input-lg w-full` |
+| `form-select` | `select select-bordered w-full` |
+| `form-check` | `form-control` |
+| `form-check-input` (checkbox) | `checkbox` |
+| `form-check-input` (radio) | `radio` |
+| `form-check-label` | `label cursor-pointer` |
+| `form-label` | `label` > `span class="label-text"` |
+| `form-text` | `label` > `span class="label-text-alt"` |
+| `input-group` | `join` |
+| `input-group-text` | `btn btn-neutral join-item` |
+| `form-floating` | (use regular label above input) |
+| `is-invalid` | `input-error` |
+| `invalid-feedback` | `label` > `span class="label-text-alt text-error"` |
+
+**LAYOUT (Bootstrap Grid → Tailwind):**
+| Bootstrap | Tailwind |
+|-----------|----------|
+| `container` | `container mx-auto px-4` |
+| `container-fluid` | `w-full px-4` |
+| `row` | `flex flex-wrap -mx-2` or `grid grid-cols-12 gap-4` |
+| `col` | `flex-1 px-2` |
+| `col-6` | `w-1/2 px-2` or `col-span-6` |
+| `col-4` | `w-1/3 px-2` or `col-span-4` |
+| `col-3` | `w-1/4 px-2` or `col-span-3` |
+| `col-12` | `w-full px-2` or `col-span-12` |
+| `col-md-6` | `w-full md:w-1/2 px-2` |
+| `col-lg-4` | `w-full lg:w-1/3 px-2` |
+| `g-3` (gap) | `gap-3` |
+| `gx-3` | `gap-x-3` |
+| `gy-3` | `gap-y-3` |
+
+**FLEXBOX:**
+| Bootstrap | Tailwind |
+|-----------|----------|
+| `d-flex` | `flex` |
+| `d-none` | `hidden` |
+| `d-block` | `block` |
+| `d-inline` | `inline` |
+| `d-md-flex` | `md:flex` |
+| `flex-column` | `flex-col` |
+| `flex-row` | `flex-row` |
+| `flex-wrap` | `flex-wrap` |
+| `justify-content-start` | `justify-start` |
+| `justify-content-center` | `justify-center` |
+| `justify-content-end` | `justify-end` |
+| `justify-content-between` | `justify-between` |
+| `justify-content-around` | `justify-around` |
+| `align-items-start` | `items-start` |
+| `align-items-center` | `items-center` |
+| `align-items-end` | `items-end` |
+| `align-self-center` | `self-center` |
+
+**SPACING:**
+| Bootstrap | Tailwind |
+|-----------|----------|
+| `m-0` to `m-5` | `m-0` to `m-5` (same) |
+| `mt-3` | `mt-3` |
+| `mb-3` | `mb-3` |
+| `mx-auto` | `mx-auto` |
+| `p-0` to `p-5` | `p-0` to `p-5` (same) |
+| `py-3` | `py-3` |
+| `px-3` | `px-3` |
+
+**CARDS:**
+| Bootstrap | daisyUI |
+|-----------|---------|
+| `card` | `card bg-base-100 shadow-sm` |
+| `card-body` | `card-body` |
+| `card-title` | `card-title` |
+| `card-text` | `<p>` (no special class) |
+| `card-header` | `card-body border-b border-base-200` |
+| `card-footer` | `card-body border-t border-base-200` |
+| `card-img-top` | `figure` > `img` |
+
+**TABLES:**
+| Bootstrap | daisyUI |
+|-----------|---------|
+| `table` | `table` |
+| `table-striped` | `table table-zebra` |
+| `table-hover` | (add `hover` class to `<tr>`) |
+| `table-bordered` | `table` + `[&_th]:border [&_td]:border` |
+| `table-sm` | `table table-sm` |
+| `table-responsive` | wrap in `<div class="overflow-x-auto">` |
+| `thead-dark` | `bg-neutral text-neutral-content` on thead |
+| `thead-light` | `bg-base-200` on thead |
+
+**BADGES & ALERTS:**
+| Bootstrap | daisyUI |
+|-----------|---------|
+| `badge bg-primary` | `badge badge-primary` |
+| `badge bg-secondary` | `badge badge-neutral` |
+| `badge bg-success` | `badge badge-success` |
+| `badge bg-danger` | `badge badge-error` |
+| `badge bg-warning text-dark` | `badge badge-warning` |
+| `badge bg-info` | `badge badge-info` |
+| `badge rounded-pill` | `badge` (already rounded) |
+| `alert alert-success` | `alert alert-success` |
+| `alert alert-danger` | `alert alert-error` |
+| `alert alert-warning` | `alert alert-warning` |
+| `alert alert-info` | `alert alert-info` |
+| `alert-dismissible` | (add close button manually) |
+
+**MODALS:**
+| Bootstrap | daisyUI |
+|-----------|---------|
+| `<div class="modal fade">` | `<dialog class="modal">` |
+| `modal-dialog` | (not needed) |
+| `modal-dialog-centered` | `modal-middle` on dialog |
+| `modal-content` | `modal-box` |
+| `modal-header` | `<div class="flex justify-between items-center mb-4">` |
+| `modal-title` | `<h3 class="font-bold text-lg">` |
+| `modal-body` | (content directly in modal-box) |
+| `modal-footer` | `<div class="modal-action">` |
+| `data-bs-toggle="modal" data-bs-target="#id"` | `onclick="id.showModal()"` |
+| `data-bs-dismiss="modal"` | `<form method="dialog"><button class="btn">Close</button></form>` |
+
+**NAVBAR:**
+| Bootstrap | daisyUI |
+|-----------|---------|
+| `navbar` | `navbar bg-base-100` |
+| `navbar-brand` | `<a class="btn btn-ghost text-xl">` |
+| `navbar-nav` | `menu menu-horizontal px-1` |
+| `nav-item` | `<li>` |
+| `nav-link` | `<a>` (menu styles it) |
+| `nav-link active` | add `active` class |
+| `navbar-toggler` | `btn btn-ghost lg:hidden` |
+| `navbar-collapse` | (use drawer for mobile) |
+
+**TEXT & TYPOGRAPHY:**
+| Bootstrap | Tailwind |
+|-----------|----------|
+| `text-muted` | `text-base-content/60` |
+| `text-primary` | `text-primary` |
+| `text-success` | `text-success` |
+| `text-danger` | `text-error` |
+| `text-warning` | `text-warning` |
+| `text-center` | `text-center` |
+| `text-start` | `text-left` |
+| `text-end` | `text-right` |
+| `fw-bold` | `font-bold` |
+| `fw-semibold` | `font-semibold` |
+| `fw-normal` | `font-normal` |
+| `fw-light` | `font-light` |
+| `fs-1` to `fs-6` | `text-4xl`, `text-3xl`, `text-2xl`, `text-xl`, `text-lg`, `text-base` |
+| `small` | `text-sm` |
+| `lead` | `text-lg` |
+| `h1` to `h6` classes | `text-4xl font-bold` etc. |
+
+**BACKGROUNDS & BORDERS:**
+| Bootstrap | Tailwind / daisyUI |
+|-----------|----------|
+| `bg-primary` | `bg-primary text-primary-content` |
+| `bg-secondary` | `bg-neutral text-neutral-content` |
+| `bg-success` | `bg-success text-success-content` |
+| `bg-danger` | `bg-error text-error-content` |
+| `bg-warning` | `bg-warning text-warning-content` |
+| `bg-light` | `bg-base-200` |
+| `bg-dark` | `bg-neutral text-neutral-content` |
+| `bg-white` | `bg-base-100` |
+| `border` | `border border-base-200` |
+| `border-top` | `border-t` |
+| `border-bottom` | `border-b` |
+| `rounded` | `rounded` |
+| `rounded-pill` | `rounded-full` |
+| `rounded-circle` | `rounded-full` |
+| `shadow` | `shadow` |
+| `shadow-sm` | `shadow-sm` |
+| `shadow-lg` | `shadow-lg` |
+
+**UTILITIES:**
+| Bootstrap | Tailwind |
+|-----------|----------|
+| `w-100` | `w-full` |
+| `h-100` | `h-full` |
+| `w-50` | `w-1/2` |
+| `w-25` | `w-1/4` |
+| `mw-100` | `max-w-full` |
+| `vh-100` | `h-screen` |
+| `overflow-auto` | `overflow-auto` |
+| `overflow-hidden` | `overflow-hidden` |
+| `position-relative` | `relative` |
+| `position-absolute` | `absolute` |
+| `position-fixed` | `fixed` |
+| `top-0` | `top-0` |
+| `bottom-0` | `bottom-0` |
+| `start-0` | `left-0` |
+| `end-0` | `right-0` |
+| `visually-hidden` | `sr-only` |
+| `cursor-pointer` | `cursor-pointer` |
+
+---
+
 ## 🚨 CONTRACT VIOLATIONS = BUILD FAILS 🚨
 
 **These steps are NON-NEGOTIABLE. Skip ANY step = FAIL.**
@@ -212,7 +684,8 @@ Preview: https://{project-name}.clawku.co"
 | Path prefix      | All files use `websites/{project}/`      | Files created in wrong directory             |
 | **Supervision**  | Poll subagent + verify before announcing | **BROKEN APP ANNOUNCED - UNACCEPTABLE**      |
 | **Tests**        | Run `php_exec tests/run.php`             | **BROKEN APP DEPLOYED - UNACCEPTABLE**       |
-| **Eval-runner**  | Run eval-runner.php                      | **SECURITY VIOLATIONS MISSED**               |
+| **Eval-runner**  | Run eval-runner.php + JS syntax          | **SECURITY/SYNTAX VIOLATIONS MISSED**        |
+| **UI Smoke**     | Run ui-smoke-test.js (when available)    | **JS RUNTIME ERRORS SLIP THROUGH**           |
 | **Registration** | Call registration BEFORE announcing URL  | **User gets 404 - NEVER ANNOUNCE URL FIRST** |
 
 ### EXPLICIT FAILURE CONDITIONS:
@@ -431,24 +904,383 @@ If ANY checkbox is NO → YOU ARE NOT DONE. Keep building!
 - If user can't access something → MAKE IT ACCESSIBLE
 - Never tell user to do something YOU should do
 
-### 🎨 MANDATORY DESIGN QUALITY
+### 🎨 MANDATORY DESIGN QUALITY - CLAWKU DESIGN SYSTEM
 
-Your UI MUST look professional. Not "acceptable", not "basic" - PROFESSIONAL.
+Your UI MUST look professional and NOT like "generic AI-generated admin panel".
 
-**Visual Requirements:**
+**The goal:** Apps should look like **Clawku products**, not random template output.
 
-- Modern card-based layouts with shadows
-- Consistent color scheme (use CSS variables)
-- Proper spacing (min 1rem padding)
-- Rounded corners on cards, buttons, inputs
-- Hover states on interactive elements
-- Focus states on form inputs
-- Mobile-first responsive design
-- Touch-friendly targets (min 44px)
-- Loading states for async operations
-- Success/error feedback for user actions
+**Core Principles:**
 
-**If your UI looks like plain HTML from 1999, YOU FAILED.**
+- Clean, dense, modern - NOT toy-like or over-decorated
+- Soft radius, NOT giant rounded corners everywhere
+- Subtle shadows, NOT floating cards with dramatic shadows
+- Muted surfaces, strong content hierarchy
+- Domain-first labels, NOT generic "Dashboard", "Manage Items"
+- One primary accent only
+- Status colors used sparingly
+- Tables and forms should feel "operator-grade"
+- Empty states should be useful, not decorative
+
+**Theme Selection (CHOOSE ONE based on app type):**
+
+| Theme           | Best For                                     | Feel                                            |
+| --------------- | -------------------------------------------- | ----------------------------------------------- |
+| `operator`      | POS, inventory, CRM, finance, internal tools | Calm, efficient, serious, slightly dark-leaning |
+| `warm-commerce` | Shops, restaurants, booking, SMB back office | Human, local-business friendly, warmer          |
+| `modern-saas`   | Client portals, analytics, subscription apps | Polished, airy, modern startup                  |
+
+**Layout Selection (CHOOSE ONE based on app type):**
+
+| Layout              | Best For                                     | Structure                                       |
+| ------------------- | -------------------------------------------- | ----------------------------------------------- |
+| `sidebar-workspace` | Multi-section internal tools, admin, CRM/ERP | Left sidebar + top bar + content canvas         |
+| `topnav-operations` | POS, simple booking, inventory, cashier      | Top nav + action bar + main area + summary rail |
+| `list-detail`       | Tickets, contacts, orders, tasks             | Searchable list left + detail panel right       |
+
+**If your UI looks like plain HTML or generic Bootstrap template, YOU FAILED.**
+
+---
+
+#### CSS Framework: Tailwind CSS + daisyUI (No Build)
+
+Use Tailwind CSS + daisyUI via CDN for modern, non-generic styling. NO npm/bundler required.
+
+```html
+<!-- In header.php -->
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css" rel="stylesheet" />
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          // Custom theme colors (override per app type)
+        },
+      },
+    },
+    daisyui: {
+      themes: ["corporate", "business", "cupcake"], // Choose based on app type
+    },
+  };
+</script>
+<link rel="stylesheet" href="<?= asset('css/theme.css') ?>" />
+```
+
+**Why Tailwind + daisyUI:**
+
+- Utility-first = unique layouts, not template look
+- daisyUI components (btn, card, modal, table) are pre-styled but customizable
+- Built-in themes that look professional, not generic
+- Easy to override with custom CSS variables
+
+**daisyUI Theme Selection:**
+| App Type | daisyUI Theme | Feel |
+|----------|---------------|------|
+| POS, CRM, Finance | `corporate` or `business` | Professional, serious |
+| Shop, Restaurant, Booking | `cupcake` or `autumn` | Warm, friendly |
+| SaaS Portal, Analytics | `winter` or `nord` | Modern, clean |
+
+---
+
+#### Design Tokens (Use Tailwind's Built-in System)
+
+**Tailwind already has excellent spacing, sizing, and typography scales. Use them!**
+
+**Spacing (Tailwind classes):**
+
+```
+p-1 = 4px    | p-2 = 8px   | p-3 = 12px  | p-4 = 16px
+p-5 = 20px   | p-6 = 24px  | p-8 = 32px  | p-12 = 48px
+
+Use: p-4 (padding), m-4 (margin), gap-4 (flex/grid gap), space-y-4 (stack spacing)
+```
+
+**Common Spacing Patterns:**
+
+```html
+<!-- Card padding -->
+<div class="card-body p-4">
+  <!-- Section spacing -->
+  <section class="py-6 space-y-4">
+    <!-- Form field gaps -->
+    <form class="space-y-4">
+      <!-- Button groups -->
+      <div class="flex gap-2"></div>
+    </form>
+  </section>
+</div>
+```
+
+**Border Radius (Tailwind + daisyUI):**
+
+```
+rounded-sm = 2px   | rounded = 4px     | rounded-md = 6px
+rounded-lg = 8px   | rounded-xl = 12px | rounded-full = pill
+
+daisyUI components have sensible defaults - don't override unless needed
+```
+
+**Shadows (Keep subtle!):**
+
+```html
+<!-- GOOD: Subtle shadows -->
+<div class="card shadow-sm">
+  <!-- Barely visible lift -->
+  <div class="card shadow">
+    <!-- Light shadow -->
+
+    <!-- BAD: Dramatic shadows (avoid these) -->
+    <div class="card shadow-xl">
+      <!-- Too dramatic -->
+      <div class="card shadow-2xl"><!-- Way too much --></div>
+    </div>
+  </div>
+</div>
+```
+
+**Typography (Tailwind classes):**
+
+```html
+<h1 class="text-2xl font-bold">Page Title</h1>
+<h2 class="text-xl font-semibold">Section Header</h2>
+<h3 class="text-lg font-medium">Card Title</h3>
+<p class="text-base">Body text</p>
+<span class="text-sm text-base-content/60">Muted helper text</span>
+<span class="text-xs">Labels, captions</span>
+```
+
+---
+
+#### daisyUI Theme Mapping (Choose ONE based on app type)
+
+**🔧 Operator Apps** (POS, inventory, CRM, finance, internal tools):
+
+```html
+<!-- Use corporate or business theme -->
+<html data-theme="corporate">
+  <!-- OR for darker feel -->
+  <html data-theme="business"></html>
+</html>
+```
+
+- Clean blue primary, professional grays
+- Serious, efficient feel
+- Good for data-heavy interfaces
+
+**🛍️ Warm Commerce Apps** (Shops, restaurants, booking, SMB back office):
+
+```html
+<!-- Use cupcake or autumn theme -->
+<html data-theme="cupcake">
+  <!-- OR for warmer orange tones -->
+  <html data-theme="autumn"></html>
+</html>
+```
+
+- Warm, friendly colors
+- Approachable for small business owners
+- Less corporate, more human
+
+**✨ Modern SaaS Apps** (Client portals, analytics, subscription apps):
+
+```html
+<!-- Use winter or nord theme -->
+<html data-theme="winter">
+  <!-- OR for minimalist Scandinavian feel -->
+  <html data-theme="nord"></html>
+</html>
+```
+
+- Cool, modern aesthetic
+- Airy and clean
+- Good for dashboards and analytics
+
+**Preview themes:** https://daisyui.com/docs/themes/
+
+---
+
+#### Component Rules (Tailwind + daisyUI)
+
+**Buttons (use daisyUI btn classes):**
+
+```html
+<!-- Primary action -->
+<button class="btn btn-primary">Save Product</button>
+
+<!-- Secondary/outline -->
+<button class="btn btn-outline">Cancel</button>
+
+<!-- Ghost (minimal) -->
+<button class="btn btn-ghost">View Details</button>
+
+<!-- With loading state -->
+<button class="btn btn-primary loading">Saving...</button>
+
+<!-- Sizes -->
+<button class="btn btn-primary btn-sm">Small</button>
+<button class="btn btn-primary btn-lg">Large</button>
+```
+
+**Form Inputs (daisyUI input classes):**
+
+```html
+<input type="text" class="input input-bordered w-full" placeholder="Product name" />
+
+<!-- With label using form-control wrapper -->
+<label class="form-control w-full">
+  <div class="label"><span class="label-text">Product Name</span></div>
+  <input type="text" class="input input-bordered" placeholder="Enter name" />
+</label>
+
+<!-- Select -->
+<select class="select select-bordered w-full">
+  <option>Category</option>
+</select>
+```
+
+**Cards (daisyUI card):**
+
+```html
+<div class="card bg-base-100 shadow-sm border border-base-200">
+  <div class="card-body">
+    <h2 class="card-title">Product Details</h2>
+    <p>Card content here</p>
+    <div class="card-actions justify-end">
+      <button class="btn btn-primary btn-sm">Edit</button>
+    </div>
+  </div>
+</div>
+<!-- Keep shadows subtle: shadow-sm, NOT shadow-xl -->
+```
+
+**Tables (daisyUI table):**
+
+```html
+<div class="overflow-x-auto">
+  <table class="table table-zebra">
+    <thead>
+      <tr class="bg-base-200">
+        <th>Name</th>
+        <th>Price</th>
+        <th>Stock</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr class="hover">
+        <td>Product A</td>
+        <td>Rp 50.000</td>
+        <td><span class="badge badge-success">In Stock</span></td>
+        <td><button class="btn btn-ghost btn-sm">Edit</button></td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+```
+
+**Modals (daisyUI modal):**
+
+```html
+<dialog id="confirmModal" class="modal">
+  <div class="modal-box">
+    <h3 class="font-bold text-lg">Delete Product?</h3>
+    <p class="py-4">This action cannot be undone.</p>
+    <div class="modal-action">
+      <form method="dialog">
+        <button class="btn btn-ghost">Cancel</button>
+        <button class="btn btn-error">Delete</button>
+      </form>
+    </div>
+  </div>
+  <form method="dialog" class="modal-backdrop"><button>close</button></form>
+</dialog>
+
+<script>
+  document.getElementById("confirmModal").showModal();
+</script>
+```
+
+**Empty States:**
+
+```html
+<div class="text-center py-12 text-base-content/60">
+  <svg class="w-16 h-16 mx-auto mb-4 opacity-40"><!-- icon --></svg>
+  <h3 class="text-lg font-medium mb-2">No products yet</h3>
+  <p class="mb-4">Add your first product to get started</p>
+  <button class="btn btn-primary btn-sm">Add Product</button>
+</div>
+```
+
+**Alerts/Toasts (daisyUI alert):**
+
+```html
+<div class="alert alert-success">
+  <span>Product saved successfully!</span>
+</div>
+
+<div class="alert alert-error">
+  <span>Failed to save. Please try again.</span>
+</div>
+```
+
+---
+
+#### Content Style Rules (CRITICAL - Avoid Generic AI Labels)
+
+**BANNED Labels (Generic AI-generated feel):**
+
+```
+❌ "Dashboard"      → ✅ "Sales Overview" / "Today's Orders" / "Inventory Status"
+❌ "Manage Items"   → ✅ "Products" / "Menu Items" / "Inventory"
+❌ "Add New"        → ✅ "Add Product" / "New Order" / "Create Invoice"
+❌ "Submit"         → ✅ "Save Changes" / "Place Order" / "Send Invoice"
+❌ "Data"           → ✅ "Orders" / "Customers" / "Transactions"
+❌ "Details"        → ✅ "Order #1234" / "Customer: John Doe"
+❌ "Settings"       → ✅ "Store Settings" / "Account Preferences"
+```
+
+**Navigation should reflect domain:**
+
+```
+POS App:  Transactions | Products | Customers | Reports | Settings
+CRM App:  Contacts | Deals | Tasks | Reports | Settings
+Booking:  Reservations | Calendar | Customers | Settings
+```
+
+---
+
+#### Chart Library: Apache ECharts (Default)
+
+Use Apache ECharts for all data visualizations. It handles responsiveness and interactivity well.
+
+```html
+<!-- Include in pages with charts -->
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+```
+
+```javascript
+// Example: Sales chart with theme colors
+const chart = echarts.init(document.getElementById("salesChart"));
+chart.setOption({
+  color: [getComputedStyle(document.documentElement).getPropertyValue("--color-primary").trim()],
+  tooltip: { trigger: "axis" },
+  xAxis: { type: "category", data: labels },
+  yAxis: { type: "value" },
+  series: [{ type: "bar", data: values, barWidth: "60%" }],
+});
+
+// Responsive resize
+window.addEventListener("resize", () => chart.resize());
+```
+
+**Chart.js Alternative** (for simpler needs):
+
+```html
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+```
+
+---
 
 ### 🔒 QUALITY GATE - BEFORE ANNOUNCING COMPLETION
 
@@ -1883,76 +2715,115 @@ The app runs on a SUBPATH, not domain root. ROOT PATHS WILL BREAK EVERYTHING.
    - @media (min-width: 768px) for desktop enhancements
 ```
 
-### VISUAL DESIGN - MUST LOOK PROFESSIONAL
+### VISUAL DESIGN - CLAWKU DESIGN SYSTEM COMPLIANCE
+
+**Reference the MANDATORY DESIGN QUALITY section above for full design system.**
 
 ```
-❌ FORBIDDEN - UGLY UI = BUILD FAILURE:
+❌ FORBIDDEN - INSTANT FAIL:
    - Plain white backgrounds with no depth
-   - No shadows, no visual hierarchy
-   - Cramped spacing (less than 1rem)
-   - Generic unstyled forms (browser defaults)
-   - No color scheme (random colors)
-   - Flat buttons with no hover states
-   - Tables without borders or alternating rows
-   - No loading indicators
-   - No empty states ("No data" plain text)
-   - No feedback on actions (silent saves)
+   - Generic Bootstrap template look ("AI-generated admin panel")
+   - NOT using Tailwind + daisyUI (use the CDN setup from design system)
+   - Giant rounded corners everywhere (daisyUI defaults are fine)
+   - Dramatic floating shadows (use shadow-sm, NOT shadow-xl)
+   - Generic labels: "Dashboard", "Manage Items", "Add New", "Submit"
+   - Random colors (must use daisyUI theme consistently)
+   - Cramped spacing (use Tailwind spacing: p-4, gap-4, etc.)
+   - Browser default forms (must use daisyUI input/select classes)
+   - Tables without hover states or zebra stripes
+   - No empty states ("No data" plain text is lazy)
+   - No loading indicators for async operations
+   - No feedback on actions (silent saves are confusing)
 
-✅ REQUIRED - PROFESSIONAL QUALITY:
-   - Modern card-based layouts with shadows (box-shadow: 0 2px 8px rgba)
-   - Proper spacing (padding: 1.5rem+ on cards, 1rem on elements)
-   - Clear visual hierarchy (headings, sections, dividers)
-   - Styled form inputs with focus states (outline, border-color change)
-   - Cohesive color scheme with CSS variables (--primary, --secondary, etc)
-   - Rounded corners (border-radius: 8px+ on cards, 4px on inputs)
-   - Smooth transitions (transition: all 0.2s ease)
-   - Hover states on ALL clickable elements
-   - Active/pressed states on buttons
-   - Success messages (green toast/alert)
-   - Error messages (red toast/alert)
-   - Loading spinners for async operations
-   - Empty states with icons and helpful text
-   - Confirmation dialogs for destructive actions
+✅ REQUIRED - CLAWKU QUALITY:
+   - Use Tailwind CSS + daisyUI via CDN
+   - Choose appropriate daisyUI theme (corporate/business/cupcake/etc.)
+   - Use chosen layout pattern (sidebar-workspace/topnav-operations/list-detail)
+   - Domain-specific labels (not generic)
+   - Use daisyUI components: btn, card, input, select, table, modal, alert
+   - Grounded cards with subtle shadows (shadow-sm)
+   - Proper spacing with Tailwind utilities (p-4, m-2, gap-4)
+   - Hover states on ALL interactive elements (hover: class)
+   - Success/error alerts using daisyUI alert component
+   - Loading states using daisyUI loading class on buttons
+   - Useful empty states with icon + action button
+   - Confirmation dialogs using daisyUI modal
+   - Charts using ECharts with theme colors
 ```
 
-### 🎨 COLOR SCHEME - USE CSS VARIABLES
+### 🎨 COLOR SCHEME - daisyUI THEMES
 
-Every app MUST define and use these CSS variables:
+**Use daisyUI's built-in themes - they're well-designed and cohesive.**
 
-```css
-:root {
-  /* Primary brand color - used for buttons, links, accents */
-  --primary: #4f46e5; /* Indigo - professional, modern */
-  --primary-dark: #4338ca;
-  --primary-light: #818cf8;
+**Theme Selection by App Type:**
 
-  /* Secondary for less important actions */
-  --secondary: #64748b; /* Slate gray */
+| App Type                  | daisyUI Theme | Why                            |
+| ------------------------- | ------------- | ------------------------------ |
+| POS, CRM, Finance, Admin  | `corporate`   | Professional blue, clean grays |
+| Internal Tools, Inventory | `business`    | Serious, dark-friendly         |
+| Shop, Restaurant, Booking | `cupcake`     | Warm pinks, friendly           |
+| Cafe, Bakery, Lifestyle   | `autumn`      | Warm oranges, cozy             |
+| SaaS Portal, Analytics    | `winter`      | Cool, modern, airy             |
+| Tech Dashboard            | `nord`        | Minimalist, Scandinavian       |
 
-  /* Semantic colors */
-  --success: #10b981; /* Green for success */
-  --warning: #f59e0b; /* Amber for warnings */
-  --danger: #ef4444; /* Red for errors/delete */
-  --info: #3b82f6; /* Blue for info */
+**Configure in header.php:**
 
-  /* Backgrounds */
-  --bg: #f8fafc; /* Light gray page background */
-  --bg-card: #ffffff; /* White card background */
-  --bg-hover: #f1f5f9; /* Hover state background */
+```html
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css" rel="stylesheet" />
+```
 
-  /* Text */
-  --text: #1e293b; /* Dark slate for main text */
-  --text-muted: #64748b; /* Gray for secondary text */
+```html
+<!-- Set theme on html element -->
+<html data-theme="corporate"></html>
+```
 
-  /* Borders */
-  --border: #e2e8f0; /* Light border color */
-  --border-focus: var(--primary);
+**Custom Theme (if needed):**
 
-  /* Shadows */
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
-  --shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-  --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.1);
-}
+```html
+<script>
+  tailwind.config = {
+    daisyui: {
+      themes: [
+        {
+          clawku: {
+            primary: "#0052cc",
+            secondary: "#5e6c84",
+            accent: "#00875a",
+            neutral: "#172b4d",
+            "base-100": "#ffffff",
+            "base-200": "#f4f5f7",
+            "base-300": "#dfe1e6",
+            info: "#3b82f6",
+            success: "#00875a",
+            warning: "#ff991f",
+            error: "#de350b",
+          },
+        },
+      ],
+    },
+  };
+</script>
+<html data-theme="clawku"></html>
+```
+
+**Use daisyUI color classes:**
+
+```html
+<!-- Text colors -->
+<span class="text-primary">Primary text</span>
+<span class="text-base-content">Normal text</span>
+<span class="text-base-content/60">Muted text (60% opacity)</span>
+
+<!-- Background colors -->
+<div class="bg-base-100">Card background</div>
+<div class="bg-base-200">Page background</div>
+<div class="bg-primary text-primary-content">Primary button</div>
+
+<!-- Status colors -->
+<span class="badge badge-success">Active</span>
+<span class="badge badge-warning">Pending</span>
+<span class="badge badge-error">Failed</span>
 ```
 
 ---
@@ -2358,6 +3229,7 @@ php eval-runner.php /path/to/project --quiet
     "consistency": { "status": "pass", "checks": [...] },
     "framework_contract": { "status": "fail", "checks": [...] },
     "security": { "status": "pass", "checks": [...] },
+    "js_syntax": { "status": "pass", "checks": [...] },
     "runtime_smoke": { "status": "pass", "checks": [...] }
   },
   "missing_files": [],
@@ -2396,7 +3268,8 @@ The eval runner checks:
 - **Syntax**: PHP lint on all files, SQL migration structure
 - **Consistency**: Routes → controllers, controllers → views, models → tables
 - **Framework Contract**: No migrate on boot, no absolute URLs
-- **Security**: CSRF tokens, session regeneration, password_hash, validation
+- **Security**: CSRF tokens, session regeneration, password_hash, PHP sandbox violations
+- **JS Syntax**: JavaScript syntax validation (standalone .js files + inline scripts)
 - **Runtime Smoke**: Entry point parses, migrations exist
 
 **Manual checks (if needed):**

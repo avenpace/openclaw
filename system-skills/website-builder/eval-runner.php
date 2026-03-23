@@ -1134,6 +1134,180 @@ if (file_exists($validatorFile)) {
     ]);
 }
 
+// ============ JAVASCRIPT SYNTAX CHECK ============
+
+logMsg("\n📜 JAVASCRIPT SYNTAX CHECK\n");
+
+$jsFiles = [];
+$inlineJsErrors = [];
+
+// Find standalone JS files in assets/
+$assetsDir = "{$projectPath}/assets";
+if (is_dir($assetsDir)) {
+    $files = glob("{$assetsDir}/*.js");
+    foreach ($files as $file) {
+        $jsFiles[] = $file;
+    }
+    // Also check subdirectories
+    $subDirs = glob("{$assetsDir}/*", GLOB_ONLYDIR);
+    foreach ($subDirs as $subDir) {
+        $subFiles = glob("{$subDir}/*.js");
+        foreach ($subFiles as $file) {
+            $jsFiles[] = $file;
+        }
+    }
+}
+
+// Check standalone JS files with node --check
+$jsErrors = [];
+foreach ($jsFiles as $jsFile) {
+    $relativePath = str_replace($projectPath . '/', '', $jsFile);
+    $output = [];
+    $returnCode = 0;
+    exec("node --check " . escapeshellarg($jsFile) . " 2>&1", $output, $returnCode);
+
+    if ($returnCode !== 0) {
+        $errorMsg = implode("\n", $output);
+        $jsErrors[] = [
+            'file' => $relativePath,
+            'error' => $errorMsg,
+        ];
+        logMsg("  ✗ {$relativePath}: Syntax error\n");
+        logMsg("    " . str_replace("\n", "\n    ", $errorMsg) . "\n");
+    } else {
+        logMsg("  ✓ {$relativePath}\n");
+    }
+}
+
+// Extract and check inline JS from PHP/HTML files
+$viewsDir = "{$projectPath}/views";
+$phpFilesForJs = [];
+
+// Recursive function to collect PHP/HTML files
+$collectPhpFiles = function($dir, &$files) use (&$collectPhpFiles) {
+    if (!is_dir($dir)) return;
+    $entries = scandir($dir);
+    foreach ($entries as $entry) {
+        if ($entry === '.' || $entry === '..') continue;
+        $path = "{$dir}/{$entry}";
+        if (is_dir($path)) {
+            $collectPhpFiles($path, $files);
+        } elseif (preg_match('/\.(php|html)$/i', $entry)) {
+            $files[] = $path;
+        }
+    }
+};
+
+$collectPhpFiles($viewsDir, $phpFilesForJs);
+$collectPhpFiles($projectPath, $phpFilesForJs); // Also check root PHP files
+
+// Remove duplicates
+$phpFilesForJs = array_unique($phpFilesForJs);
+
+foreach ($phpFilesForJs as $phpFile) {
+    $content = file_get_contents($phpFile);
+    $relativePath = str_replace($projectPath . '/', '', $phpFile);
+
+    // Extract <script>...</script> blocks (not src imports)
+    // Use simpler regex: find all script tags, filter out src-based ones later
+    if (preg_match_all('/<script[^>]*>(.*?)<\/script>/is', $content, $matches, PREG_OFFSET_CAPTURE)) {
+        foreach ($matches[1] as $idx => $match) {
+            $jsContent = trim($match[0]);
+            if (strlen($jsContent) < 10) continue; // Skip tiny scripts
+
+            // Skip PHP-only scripts (e.g., just PHP opening/closing tags only)
+            if (preg_match('/^<[?]php.*[?]>/s', $jsContent)) continue;
+
+            // Write to temp file for syntax check
+            $tempFile = "/tmp/inline-js-" . md5($phpFile . $idx) . ".js";
+
+            // Strip PHP tags - replace with placeholders to preserve structure
+            $jsForCheck = preg_replace('/<[?](php)?.*?[?]>/is', '""', $jsContent);
+
+            file_put_contents($tempFile, $jsForCheck);
+
+            $output = [];
+            $returnCode = 0;
+            exec("node --check " . escapeshellarg($tempFile) . " 2>&1", $output, $returnCode);
+
+            if ($returnCode !== 0) {
+                $errorMsg = implode("\n", $output);
+                // Calculate line number in original file
+                $beforeScript = substr($content, 0, $match[1]);
+                $lineNum = substr_count($beforeScript, "\n") + 1;
+
+                $inlineJsErrors[] = [
+                    'file' => $relativePath,
+                    'line' => $lineNum,
+                    'error' => $errorMsg,
+                    'scriptIndex' => $idx,
+                ];
+                logMsg("  ✗ {$relativePath}:inline-script-{$idx} (line ~{$lineNum}): Syntax error\n");
+                logMsg("    " . str_replace("\n", "\n    ", $errorMsg) . "\n");
+            } else {
+                logMsg("  ✓ {$relativePath}:inline-script-{$idx}\n");
+            }
+
+            @unlink($tempFile);
+        }
+    }
+}
+
+// Report results
+$totalJsFiles = count($jsFiles);
+$totalInlineScripts = count($phpFilesForJs); // Approximate
+$totalJsErrors = count($jsErrors) + count($inlineJsErrors);
+
+if ($totalJsErrors > 0) {
+    logMsg("\n  ✗ {$totalJsErrors} JavaScript syntax error(s) found\n");
+
+    foreach ($jsErrors as $err) {
+        addCheck('js_syntax', [
+            'id' => 'JS_SYNTAX_' . strtoupper(str_replace(['/', '.', '-'], '_', $err['file'])),
+            'status' => 'fail',
+            'severity' => 'high',
+            'file' => $err['file'],
+            'message' => 'JavaScript syntax error',
+            'details' => ['error' => $err['error']],
+            'expected' => 'Valid JavaScript syntax',
+            'actual' => 'Syntax error detected',
+        ]);
+    }
+
+    foreach ($inlineJsErrors as $err) {
+        addCheck('js_syntax', [
+            'id' => 'JS_SYNTAX_INLINE_' . strtoupper(str_replace(['/', '.', '-'], '_', $err['file'])) . '_' . $err['scriptIndex'],
+            'status' => 'fail',
+            'severity' => 'high',
+            'file' => $err['file'] . ':line-' . $err['line'],
+            'message' => 'Inline JavaScript syntax error',
+            'details' => ['error' => $err['error'], 'line' => $err['line']],
+            'expected' => 'Valid JavaScript syntax',
+            'actual' => 'Syntax error in inline script',
+        ]);
+    }
+} else {
+    if ($totalJsFiles === 0 && count($phpFilesForJs) === 0) {
+        logMsg("  No JavaScript files found to check\n");
+    } else {
+        logMsg("\n  ✓ All JavaScript syntax checks passed\n");
+    }
+
+    addCheck('js_syntax', [
+        'id' => 'JS_SYNTAX_CLEAN',
+        'status' => 'pass',
+        'severity' => 'high',
+        'file' => '',
+        'message' => 'All JavaScript files have valid syntax',
+        'details' => [
+            'standalone_files' => $totalJsFiles,
+            'php_files_scanned' => count($phpFilesForJs),
+        ],
+        'expected' => 'Valid JavaScript',
+        'actual' => 'All syntax checks passed',
+    ]);
+}
+
 // ============ PHP SANDBOXING CHECKS ============
 
 logMsg("\n🔒 PHP SANDBOXING\n");
