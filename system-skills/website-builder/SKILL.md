@@ -74,12 +74,14 @@ DATABASE: databases/{project-name}/database.sqlite
 
 ```
 sessions_spawn({
-  task: "BUILD websites/{project-name}/ - Read websites/{project-name}/BUILD-SPEC.md first. CRITICAL: Every write MUST use prefix 'websites/{project-name}/' - Example: write('websites/{project-name}/index.php'). When done building ALL files, send 'BUILD_COMPLETE' to main agent via sessions_send.",
+  task: "BUILD websites/{project-name}/ - Read websites/{project-name}/BUILD-SPEC.md first. CRITICAL: Every write MUST use prefix 'websites/{project-name}/' - Example: write('websites/{project-name}/index.php'). When done building ALL files, find 'Requester session:' in your system prompt context, then call: sessions_send({ sessionKey: '<that-requester-session>', message: 'BUILD_COMPLETE: websites/{project-name}' })",
   mode: "session"
 })
 ```
 
 **Important**: Use `mode: "session"` (not "run") so you can poll status and send fix instructions.
+
+**Subagent completion**: The subagent's system prompt includes `Requester session: {your-session-key}`. When done, the subagent MUST call `sessions_send` with that session key to notify you.
 
 ### STEP 5: Notify user and START POLLING SUPERVISION
 

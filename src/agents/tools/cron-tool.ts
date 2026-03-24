@@ -3,6 +3,7 @@ import { loadConfig } from "../../config/config.js";
 import { loadSessionStore, resolveStorePath } from "../../config/sessions.js";
 import { normalizeCronJobCreate, normalizeCronJobPatch } from "../../cron/normalize.js";
 import type { CronDelivery, CronMessageChannel } from "../../cron/types.js";
+import { buildAgentMainSessionKey } from "../../routing/session-key.js";
 import { parseAgentSessionKey } from "../../sessions/session-key-utils.js";
 import { extractTextFromChatContent } from "../../shared/chat-content.js";
 import { isRecord, truncateUtf16Safe } from "../../utils.js";
@@ -457,6 +458,25 @@ Use jobId as the canonical identifier; id is accepted for compatibility. Use con
               : undefined;
             if (agentId) {
               (job as { agentId?: string }).agentId = agentId;
+            }
+          }
+
+          // Set sessionKey for main-target jobs (systemEvent) so the cron system
+          // knows which session to route the system event to when the job fires.
+          // Without this, main-target cron jobs may fail to wake the correct session.
+          if (job && typeof job === "object" && opts?.agentSessionKey && !("sessionKey" in job)) {
+            const jobPayload = (job as { payload?: { kind?: string } }).payload;
+            const payloadKindForSessionKey = jobPayload?.kind;
+            // systemEvent payload defaults to sessionTarget="main", which needs sessionKey
+            if (payloadKindForSessionKey === "systemEvent") {
+              const cfg = loadConfig();
+              const agentId =
+                (job as { agentId?: string }).agentId ??
+                resolveSessionAgentId({ sessionKey: opts.agentSessionKey, config: cfg });
+              if (agentId) {
+                const mainSessionKey = buildAgentMainSessionKey({ agentId });
+                (job as { sessionKey?: string }).sessionKey = mainSessionKey;
+              }
             }
           }
 
