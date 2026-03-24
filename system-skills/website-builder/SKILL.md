@@ -1100,6 +1100,8 @@ daisyUI components have sensible defaults - don't override unless needed
 
 **Preview themes:** https://daisyui.com/docs/themes/
 
+**Full theme configurations:** See `/app/openclaw/system-skills/website-builder/daisyui-themes.css` for complete oklch color definitions of all 24 official daisyUI themes.
+
 ---
 
 #### Component Rules (Tailwind + daisyUI)
