@@ -359,8 +359,8 @@ d) **If everything looks good** → Tell the user: "This app already uses Tailwi
 a) **Add Tailwind + daisyUI CDN** (if not present):
 
 ```html
-<script src="https://cdn.tailwindcss.com"></script>
-<link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css" rel="stylesheet" />
+<link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css" />
+<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
 ```
 
 b) **Choose appropriate daisyUI theme** based on app type:
@@ -447,8 +447,8 @@ php_exec: script="/app/openclaw/system-skills/website-builder/eval-runner.php", 
 **REPLACE with Tailwind + daisyUI:**
 
 ```html
-<script src="https://cdn.tailwindcss.com"></script>
-<link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css" rel="stylesheet" />
+<link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css" />
+<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
 ```
 
 **ADD `data-theme` to `<html>` tag:**
@@ -944,30 +944,22 @@ Your UI MUST look professional and NOT like "generic AI-generated admin panel".
 
 ---
 
-#### CSS Framework: Tailwind CSS + daisyUI (No Build)
+#### CSS Framework: Tailwind CSS 4 + daisyUI 5 (No Build)
 
 Use Tailwind CSS + daisyUI via CDN for modern, non-generic styling. NO npm/bundler required.
 
+**Full Reference:** `/app/openclaw/system-skills/website-builder/daisyui-reference.md` - Complete component docs with class names, syntax, and rules.
+
 ```html
 <!-- In header.php -->
-<script src="https://cdn.tailwindcss.com"></script>
-<link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css" rel="stylesheet" />
-<script>
-  tailwind.config = {
-    theme: {
-      extend: {
-        colors: {
-          // Custom theme colors (override per app type)
-        },
-      },
-    },
-    daisyui: {
-      themes: ["corporate", "business", "cupcake"], // Choose based on app type
-    },
-  };
-</script>
+<link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css" />
+<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
 <link rel="stylesheet" href="<?= asset('css/theme.css') ?>" />
 ```
+
+**Note:** daisyUI 5 + Tailwind CSS 4 uses CSS-based configuration. All 29 built-in themes are included in the CDN. Set theme via `data-theme` attribute on `<html>` element.
+
+**Available themes:** light, dark, cupcake, bumblebee, emerald, corporate, synthwave, retro, cyberpunk, valentine, halloween, garden, forest, aqua, lofi, pastel, fantasy, wireframe, black, luxury, dracula, cmyk, autumn, business, acid, lemonade, night, coffee, winter, dim, nord, sunset
 
 **Why Tailwind + daisyUI:**
 
@@ -1100,7 +1092,9 @@ daisyUI components have sensible defaults - don't override unless needed
 
 **Preview themes:** https://daisyui.com/docs/themes/
 
-**Full theme configurations:** See `/app/openclaw/system-skills/website-builder/daisyui-themes.css` for complete oklch color definitions of all 24 official daisyUI themes.
+**Component reference:** See `/app/openclaw/system-skills/website-builder/daisyui-reference.md` for complete daisyUI 5 component documentation with class names, syntax, and usage rules.
+
+**Theme configurations:** See `/app/openclaw/system-skills/website-builder/daisyui-themes.css` for complete oklch color definitions of all 24 official daisyUI themes.
 
 ---
 
@@ -2773,8 +2767,8 @@ The app runs on a SUBPATH, not domain root. ROOT PATHS WILL BREAK EVERYTHING.
 **Configure in header.php:**
 
 ```html
-<script src="https://cdn.tailwindcss.com"></script>
-<link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css" rel="stylesheet" />
+<link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css" />
+<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
 ```
 
 ```html
