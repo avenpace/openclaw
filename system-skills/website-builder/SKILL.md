@@ -83,41 +83,40 @@ sessions_spawn({
 
 **Subagent completion**: The subagent's system prompt includes `Requester session: {your-session-key}`. When done, the subagent MUST call `sessions_send` with that session key to notify you.
 
-### STEP 5: Notify user and START POLLING SUPERVISION
+### STEP 5: BUILD MONITORING (AUTOMATIC - NO ACTION REQUIRED)
 
-Tell user: "🔨 Building in background. I'll verify and let you know when it's ready."
+✅ **Build supervision is AUTOMATIC** - the platform registers builds via the eval endpoint.
 
-**POLLING SUPERVISION LOOP** (Level 3 - Trust but Verify):
+When the subagent calls the eval endpoint to validate code, the platform automatically:
 
-**5A. Store supervision state in MEMORY.md**:
+- ✅ Registers the build for supervision
+- ✅ Tracks eval heartbeats
+- ✅ Monitors build progress
+- ✅ Auto-completes when eval passes
 
-```
-edit MEMORY.md to append:
+**No manual registration needed!** The old curl registration is deprecated.
 
-## 🔨 ACTIVE BUILD SUPERVISION
-- Project: websites/{project-name}
-- SubagentKey: {subagent-session-key from spawn result}
-- Phase: POLLING
-- StartedAt: {ISO timestamp}
-- MaxRetries: 3
-- CurrentRetry: 0
-```
-
-**5B. Schedule polling check in 1 minute**:
+**5A. Tell user build started:**
 
 ```
-cron add schedule="in 1 minute" text="CHECK_BUILD: websites/{project-name}"
+"🔨 Building in background. Platform is monitoring the build - I'll verify and let you know when it's ready."
 ```
 
-**5C. On each polling wake (cron fires)**:
+**5B. Wait for notification from supervision service OR subagent BUILD_COMPLETE:**
 
-1. Read MEMORY.md to get subagent session key and phase
-2. Use `sessions_list` to check if subagent is still active
-3. Use `sessions_send` to ask subagent: "Status report - are you done?"
-4. Check subagent's last message:
-   - If contains "BUILD_COMPLETE" → proceed to STEP 6 (VERIFICATION)
-   - If subagent still working → schedule another poll: `cron add schedule="in 1 minute" text="CHECK_BUILD: websites/{project-name}"`
-   - If subagent error/timeout → report failure to user
+The platform will send you one of:
+
+- `BUILD_COMPLETE: websites/{project-name}` from subagent → proceed to STEP 6
+- `[BUILD SUPERVISION] Subagent stopped unexpectedly...` → handle failure/retry
+- `[BUILD TIMEOUT] Build exceeded timeout...` → notify user of failure
+
+**5C. Schedule a backup check (in case supervision misses something):**
+
+```
+cron add schedule="in 5 minutes" text="CHECK_BUILD_BACKUP: websites/{project-name}"
+```
+
+On this cron wake, check if build completed. If not, investigate manually.
 
 ### STEP 6: VERIFICATION (Trust but Verify - DO NOT SKIP)
 
@@ -679,16 +678,16 @@ Theme options: `corporate`, `business`, `cupcake`, `autumn`, `winter`, `nord`
 
 **These steps are NON-NEGOTIABLE. Skip ANY step = FAIL.**
 
-| Step             | Requirement                              | Skip = FAILURE                               |
-| ---------------- | ---------------------------------------- | -------------------------------------------- |
-| Planning mode    | Present plan, WAIT for "go"              | User gets unexpected app                     |
-| BUILD-SPEC.md    | Write spec with explicit paths           | Subagent writes to wrong location            |
-| Path prefix      | All files use `websites/{project}/`      | Files created in wrong directory             |
-| **Supervision**  | Poll subagent + verify before announcing | **BROKEN APP ANNOUNCED - UNACCEPTABLE**      |
-| **Tests**        | Run `php_exec tests/run.php`             | **BROKEN APP DEPLOYED - UNACCEPTABLE**       |
-| **Eval-runner**  | Run eval-runner.php + JS syntax          | **SECURITY/SYNTAX VIOLATIONS MISSED**        |
-| **UI Smoke**     | Run ui-smoke-test.js (when available)    | **JS RUNTIME ERRORS SLIP THROUGH**           |
-| **Registration** | Call registration BEFORE announcing URL  | **User gets 404 - NEVER ANNOUNCE URL FIRST** |
+| Step             | Requirement                           | Skip = FAILURE                         |
+| ---------------- | ------------------------------------- | -------------------------------------- |
+| Planning mode    | Present plan, WAIT for "go"           | User gets unexpected app               |
+| BUILD-SPEC.md    | Write spec with explicit paths        | Subagent writes to wrong location      |
+| Path prefix      | All files use `websites/{project}/`   | Files created in wrong directory       |
+| **Supervision**  | (Automatic via eval heartbeat)        | Built-in via platform                  |
+| **Tests**        | Run `php_exec tests/run.php`          | **BROKEN APP DEPLOYED - UNACCEPTABLE** |
+| **Eval-runner**  | Run eval-runner.php + JS syntax       | **SECURITY/SYNTAX VIOLATIONS MISSED**  |
+| **UI Smoke**     | Run ui-smoke-test.js (when available) | **JS RUNTIME ERRORS SLIP THROUGH**     |
+| **Registration** | (Automatic when eval passes)          | Built-in via platform                  |
 
 ### EXPLICIT FAILURE CONDITIONS:
 
@@ -697,10 +696,9 @@ Theme options: `corporate`, `business`, `cupcake`, `autumn`, `winter`, `nord`
 3. **Tests fail** → Fix and re-run, max 3 attempts. If still failing, report failure to user
 4. **Eval-runner not run** → You MUST run eval-runner after tests pass
 5. **Eval-runner fails** → Fix violations and re-run, max 3 attempts
-6. **URL announced before registration** → **VIOLATION** - user will get 404
-7. **Registration fails** → Debug and retry, do NOT announce URL until registration succeeds
-8. **Trusting subagent blindly** → **VIOLATION** - always verify with tests + eval before announcing
-9. **Announcing before verification** → **VIOLATION** - subagent claims mean nothing without proof
+6. **Trusting subagent blindly** → **VIOLATION** - always verify with tests + eval before announcing
+7. **Announcing before verification** → **VIOLATION** - subagent claims mean nothing without proof
+8. **Ignoring [BUILD SUPERVISION] messages** → **VIOLATION** - platform is telling you something is wrong
 
 ---
 
@@ -1300,7 +1298,7 @@ You MUST verify ALL of these before saying "your app is ready":
 □ Unit tests pass (`php tests/run.php`)
 □ PHP LINT passes - ALL .php files have no syntax errors
 □ SMOKE TEST passes - App loads without 500 error
-□ Website registered (curl to /internal/skills/websites/register)
+□ Website registered (automatic via eval - no action needed)
 ```
 
 **If ANY item fails → DO NOT announce completion. Fix it first.**
@@ -1476,36 +1474,17 @@ Tool result: {"status": "ok"} - Created ProductModel
 
 ---
 
-# 🔑 MANDATORY REGISTRATION (Before Announcing Completion)
+# 🔑 REGISTRATION IS AUTOMATIC
 
-**You MUST register the website BEFORE announcing the URL to the user!**
+✅ **Website registration is now AUTOMATIC** - no manual registration needed!
 
-Call the internal registration endpoint:
+When you call the eval endpoint to validate the website, the platform automatically:
 
-```bash
-curl -sf -X POST "http://localhost:3000/internal/skills/websites/register" \
-  -H "Content-Type: application/json" \
-  -d '{"project": "PROJECT_NAME"}'
-```
+- Registers the website for subdomain access
+- Tracks the build via heartbeat
+- Marks the build complete when eval passes
 
-Replace `PROJECT_NAME` with the actual project name (e.g., `my-awesome-site`).
-
-Example:
-
-```bash
-curl -sf -X POST "http://localhost:3000/internal/skills/websites/register" \
-  -H "Content-Type: application/json" \
-  -d '{"project": "toko-krenz-kasir"}'
-```
-
-This creates the database record that enables subdomain access. **Without this step, users will get 404 errors!**
-
-The endpoint:
-
-- Automatically finds the userId from the project name
-- Validates project name (alphanumeric, hyphens, underscores only)
-- No auth required (only registers websites that exist on filesystem)
-- Must be called AFTER all files are created but BEFORE announcing completion
+**Simply announce the URL after eval passes** - the website is already registered.
 
 ---
 
@@ -1515,19 +1494,9 @@ The endpoint:
 
 1. **Check if the website directory exists** using the `read` tool on `websites/{project-name}/index.php`
 
-2. **If the directory exists but shows 404**, the website isn't registered. Run:
+2. **If the directory exists**, it should be registered automatically. Try accessing `https://{project-name}.clawku.co` again.
 
-```bash
-curl -sf -X POST "http://localhost:3000/internal/skills/websites/register" \
-  -H "Content-Type: application/json" \
-  -d '{"project": "PROJECT_NAME"}'
-```
-
-3. **Use the `exec` tool** to run the curl command directly - this runs on the server, not the user's device.
-
-4. **After successful registration**, the website will be accessible at `https://{project-name}.clawku.co`
-
-**IMPORTANT:** Always use `exec` tool for the curl command, NOT `devices_run`. The registration endpoint only accepts requests from localhost (server-side).
+3. **For legacy websites** (built before auto-registration), manual registration may be needed but this is rare.
 
 ---
 
@@ -3573,17 +3542,11 @@ If `ready_to_run = false`:
 
 Run eval again on repaired code.
 
-### Stage 6: REGISTER & COMPLETE
+### Stage 6: COMPLETE
 
 **The website is now ready!**
 
-**BEFORE announcing the URL**, register the website:
-
-```bash
-./register-website.sh {project-name} {user-id}
-```
-
-Then announce the URL to the user:
+Registration is automatic when eval passes. Simply announce the URL to the user:
 
 ```
 ✅ Your website is ready!
@@ -3760,18 +3723,17 @@ When generating or repairing, use this format:
 ### CORRECT PATTERN
 
 ```
-✅ write(file1) → eval(incomplete) → write(file2) → ... → write(fileN) → eval(complete) → register → reply(URL)
+✅ write(file1) → eval(incomplete) → write(file2) → ... → write(fileN) → eval(complete) → reply(URL)
 ```
 
-**Registration required!** After all files are written and eval passes, run `./register-website.sh {project} {userId}` before announcing the URL.
+**Registration is automatic!** When eval passes, the website is automatically registered. Just announce the URL.
 
 ### RESPONSE FORMAT
 
 1. **FIRST**: Call `write` tool immediately (no text before it)
 2. **EVAL**: After each write, check if more files needed
 3. **LOOP**: Keep calling `write` until ALL files exist
-4. **REGISTER**: Run `./register-website.sh {project} {userId}`
-5. **LAST**: Only reply with URL after registration succeeds
+4. **LAST**: Reply with URL after eval passes (registration is automatic)
 
 ---
 
@@ -3811,6 +3773,9 @@ websites/{project}/
 ├── index.php                   # Front controller (entry point) - REQUIRED!
 ├── migrate.php                 # CLI migration runner - REQUIRED!
 ├── manifest.json               # Generation contract (entities, routes, pages)
+├── README.md                   # Project documentation - REQUIRED!
+├── LICENSE                     # Apache 2.0 license - REQUIRED!
+├── .gitignore                  # Git ignore file - REQUIRED!
 ├── assets/                     # Static assets (CSS, JS, images) - AT ROOT!
 │   └── style.css               # Main stylesheet - REQUIRED!
 ├── app/
@@ -3861,6 +3826,254 @@ websites/{project}/
     ├── AuthTest.php            # Auth tests
     ├── {Entity}Test.php        # Entity CRUD tests
     └── ApiTest.php             # Agent API tests
+```
+
+**📄 README.md (REQUIRED)**
+
+Every project MUST have a README.md with:
+
+```markdown
+# {Project Name}
+
+{Brief description of what this webapp does}
+
+## Features
+
+- Feature 1
+- Feature 2
+- ...
+
+## Default Credentials
+
+| Role  | Email              | Password                |
+| ----- | ------------------ | ----------------------- |
+| Admin | admin@{domain}.com | (change on first login) |
+| User  | user@{domain}.com  | (change on first login) |
+
+## Tech Stack
+
+- PHP 8.x (no framework, custom MVC)
+- SQLite database
+- Tailwind CSS + daisyUI
+- Alpine.js
+
+## Development
+
+### Local Setup
+
+1. Clone this repository
+2. Run `php -S localhost:8000` in the project root
+3. Open http://localhost:8000
+
+### Database
+
+Database is stored at `data/database.sqlite` (auto-created on first run).
+
+## License
+
+Apache License 2.0 - see LICENSE file.
+
+---
+
+Built with [Clawku](https://clawku.ai) AI Website Builder
+```
+
+**📜 LICENSE (REQUIRED - Apache 2.0)**
+
+Every project MUST have a LICENSE file with Apache 2.0:
+
+```
+                                 Apache License
+                           Version 2.0, January 2004
+                        http://www.apache.org/licenses/
+
+   TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
+
+   1. Definitions.
+
+      "License" shall mean the terms and conditions for use, reproduction,
+      and distribution as defined by Sections 1 through 9 of this document.
+
+      "Licensor" shall mean the copyright owner or entity authorized by
+      the copyright owner that is granting the License.
+
+      "Legal Entity" shall mean the union of the acting entity and all
+      other entities that control, are controlled by, or are under common
+      control with that entity. For the purposes of this definition,
+      "control" means (i) the power, direct or indirect, to cause the
+      direction or management of such entity, whether by contract or
+      otherwise, or (ii) ownership of fifty percent (50%) or more of the
+      outstanding shares, or (iii) beneficial ownership of such entity.
+
+      "You" (or "Your") shall mean an individual or Legal Entity
+      exercising permissions granted by this License.
+
+      "Source" form shall mean the preferred form for making modifications,
+      including but not limited to software source code, documentation
+      source, and configuration files.
+
+      "Object" form shall mean any form resulting from mechanical
+      transformation or translation of a Source form, including but
+      not limited to compiled object code, generated documentation,
+      and conversions to other media types.
+
+      "Work" shall mean the work of authorship, whether in Source or
+      Object form, made available under the License, as indicated by a
+      copyright notice that is included in or attached to the work.
+
+      "Derivative Works" shall mean any work, whether in Source or Object
+      form, that is based on (or derived from) the Work and for which the
+      editorial revisions, annotations, elaborations, or other modifications
+      represent, as a whole, an original work of authorship.
+
+      "Contribution" shall mean any work of authorship, including
+      the original version of the Work and any modifications or additions
+      to that Work or Derivative Works thereof, that is intentionally
+      submitted to the Licensor for inclusion in the Work by the copyright
+      owner or by an individual or Legal Entity authorized to submit on
+      behalf of the copyright owner.
+
+      "Contributor" shall mean Licensor and any individual or Legal Entity
+      on behalf of whom a Contribution has been received by Licensor and
+      subsequently incorporated within the Work.
+
+   2. Grant of Copyright License. Subject to the terms and conditions of
+      this License, each Contributor hereby grants to You a perpetual,
+      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
+      copyright license to reproduce, prepare Derivative Works of,
+      publicly display, publicly perform, sublicense, and distribute the
+      Work and such Derivative Works in Source or Object form.
+
+   3. Grant of Patent License. Subject to the terms and conditions of
+      this License, each Contributor hereby grants to You a perpetual,
+      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
+      (except as stated in this section) patent license to make, have made,
+      use, offer to sell, sell, import, and otherwise transfer the Work,
+      where such license applies only to those patent claims licensable
+      by such Contributor that are necessarily infringed by their
+      Contribution(s) alone or by combination of their Contribution(s)
+      with the Work to which such Contribution(s) was submitted.
+
+   4. Redistribution. You may reproduce and distribute copies of the
+      Work or Derivative Works thereof in any medium, with or without
+      modifications, and in Source or Object form, provided that You
+      meet the following conditions:
+
+      (a) You must give any other recipients of the Work or
+          Derivative Works a copy of this License; and
+
+      (b) You must cause any modified files to carry prominent notices
+          stating that You changed the files; and
+
+      (c) You must retain, in the Source form of any Derivative Works
+          that You distribute, all copyright, patent, trademark, and
+          attribution notices from the Source form of the Work,
+          excluding those notices that do not pertain to any part of
+          the Derivative Works; and
+
+      (d) If the Work includes a "NOTICE" text file as part of its
+          distribution, then any Derivative Works that You distribute must
+          include a readable copy of the attribution notices contained
+          within such NOTICE file, excluding those notices that do not
+          pertain to any part of the Derivative Works, in at least one
+          of the following places: within a NOTICE text file distributed
+          as part of the Derivative Works; within the Source form or
+          documentation, if provided along with the Derivative Works; or,
+          within a display generated by the Derivative Works, if and
+          wherever such third-party notices normally appear.
+
+      You may add Your own attribution notices within Derivative Works
+      that You distribute, alongside or as an addendum to the NOTICE text
+      from the Work, provided that such additional attribution notices
+      cannot be construed as modifying the License.
+
+   5. Submission of Contributions. Unless You explicitly state otherwise,
+      any Contribution intentionally submitted for inclusion in the Work
+      by You to the Licensor shall be under the terms and conditions of
+      this License, without any additional terms or conditions.
+
+   6. Trademarks. This License does not grant permission to use the trade
+      names, trademarks, service marks, or product names of the Licensor,
+      except as required for reasonable and customary use in describing the
+      origin of the Work and reproducing the content of the NOTICE file.
+
+   7. Disclaimer of Warranty. Unless required by applicable law or
+      agreed to in writing, Licensor provides the Work (and each
+      Contributor provides its Contributions) on an "AS IS" BASIS,
+      WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+      implied, including, without limitation, any warranties or conditions
+      of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A
+      PARTICULAR PURPOSE.
+
+   8. Limitation of Liability. In no event and under no legal theory,
+      whether in tort (including negligence), contract, or otherwise,
+      unless required by applicable law (such as deliberate and grossly
+      negligent acts) or agreed to in writing, shall any Contributor be
+      liable to You for damages, including any direct, indirect, special,
+      incidental, or consequential damages of any kind arising as a
+      result of this License or out of the use or inability to use the
+      Work (including but not limited to damages for loss of goodwill,
+      work stoppage, computer failure or malfunction, or any and all
+      other commercial damages or losses), even if such Contributor
+      has been advised of the possibility of such damages.
+
+   9. Accepting Warranty or Additional Liability. While redistributing
+      the Work or Derivative Works thereof, You may choose to offer,
+      and charge a fee for, acceptance of support, warranty, indemnity,
+      or other liability obligations and/or rights consistent with this
+      License.
+
+   END OF TERMS AND CONDITIONS
+
+   Copyright {YEAR} {PROJECT_NAME}
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+```
+
+Replace `{YEAR}` with current year and `{PROJECT_NAME}` with the project name.
+
+**📝 .gitignore (REQUIRED)**
+
+Every project MUST have a .gitignore:
+
+```
+# Dependencies
+/vendor/
+/node_modules/
+
+# Local database (use cloud-storage/databases/ in production)
+/data/*.sqlite
+/data/*.db
+
+# Cache and logs
+/cache/*
+!/cache/.gitkeep
+*.log
+
+# Environment
+.env
+.env.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Build artifacts
+/dist/
+/build/
 ```
 
 **📦 DATABASE LOCATION (SECURITY)**
