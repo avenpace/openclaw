@@ -349,11 +349,12 @@ export async function saveMediaBuffer(
   subdir = "inbound",
   maxBytes = MAX_BYTES,
   originalFilename?: string,
+  rootDir?: string,
 ): Promise<SavedMedia> {
   if (buffer.byteLength > maxBytes) {
     throw new Error(`Media exceeds ${(maxBytes / (1024 * 1024)).toFixed(0)}MB limit`);
   }
-  const dir = path.join(resolveMediaDir(), subdir);
+  const dir = path.join(rootDir ?? resolveMediaDir(), subdir);
   await fs.mkdir(dir, { recursive: true, mode: 0o700 });
   const uuid = crypto.randomUUID();
   const headerExt = extensionForMime(contentType?.split(";")[0]?.trim() ?? undefined);

@@ -44,6 +44,8 @@ export async function monitorWebInbox(options: {
   groupAllowFrom?: string[];
   /** Override groups config - bypasses config resolution. */
   groups?: Record<string, { requireMention?: boolean }>;
+  /** Override root directory for saving inbound media (tenant isolation). */
+  mediaRootDir?: string;
 }) {
   const inboundLogger = getChildLogger({ module: "web-inbound" });
   const inboundConsoleLog = createSubsystemLogger("gateway/channels/whatsapp").child("inbound");
@@ -310,6 +312,7 @@ export async function monitorWebInbox(options: {
           "inbound",
           maxBytes,
           inboundMedia.fileName,
+          options.mediaRootDir,
         );
         mediaPath = saved.path;
         mediaType = inboundMedia.mimetype;
