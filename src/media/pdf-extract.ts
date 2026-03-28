@@ -18,12 +18,21 @@ async function loadCanvasModule(): Promise<CanvasModule> {
 
 async function loadPdfJsModule(): Promise<PdfJsModule> {
   if (!pdfJsModulePromise) {
-    pdfJsModulePromise = import("pdfjs-dist/legacy/build/pdf.mjs").catch((err) => {
-      pdfJsModulePromise = null;
-      throw new Error(
-        `Optional dependency pdfjs-dist is required for PDF extraction: ${String(err)}`,
-      );
-    });
+    pdfJsModulePromise = import("pdfjs-dist/legacy/build/pdf.mjs")
+      .then((pdfJs) => {
+        // Disable worker immediately after load - must be set before any getDocument call
+        if ("GlobalWorkerOptions" in pdfJs) {
+          (pdfJs as { GlobalWorkerOptions: { workerSrc: string } }).GlobalWorkerOptions.workerSrc =
+            "";
+        }
+        return pdfJs;
+      })
+      .catch((err) => {
+        pdfJsModulePromise = null;
+        throw new Error(
+          `Optional dependency pdfjs-dist is required for PDF extraction: ${String(err)}`,
+        );
+      });
   }
   return pdfJsModulePromise;
 }
@@ -50,10 +59,7 @@ export async function extractPdfContent(params: {
   const { buffer, maxPages, maxPixels, minTextChars, pageNumbers, onImageExtractionError } = params;
   const pdfJs = await loadPdfJsModule();
   const { getDocument } = pdfJs;
-  // Disable worker by setting workerSrc to empty (newer pdfjs-dist API)
-  if ("GlobalWorkerOptions" in pdfJs) {
-    (pdfJs as { GlobalWorkerOptions: { workerSrc: string } }).GlobalWorkerOptions.workerSrc = "";
-  }
+  // GlobalWorkerOptions.workerSrc is set to "" in loadPdfJsModule
   const pdf = await getDocument({ data: new Uint8Array(buffer) }).promise;
 
   const effectivePages: number[] = pageNumbers
