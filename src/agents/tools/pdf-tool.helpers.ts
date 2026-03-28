@@ -12,8 +12,11 @@ export type PdfModelConfig = { primary?: string; fallbacks?: string[] };
  * Providers known to support native PDF document input.
  * When the model's provider is in this set, the tool sends raw PDF bytes
  * via provider-specific API calls instead of extracting text/images first.
+ *
+ * PLATFORM OVERRIDE: Disabled native PDF support to ensure consistent
+ * behavior across all LLM providers. All PDFs go through pdf-parse extraction.
  */
-export const NATIVE_PDF_PROVIDERS = new Set(["anthropic", "google"]);
+export const NATIVE_PDF_PROVIDERS = new Set<string>();
 
 /**
  * Check whether a provider supports native PDF document input.
