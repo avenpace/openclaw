@@ -9,6 +9,8 @@ import { normalizeGoogleModelId } from "./agents/models-config.providers.js";
 import { runEmbeddedPiAgent } from "./agents/pi-embedded.js";
 import { buildWorkspaceSkillStatus } from "./agents/skills-status.js";
 import type { DevicesHandler } from "./agents/tools/devices-tool.js";
+import type { HermesMemoryHandler } from "./agents/tools/hermes-memory-tool.js";
+import type { HermesSkillsHandler } from "./agents/tools/hermes-skills-tool.js";
 import { getReplyFromConfig } from "./auto-reply/reply.js";
 import type { MsgContext } from "./auto-reply/templating.js";
 import { applyTemplate } from "./auto-reply/templating.js";
@@ -140,6 +142,8 @@ export type {
   WebChannelStatus,
   ModelCatalogEntry,
   DevicesHandler,
+  HermesMemoryHandler,
+  HermesSkillsHandler,
   ModelRef,
   TtsResult,
 };

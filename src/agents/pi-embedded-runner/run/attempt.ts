@@ -91,8 +91,11 @@ import { resolveEffectiveToolFsWorkspaceOnly } from "../../tool-fs-policy.js";
 import { normalizeToolName } from "../../tool-policy.js";
 import { createCloudStorageTools } from "../../tools/cloud-storage-tool.js";
 import { createDevicesTools } from "../../tools/devices-tool.js";
+import { createHermesMemoryTools } from "../../tools/hermes-memory-tool.js";
+import { createHermesSkillsTools } from "../../tools/hermes-skills-tool.js";
 import { getBuiltinImageResizeHandler } from "../../tools/image-resize-handler-builtin.js";
 import { createImageResizeTools } from "../../tools/image-resize-tool.js";
+import { createPhpTool, isPhpAvailable } from "../../tools/php-tool.js";
 import { createPythonTool, isPythonAvailable } from "../../tools/python-tool.js";
 import { resolveTranscriptPolicy } from "../../transcript-policy.js";
 import { DEFAULT_BOOTSTRAP_FILENAME } from "../../workspace.js";
@@ -914,6 +917,18 @@ export async function runEmbeddedAttempt(
       toolsRaw.push(...createCloudStorageTools(params.cloudStorageHandler));
     }
 
+    // Add Hermes memory tools if handler is provided (platform-api injects this)
+    // Enables persistent cross-session memory and user preferences
+    if (params.hermesMemoryHandler) {
+      toolsRaw.push(...createHermesMemoryTools(params.hermesMemoryHandler));
+    }
+
+    // Add Hermes skills tools if handler is provided (platform-api injects this)
+    // Enables autonomous skill creation and management
+    if (params.hermesSkillsHandler) {
+      toolsRaw.push(...createHermesSkillsTools(params.hermesSkillsHandler));
+    }
+
     // Add image resize tools - use provided handler or fall back to built-in Sharp handler
     const imageResizeHandler = params.imageResizeHandler ?? getBuiltinImageResizeHandler();
     const imageTools = createImageResizeTools(imageResizeHandler);
@@ -934,6 +949,21 @@ export async function runEmbeddedAttempt(
         });
         toolsRaw.push(pythonTool);
         console.log(`[python-tool] Added python_exec tool for workspace: ${params.workspaceDir}`);
+      }
+
+      // Add sandboxed PHP tool for website-builder tests and validation
+      // Runs on SERVER - use for running PHP scripts within workspace
+      const phpAvailable = await isPhpAvailable();
+      console.log(
+        `[php-tool] isPhpAvailable: ${phpAvailable}, workspaceDir: ${params.workspaceDir}`,
+      );
+      if (phpAvailable) {
+        const phpTool = createPhpTool({
+          workspaceDir: params.workspaceDir,
+          maxTimeoutSec: 60,
+        });
+        toolsRaw.push(phpTool);
+        console.log(`[php-tool] Added php_exec tool for workspace: ${params.workspaceDir}`);
       }
     }
 

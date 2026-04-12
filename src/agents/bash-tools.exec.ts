@@ -314,7 +314,12 @@ export function createExecTool(
       if (isExternalChannel) {
         // Analyze command to determine if it's safe for local execution
         const analysis = analyzeShellCommand({ command: params.command });
-        const safeSet = new Set(EXTERNAL_CHANNEL_SAFE_BINS.map((b) => b.toLowerCase()));
+        // Merge hardcoded safe bins with platform-configured safeBins (e.g., 'php' for website-builder)
+        const configuredSafeBins = Array.from(safeBins ?? []).map((b) => b.toLowerCase());
+        const safeSet = new Set([
+          ...EXTERNAL_CHANNEL_SAFE_BINS.map((b) => b.toLowerCase()),
+          ...configuredSafeBins,
+        ]);
         const isSafeCommand =
           analysis.ok &&
           analysis.segments.length > 0 &&

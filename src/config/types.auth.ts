@@ -26,4 +26,10 @@ export type AuthConfig = {
      */
     failureWindowHours?: number;
   };
+  /**
+   * When true, skip fallback to process.env API keys (ANTHROPIC_API_KEY, OPENAI_API_KEY, etc.).
+   * Used by multi-tenant platforms to prevent user agents from using platform credentials.
+   * Default: false.
+   */
+  skipEnvFallback?: boolean;
 };

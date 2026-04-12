@@ -4,9 +4,38 @@ import { resolveOAuthPath } from "../../config/paths.js";
 import { withFileLock } from "../../infra/file-lock.js";
 import { loadJsonFile, saveJsonFile } from "../../infra/json-file.js";
 import { AUTH_STORE_LOCK_OPTIONS, AUTH_STORE_VERSION, log } from "./constants.js";
+import {
+  readEncryptedAuthProfilesSync,
+  writeEncryptedAuthProfilesSync,
+  encryptedAuthProfilesExists,
+} from "./encrypted-store.js";
 import { syncExternalCliCredentials } from "./external-cli-sync.js";
 import { ensureAuthStoreFile, resolveAuthStorePath, resolveLegacyAuthStorePath } from "./paths.js";
 import type { AuthProfileCredential, AuthProfileStore, ProfileUsageStats } from "./types.js";
+
+/**
+ * Global encryption key for auth-profiles.json
+ * Set by platform-api to enable encrypted storage
+ */
+let globalAuthProfilesEncryptionKey: Buffer | null = null;
+
+/**
+ * Configure encryption key for auth-profiles storage
+ * Call this at startup with the user's derived encryption key
+ */
+export function setAuthProfilesEncryptionKey(key: Buffer | null): void {
+  globalAuthProfilesEncryptionKey = key;
+  if (key) {
+    console.log("[AuthProfiles] Encryption enabled for auth-profiles.json");
+  }
+}
+
+/**
+ * Get the current encryption key (for testing/debugging)
+ */
+export function getAuthProfilesEncryptionKey(): Buffer | null {
+  return globalAuthProfilesEncryptionKey;
+}
 
 type LegacyAuthStore = Record<string, AuthProfileCredential>;
 type CredentialRejectReason = "non_object" | "invalid_type" | "missing_provider";
@@ -338,8 +367,31 @@ function applyLegacyStore(store: AuthProfileStore, legacy: LegacyAuthStore): voi
 }
 
 function loadCoercedStore(authPath: string): AuthProfileStore | null {
+  // Try encrypted first if encryption key is available
+  if (globalAuthProfilesEncryptionKey) {
+    // Check if encrypted file exists OR plain file exists (for migration)
+    if (encryptedAuthProfilesExists(authPath) || fs.existsSync(authPath)) {
+      const raw = readEncryptedAuthProfilesSync<unknown>(authPath, globalAuthProfilesEncryptionKey);
+      if (raw) {
+        return coerceAuthStore(raw);
+      }
+    }
+    return null;
+  }
+  // Fall back to plain JSON if no encryption key
   const raw = loadJsonFile(authPath);
   return coerceAuthStore(raw);
+}
+
+/**
+ * Internal helper to save auth store with encryption if available
+ */
+function saveAuthStoreInternal(authPath: string, store: AuthProfileStore): void {
+  if (globalAuthProfilesEncryptionKey) {
+    writeEncryptedAuthProfilesSync(authPath, store, globalAuthProfilesEncryptionKey);
+  } else {
+    saveJsonFile(authPath, store);
+  }
 }
 
 export function loadAuthProfileStore(): AuthProfileStore {
@@ -349,7 +401,7 @@ export function loadAuthProfileStore(): AuthProfileStore {
     // Sync from external CLI tools on every load.
     const synced = syncExternalCliCredentials(asStore);
     if (synced) {
-      saveJsonFile(authPath, asStore);
+      saveAuthStoreInternal(authPath, asStore);
     }
     return asStore;
   }
@@ -382,7 +434,7 @@ function loadAuthProfileStoreForAgent(
     // sync external CLI credentials in-memory, but never persist while readOnly.
     const synced = syncExternalCliCredentials(asStore);
     if (synced && !readOnly) {
-      saveJsonFile(authPath, asStore);
+      saveAuthStoreInternal(authPath, asStore);
     }
     return asStore;
   }
@@ -390,11 +442,10 @@ function loadAuthProfileStoreForAgent(
   // Fallback: inherit auth-profiles from main agent if subagent has none
   if (agentDir && !readOnly) {
     const mainAuthPath = resolveAuthStorePath(); // without agentDir = main
-    const mainRaw = loadJsonFile(mainAuthPath);
-    const mainStore = coerceAuthStore(mainRaw);
+    const mainStore = loadCoercedStore(mainAuthPath);
     if (mainStore && Object.keys(mainStore.profiles).length > 0) {
       // Clone main store to subagent directory for auth inheritance
-      saveJsonFile(authPath, mainStore);
+      saveAuthStoreInternal(authPath, mainStore);
       log.info("inherited auth-profiles from main agent", { agentDir });
       return mainStore;
     }
@@ -416,7 +467,7 @@ function loadAuthProfileStoreForAgent(
   const forceReadOnly = process.env.OPENCLAW_AUTH_STORE_READONLY === "1";
   const shouldWrite = !readOnly && !forceReadOnly && (legacy !== null || mergedOAuth || syncedCli);
   if (shouldWrite) {
-    saveJsonFile(authPath, store);
+    saveAuthStoreInternal(authPath, store);
   }
 
   // PR #368: legacy auth.json could get re-migrated from other agent dirs,
@@ -504,5 +555,11 @@ export function saveAuthProfileStore(store: AuthProfileStore, agentDir?: string)
     lastGood: store.lastGood ?? undefined,
     usageStats: store.usageStats ?? undefined,
   } satisfies AuthProfileStore;
-  saveJsonFile(authPath, payload);
+
+  // Use encrypted storage if encryption key is available
+  if (globalAuthProfilesEncryptionKey) {
+    writeEncryptedAuthProfilesSync(authPath, payload, globalAuthProfilesEncryptionKey);
+  } else {
+    saveJsonFile(authPath, payload);
+  }
 }

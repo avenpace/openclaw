@@ -11,6 +11,8 @@ import type { SkillSnapshot } from "../../skills.js";
 import type { BrowserHandler } from "../../tools/browser-tool.js";
 import type { CloudStorageHandler } from "../../tools/cloud-storage-tool.js";
 import type { DevicesHandler } from "../../tools/devices-tool.js";
+import type { HermesMemoryHandler } from "../../tools/hermes-memory-tool.js";
+import type { HermesSkillsHandler } from "../../tools/hermes-skills-tool.js";
 import type { ImageResizeHandler } from "../../tools/image-resize-tool.js";
 
 // Simplified tool definition for client-provided tools (OpenResponses hosted tools)
@@ -141,6 +143,10 @@ export type RunEmbeddedPiAgentParams = {
   imageResizeHandler?: ImageResizeHandler;
   /** Handler for browser control (via Clawku extension or similar remote browser). */
   browserHandler?: BrowserHandler;
+  /** Handler for Hermes memory (persistent cross-session memory and user preferences). */
+  hermesMemoryHandler?: HermesMemoryHandler;
+  /** Handler for Hermes skills (autonomous skill creation and management). */
+  hermesSkillsHandler?: HermesSkillsHandler;
   /**
    * Allow a single run attempt even when all auth profiles are in cooldown,
    * but only for inferred transient cooldowns like `rate_limit` or `overloaded`.

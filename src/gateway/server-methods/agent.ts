@@ -268,6 +268,8 @@ export const agentHandlers: GatewayRequestHandlers = {
       spawnedBy?: string;
       inputProvenance?: InputProvenance;
       workspaceDir?: string;
+      // Platform: inherited skill count for exec gating on external channels
+      installedSkillCount?: number;
     };
     const senderIsOwner = resolveSenderIsOwnerFromClient(client);
     const cfg = loadConfig();
@@ -278,6 +280,8 @@ export const agentHandlers: GatewayRequestHandlers = {
       groupChannel: request.groupChannel,
       groupSpace: request.groupSpace,
       workspaceDir: request.workspaceDir,
+      // Platform: inherited skill count for exec gating
+      installedSkillCount: request.installedSkillCount,
     });
     let resolvedGroupId: string | undefined = normalizedSpawned.groupId;
     let resolvedGroupChannel: string | undefined = normalizedSpawned.groupChannel;
@@ -709,6 +713,8 @@ export const agentHandlers: GatewayRequestHandlers = {
           spawnedBy: spawnedByValue,
           workspaceDir: request.workspaceDir,
         }),
+        // Platform: pass inherited skill count for exec gating
+        installedSkillCount: normalizedSpawned.installedSkillCount,
         senderIsOwner,
       },
       runId,

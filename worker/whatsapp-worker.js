@@ -14,52 +14,52 @@ import {
   U as readStoreAllowFromForDmPolicy,
   q as issuePairingChallenge,
   t as hasControlCommand,
-} from "./command-detection-Dhx1e_hI.js";
+} from "./command-detection-DFQvPd9B.js";
 import {
   Ti as resolveWhatsAppAccount,
   r as loadConfig,
   rc as saveMediaBuffer,
-} from "./config-Bbh7NwOk.js";
-import "./paths-eFexkPEh.js";
-import { i as recordChannelActivity } from "./retry-policy-BFw_Fo0d.js";
-import "./paths-Cp7C2R7V.js";
-import { nt as upsertChannelPairingRequest, st as formatLocationText } from "./send-D1nCQpeB.js";
-import "./env-CvOd8P-q.js";
-import "./github-copilot-token-Bk2nhhXX.js";
-import "./send-4yD9YQxG.js";
+} from "./config-DU_NmThJ.js";
+import "./paths-WDBH9p6f.js";
+import { i as recordChannelActivity } from "./retry-policy-DXWiH-Sb.js";
+import "./paths-CbQMaT4w.js";
+import { nt as upsertChannelPairingRequest, st as formatLocationText } from "./send-DGdZl3lT.js";
+import "./env-BdVuargf.js";
+import "./github-copilot-token-CfhzmK0S.js";
+import "./send-BrBnCq_1.js";
 import {
   Mt as resolveOpenProviderRuntimeGroupPolicy,
   Nt as warnMissingProviderGroupPolicyFallbackOnce,
   jt as resolveDefaultGroupPolicy,
-} from "./send-D5EzJST3.js";
-import "./commands-registry-BHastMsb.js";
-import "./tokens-DOs3E8YQ.js";
-import "./deliver-C0GVkzkd.js";
-import "./diagnostic-Do69szG1.js";
-import "./pi-model-discovery-BcGL9lNf.js";
-import "./image-BlKytQT6.js";
-import "./audio-transcription-runner-DzIs4Ys-.js";
-import "./fetch-DqmC9kLB.js";
-import "./fetch-guard-ClBTIPsZ.js";
-import "./api-key-rotation-pYV4CyLq.js";
-import "./proxy-fetch-M9xSywjl.js";
-import "./ir-B0Uaakfs.js";
+} from "./send-Dnmr_P9l.js";
+import "./commands-registry-BcUpkBef.js";
+import "./tokens-C8OT5B-B.js";
+import "./deliver-BCBfls8-.js";
+import "./diagnostic-C4_yv-RT.js";
+import "./pi-model-discovery-BGWBlaXI.js";
+import "./image-9mQg8jFr.js";
+import "./audio-transcription-runner-CrDuQKDe.js";
+import "./fetch-BOzzKyEg.js";
+import "./fetch-guard-ngRT84WA.js";
+import "./api-key-rotation-B4LKuL7B.js";
+import "./proxy-fetch-Ds9gWJS1.js";
+import "./ir-BO9afMew.js";
 import "./render-CypHTXnD.js";
-import "./target-errors-CPMpm0UI.js";
+import "./target-errors-BSmnVx20.js";
 import "./fetch-CwZxIBIg.js";
-import "./skill-commands-Bu0xJ0TZ.js";
-import "./tables-1ZdW1Az7.js";
-import "./send-Bh0EaOi9.js";
-import "./outbound-attachment-lnRT_Mn-.js";
-import "./send-BwD-icdX2.js";
-import "./fetch-BWingQe0.js";
-import "./manager-BP8gZzOd.js";
-import "./query-expansion-VmsaGYn-.js";
+import "./skill-commands-CMy3jv0c.js";
+import "./tables-DeXxIeVW.js";
+import "./send-BKEM3QZX.js";
+import "./outbound-attachment-DhIaAepq.js";
+import "./send-8uT4u6ZZ2.js";
+import "./fetch-BhAI44ad.js";
+import "./manager-D8uTMzrK.js";
+import "./query-expansion-Cxj2Ne5O.js";
 import {
   i as waitForWaConnection,
   r as getStatusCode,
   t as createWaSocket,
-} from "./session-DKg5iaaL.js";
+} from "./session-BlBzajtQ.js";
 import {
   B as shouldLogVerbose,
   K as getChildLogger,
@@ -70,7 +70,7 @@ import {
   m as resolveJidToE164,
   u as jidToE164,
   x as toWhatsappJid,
-} from "./utils-DAQkyZZs.js";
+} from "./utils-CGX1uqdh.js";
 //#region src/web/inbound/access-control.ts
 const PAIRING_REPLY_HISTORY_GRACE_MS = 3e4;
 function resolveWhatsAppRuntimeGroupPolicy(params) {
@@ -873,6 +873,7 @@ async function monitorWebInbox(options) {
             "inbound",
             maxBytes,
             inboundMedia.fileName,
+            options.mediaRootDir,
           )
         ).path;
         mediaType = inboundMedia.mimetype;

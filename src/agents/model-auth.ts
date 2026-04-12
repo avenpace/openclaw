@@ -220,6 +220,11 @@ export async function resolveApiKeyForProvider(params: {
   preferredProfile?: string;
   store?: AuthProfileStore;
   agentDir?: string;
+  /**
+   * When true, skip fallback to process.env API keys.
+   * Used by platform-api to prevent user agents from using platform credentials.
+   */
+  skipEnvFallback?: boolean;
 }): Promise<ResolvedProviderAuth> {
   const { provider, cfg, profileId, preferredProfile } = params;
   const store = params.store ?? ensureAuthProfileStore(params.agentDir);
@@ -276,13 +281,18 @@ export async function resolveApiKeyForProvider(params: {
     }
   }
 
-  const envResolved = resolveEnvApiKey(provider);
-  if (envResolved) {
-    return {
-      apiKey: envResolved.apiKey,
-      source: envResolved.source,
-      mode: envResolved.source.includes("OAUTH_TOKEN") ? "oauth" : "api-key",
-    };
+  // Skip env var fallback if explicitly disabled (platform multi-tenant mode)
+  // Can be set via param or config (auth.skipEnvFallback)
+  const skipEnvFallback = params.skipEnvFallback ?? cfg?.auth?.skipEnvFallback ?? false;
+  if (!skipEnvFallback) {
+    const envResolved = resolveEnvApiKey(provider);
+    if (envResolved) {
+      return {
+        apiKey: envResolved.apiKey,
+        source: envResolved.source,
+        mode: envResolved.source.includes("OAUTH_TOKEN") ? "oauth" : "api-key",
+      };
+    }
   }
 
   const customKey = resolveUsableCustomProviderApiKey({ cfg, provider });
@@ -421,6 +431,11 @@ export async function getApiKeyForModel(params: {
   preferredProfile?: string;
   store?: AuthProfileStore;
   agentDir?: string;
+  /**
+   * When true, skip fallback to process.env API keys.
+   * Used by platform-api to prevent user agents from using platform credentials.
+   */
+  skipEnvFallback?: boolean;
 }): Promise<ResolvedProviderAuth> {
   return resolveApiKeyForProvider({
     provider: params.model.provider,
@@ -429,6 +444,7 @@ export async function getApiKeyForModel(params: {
     preferredProfile: params.preferredProfile,
     store: params.store,
     agentDir: params.agentDir,
+    skipEnvFallback: params.skipEnvFallback,
   });
 }
 

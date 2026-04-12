@@ -203,6 +203,8 @@ export function createOpenClawTools(
       sandboxed: options?.sandboxed,
       requesterAgentIdOverride: options?.requesterAgentIdOverride,
       workspaceDir: spawnWorkspaceDir,
+      // Platform: pass inherited skill count for exec gating
+      installedSkillCount: options?.installedSkillCount,
     }),
     createSubagentsTool({
       agentSessionKey: options?.agentSessionKey,
