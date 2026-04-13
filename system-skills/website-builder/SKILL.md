@@ -150,7 +150,7 @@ php_exec: script="websites/{project-name}/tests/run.php"
 **6D. Run eval-runner (MANDATORY)**:
 
 ```
-php_exec: script="/app/openclaw/system-skills/website-builder/eval-runner.php", args=["websites/{project-name}", "--quiet"]
+php_exec: script="skills/website-builder/eval-runner.php", args=["websites/{project-name}", "--quiet"]
 ```
 
 Eval-runner now includes JavaScript syntax checking:
@@ -268,7 +268,7 @@ php_exec: script="websites/{project-name}/tests/run.php"
 **3. Run eval-runner (includes JS syntax check):**
 
 ```
-php_exec: script="/app/openclaw/system-skills/website-builder/eval-runner.php", args=["websites/{project-name}", "--quiet"]
+php_exec: script="skills/website-builder/eval-runner.php", args=["websites/{project-name}", "--quiet"]
 ```
 
 **4. Run UI smoke test (if browser available):**
@@ -287,7 +287,7 @@ node /app/openclaw/system-skills/website-builder/ui-smoke-test.js websites/{proj
 If user just wants a quick check without full details:
 
 ```
-php_exec: script="/app/openclaw/system-skills/website-builder/eval-runner.php", args=["websites/{project-name}", "--quiet"]
+php_exec: script="skills/website-builder/eval-runner.php", args=["websites/{project-name}", "--quiet"]
 ```
 
 Parse JSON output and report `ready_to_run` status.
@@ -420,7 +420,7 @@ Check if app matches one of these patterns, apply if not:
 **7. Run eval after changes:**
 
 ```
-php_exec: script="/app/openclaw/system-skills/website-builder/eval-runner.php", args=["websites/{project-name}"]
+php_exec: script="skills/website-builder/eval-runner.php", args=["websites/{project-name}"]
 ```
 
 ---
