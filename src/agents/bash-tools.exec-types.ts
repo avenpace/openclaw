@@ -32,6 +32,20 @@ export type ExecToolDefaults = {
   notifyOnExit?: boolean;
   notifyOnExitEmptySuccess?: boolean;
   cwd?: string;
+  // Platform: device proxy for external channel command routing
+  proxy?: {
+    createJob: (params: {
+      command: string;
+      cwd?: string;
+      envPreview?: Record<string, string>;
+      requestedBy?: string;
+    }) => Promise<{ jobId: string }>;
+    requestedBy?: string;
+    allowList?: string[];
+    denyList?: string[];
+  };
+  // Platform: count of installed skills for skill-based gating
+  installedSkillCount?: number;
 };
 
 export type ExecElevatedDefaults = {
@@ -86,4 +100,12 @@ export type ExecToolDetails =
       cwd?: string;
       nodeId?: string;
       warningText?: string;
+    }
+  | {
+      // Platform: command sent to user's paired device
+      status: "device-pending";
+      jobId: string;
+      host: "device";
+      command: string;
+      cwd?: string;
     };

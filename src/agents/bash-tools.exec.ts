@@ -1,6 +1,11 @@
 import path from "node:path";
 import type { AgentToolResult } from "@mariozechner/pi-agent-core";
-import { analyzeShellCommand } from "../infra/exec-approvals-analysis.js";
+import {
+  EXTERNAL_CHANNEL_SAFE_BINS,
+  WORKSPACE_RESTRICTED_BINS,
+  analyzeShellCommand,
+  validateWorkspacePaths,
+} from "../infra/exec-approvals-analysis.js";
 import {
   type ExecAsk,
   type ExecHost,
@@ -309,7 +314,7 @@ function findNodeScriptArgs(tokens: string[]): string[] {
 
 function extractInterpreterScriptTargetFromArgv(
   argv: string[] | null,
-): { kind: "python"; relOrAbsPaths: string[] } | { kind: "node"; relOrAbsPaths: string[] } | null {
+): { kind: "python"; relOrAbsPaths: string[] } | { kind: "node"; relOrAbsPaths: string[] } | { kind: "php"; relOrAbsPaths: string[] } | null {
   if (!argv || argv.length === 0) {
     return null;
   }
@@ -333,6 +338,13 @@ function extractInterpreterScriptTargetFromArgv(
     const scripts = findNodeScriptArgs(args);
     if (scripts.length > 0) {
       return { kind: "node", relOrAbsPaths: scripts };
+    }
+    return null;
+  }
+  if (executable === "php") {
+    const scriptMatch = args.find((arg) => arg.match(/^[^\s]+\.php$/i));
+    if (scriptMatch) {
+      return { kind: "php", relOrAbsPaths: [scriptMatch] };
     }
     return null;
   }
@@ -577,7 +589,7 @@ function isInterpreterExecutable(executable: string | undefined): boolean {
   if (!executable) {
     return false;
   }
-  return /^python(?:3(?:\.\d+)?)?$/i.test(executable) || executable === "node";
+  return /^python(?:3(?:\.\d+)?)?$/i.test(executable) || executable === "node" || executable === "php";
 }
 
 function hasUnescapedSequence(raw: string, sequence: string): boolean {
@@ -1005,8 +1017,9 @@ async function validateScriptFileForShellBleed(params: {
       throw error;
     }
 
-    // Common failure mode: shell env var syntax leaking into Python/JS.
+    // Common failure mode: shell env var syntax leaking into Python/JS/PHP.
     // We deliberately match all-caps/underscore vars to avoid false positives with `$` as a JS identifier.
+    // For PHP, $VAR syntax is valid but shell-style $ENV_VAR should use getenv().
     const envVarRegex = /\$[A-Z_][A-Z0-9_]{1,}/g;
     const first = envVarRegex.exec(content);
     if (first) {
@@ -1014,17 +1027,40 @@ async function validateScriptFileForShellBleed(params: {
       const before = content.slice(0, idx);
       const line = before.split("\n").length;
       const token = first[0];
-      throw new Error(
-        [
-          `exec preflight: detected likely shell variable injection (${token}) in ${target.kind} script: ${path.basename(
-            absPath,
-          )}:${line}.`,
+
+      // For PHP, only flag if it looks like shell injection (not inside quotes/strings)
+      // This is a heuristic - $HOME, $PATH, etc. are likely shell vars
+      const shellEnvVars = new Set([
+        "$HOME",
+        "$PATH",
+        "$USER",
+        "$PWD",
+        "$SHELL",
+        "$TERM",
+        "$LANG",
+        "$LC_ALL",
+      ]);
+      const isProbablyShellVar =
+        shellEnvVars.has(token) || token.startsWith("$OPENCLAW") || token.startsWith("$API");
+
+      if (target.kind !== "php" || isProbablyShellVar) {
+        const hint =
           target.kind === "python"
             ? `In Python, use os.environ.get(${JSON.stringify(token.slice(1))}) instead of raw ${token}.`
-            : `In Node.js, use process.env[${JSON.stringify(token.slice(1))}] instead of raw ${token}.`,
-          "(If this is inside a string literal on purpose, escape it or restructure the code.)",
-        ].join("\n"),
-      );
+            : target.kind === "node"
+              ? `In Node.js, use process.env[${JSON.stringify(token.slice(1))}] instead of raw ${token}.`
+              : `In PHP, use getenv(${JSON.stringify(token.slice(1))}) or $_ENV[${JSON.stringify(token.slice(1))}] instead of raw ${token}.`;
+
+        throw new Error(
+          [
+            `exec preflight: detected likely shell variable injection (${token}) in ${target.kind} script: ${path.basename(
+              absPath,
+            )}:${line}.`,
+            hint,
+            "(If this is inside a string literal on purpose, escape it or restructure the code.)",
+          ].join("\n"),
+        );
+      }
     }
 
     // Another recurring pattern from the issue: shell commands accidentally emitted as JS.
@@ -1037,6 +1073,25 @@ async function validateScriptFileForShellBleed(params: {
         throw new Error(
           `exec preflight: JS file starts with shell syntax (${firstNonEmpty}). ` +
             `This looks like a shell command, not JavaScript.`,
+        );
+      }
+    }
+
+    // PHP: check for shell command syntax at the start of file
+    if (target.kind === "php") {
+      const firstNonEmpty = content
+        .split(/\r?\n/)
+        .map((l) => l.trim())
+        .find((l) => l.length > 0);
+      // PHP files should start with <?php, not shell commands
+      if (
+        firstNonEmpty &&
+        !firstNonEmpty.startsWith("<?") &&
+        /^(php|bash|sh)\b/i.test(firstNonEmpty)
+      ) {
+        throw new Error(
+          `exec preflight: PHP file starts with shell syntax (${firstNonEmpty}). ` +
+            `This looks like a shell command, not PHP. PHP files should start with <?php`,
         );
       }
     }
@@ -1389,6 +1444,145 @@ export function createExecTool(
 
       if (!params.command) {
         throw new Error("Provide a command to start.");
+      }
+
+      // PLATFORM: External channel routing - check if command needs device proxy
+      const messageProvider = defaults?.messageProvider?.trim()?.toLowerCase();
+      const EXTERNAL_CHANNEL_PROVIDERS = new Set([
+        "whatsapp",
+        "telegram",
+        "discord",
+        "slack",
+        "signal",
+        "imessage",
+        "matrix",
+        "msteams",
+        "googlechat",
+        "webchat",
+        "zalo",
+        // Platform internal channels - also use safe-bin routing
+        "marketplace",
+        "internal",
+      ]);
+      const isExternalChannel = EXTERNAL_CHANNEL_PROVIDERS.has(messageProvider ?? "");
+      const execProxy = defaults?.proxy;
+
+      // STRICT COMMAND ROUTING for external channels:
+      // - Safe commands (curl, jq, base64, etc.) run locally - no skill requirement
+      // - Unsafe commands MUST go to user's paired device OR require skills installed
+      // - If no device connected and no skills, block unsafe commands entirely
+      if (isExternalChannel) {
+        // Analyze command to determine if it's safe for local execution
+        const analysis = analyzeShellCommand({ command: params.command });
+        // Merge hardcoded safe bins with platform-configured safeBins (e.g., 'php' for website-builder)
+        const configuredSafeBins = Array.from(safeBins ?? []).map((b) => b.toLowerCase());
+        const safeSet = new Set([
+          ...EXTERNAL_CHANNEL_SAFE_BINS.map((b) => b.toLowerCase()),
+          ...configuredSafeBins,
+        ]);
+        const isSafeCommand =
+          analysis.ok &&
+          analysis.segments.length > 0 &&
+          analysis.segments.every((segment) => {
+            const execName = segment.resolution?.executableName?.toLowerCase() ?? "";
+            return execName && safeSet.has(execName);
+          });
+
+        if (!isSafeCommand) {
+          // SKILL-BASED GATING: For unsafe commands, require skills to be installed
+          const installedSkillCount = defaults?.installedSkillCount ?? 0;
+          if (installedSkillCount === 0 && !execProxy) {
+            console.log(
+              `[Security] Blocked exec for external channel - no skills installed: ${params.command.slice(0, 100)}`,
+            );
+            throw new Error(
+              "I don't have any skills installed that would allow me to run this command. Please install the appropriate skill from ClawHub.",
+            );
+          }
+
+          // Command is NOT in safe whitelist - MUST route to user's paired device
+          if (!execProxy) {
+            // No device connected - block the command
+            console.log(
+              `[Security] Blocked unsafe command for external channel - no device paired: ${params.command.slice(0, 100)}`,
+            );
+            throw new Error(
+              "This command requires a paired device to execute. Please connect your device using the Clawku desktop app, then try again.",
+            );
+          }
+
+          console.log(`[Security] Routing command to user device: ${params.command.slice(0, 100)}`);
+
+          const job = await execProxy.createJob({
+            command: params.command,
+            cwd: params.workdir || defaults?.cwd,
+            requestedBy: execProxy.requestedBy,
+            envPreview: params.env,
+          });
+          return {
+            content: [
+              {
+                type: "text",
+                text:
+                  `Command sent to your device for execution (job ${job.jobId}). ` +
+                  "You will get the result once it completes.",
+              },
+            ],
+            details: {
+              status: "device-pending",
+              jobId: job.jobId,
+              host: "device",
+              command: params.command,
+              cwd: params.workdir,
+            },
+          };
+        }
+
+        // WORKSPACE PATH VALIDATION for file operation commands
+        // Prevent access outside the agent's workspace directory
+        const workspaceRoot = defaults?.cwd || process.cwd();
+
+        // Resolve effective workdir - this is where the command will actually run
+        // and where relative paths should be resolved from
+        const effectiveWorkdir = params.workdir?.trim() || workspaceRoot;
+        const resolvedWorkdir = path.resolve(effectiveWorkdir);
+        const normalizedWorkspaceRoot = path.resolve(workspaceRoot);
+
+        // Security: Verify the workdir is within the workspace root
+        // This prevents escaping workspace via workdir parameter
+        if (
+          !resolvedWorkdir.startsWith(normalizedWorkspaceRoot + path.sep) &&
+          resolvedWorkdir !== normalizedWorkspaceRoot
+        ) {
+          console.log(`[Security] Blocked workdir outside workspace: ${effectiveWorkdir}`);
+          throw new Error(
+            `Working directory "${effectiveWorkdir}" is outside your workspace. ` +
+              `File operations are restricted to your workspace directory.`,
+          );
+        }
+
+        // Validate paths relative to the effective workdir (where command runs)
+        // This allows relative paths like "tests/run.php" when workdir is the website directory
+        for (const segment of analysis.segments) {
+          const execName = segment.resolution?.executableName?.toLowerCase() ?? "";
+          if (WORKSPACE_RESTRICTED_BINS.has(execName)) {
+            const pathValidation = validateWorkspacePaths({
+              argv: segment.argv,
+              workspaceRoot: resolvedWorkdir,
+            });
+            if (!pathValidation.ok) {
+              console.log(
+                `[Security] Blocked workspace escape attempt: ${params.command.slice(0, 100)} - ${pathValidation.reason}`,
+              );
+              throw new Error(pathValidation.reason);
+            }
+          }
+        }
+
+        // Safe command - continue with local execution
+        console.log(
+          `[Security] Allowed safe command for local execution: ${params.command.slice(0, 100)}`,
+        );
       }
 
       const maxOutput = DEFAULT_MAX_OUTPUT;

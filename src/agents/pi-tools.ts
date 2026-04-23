@@ -1,3 +1,4 @@
+import path from "node:path";
 import { createCodingTools, createReadTool } from "@mariozechner/pi-coding-agent";
 import type { ModelCompatConfig } from "../config/types.models.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
@@ -47,6 +48,7 @@ import {
 } from "./pi-tools.read.js";
 import { cleanToolSchemaForGemini, normalizeToolParameters } from "./pi-tools.schema.js";
 import type { AnyAgentTool } from "./pi-tools.types.js";
+import type { BrowserHandler } from "./tools/browser-tool.js";
 import type { SandboxContext } from "./sandbox.js";
 import {
   isSubagentEnvelopeSession,
@@ -281,6 +283,11 @@ export function createOpenClawCodingTools(options?: {
    * Defaults to workspaceDir when not set.
    */
   spawnWorkspaceDir?: string;
+  /**
+   * Working directory offset relative to workspaceDir (e.g., "websites/my-project").
+   * When set, the exec tool's cwd will be workspaceDir + cwd instead of just workspaceDir.
+   */
+  cwd?: string;
   config?: OpenClawConfig;
   abortSignal?: AbortSignal;
   /**
@@ -339,6 +346,8 @@ export function createOpenClawCodingTools(options?: {
   senderIsOwner?: boolean;
   /** Callback invoked when sessions_yield tool is called. */
   onYield?: (message: string) => Promise<void> | void;
+  /** Handler for browser control via remote extension (e.g., Clawku). */
+  browserHandler?: BrowserHandler;
 }): AnyAgentTool[] {
   const execToolName = "exec";
   const sandbox = options?.sandbox?.enabled ? options.sandbox : undefined;

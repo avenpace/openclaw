@@ -417,6 +417,11 @@ export async function resolveApiKeyForProvider(params: {
    *  silently overridden by env/config credentials. */
   lockedProfile?: boolean;
   credentialPrecedence?: ProviderCredentialPrecedence;
+  /**
+   * When true, skip fallback to process.env API keys.
+   * Used by platform-api to prevent user agents from using platform credentials.
+   */
+  skipEnvFallback?: boolean;
 }): Promise<ResolvedProviderAuth> {
   const { provider, cfg, profileId, preferredProfile } = params;
 
@@ -477,16 +482,21 @@ export async function resolveApiKeyForProvider(params: {
   }
 
   if (params.credentialPrecedence === "env-first") {
-    const envResolved = resolveEnvApiKey(provider);
-    if (envResolved) {
-      const resolvedMode: ResolvedProviderAuth["mode"] = envResolved.source.includes("OAUTH_TOKEN")
-        ? "oauth"
-        : "api-key";
-      return {
-        apiKey: envResolved.apiKey,
-        source: envResolved.source,
-        mode: resolvedMode,
-      };
+    // Skip env var fallback if explicitly disabled (platform multi-tenant mode)
+    // Can be set via param or config (auth.skipEnvFallback)
+    const skipEnvFallback = params.skipEnvFallback ?? cfg?.auth?.skipEnvFallback ?? false;
+    if (!skipEnvFallback) {
+      const envResolved = resolveEnvApiKey(provider);
+      if (envResolved) {
+        const resolvedMode: ResolvedProviderAuth["mode"] = envResolved.source.includes("OAUTH_TOKEN")
+          ? "oauth"
+          : "api-key";
+        return {
+          apiKey: envResolved.apiKey,
+          source: envResolved.source,
+          mode: resolvedMode,
+        };
+      }
     }
   }
 
@@ -534,17 +544,22 @@ export async function resolveApiKeyForProvider(params: {
     }
   }
 
-  const envResolved = resolveEnvApiKey(provider);
-  if (envResolved) {
-    const resolvedMode: ResolvedProviderAuth["mode"] = envResolved.source.includes("OAUTH_TOKEN")
-      ? "oauth"
-      : "api-key";
-    const result: ResolvedProviderAuth = {
-      apiKey: envResolved.apiKey,
-      source: envResolved.source,
-      mode: resolvedMode,
-    };
-    return result;
+  // Skip env var fallback if explicitly disabled (platform multi-tenant mode)
+  // Can be set via param or config (auth.skipEnvFallback)
+  const skipEnvFallback = params.skipEnvFallback ?? cfg?.auth?.skipEnvFallback ?? false;
+  if (!skipEnvFallback) {
+    const envResolved = resolveEnvApiKey(provider);
+    if (envResolved) {
+      const resolvedMode: ResolvedProviderAuth["mode"] = envResolved.source.includes("OAUTH_TOKEN")
+        ? "oauth"
+        : "api-key";
+      const result: ResolvedProviderAuth = {
+        apiKey: envResolved.apiKey,
+        source: envResolved.source,
+        mode: resolvedMode,
+      };
+      return result;
+    }
   }
 
   const customKey = resolveUsableCustomProviderApiKey({ cfg, provider });
@@ -719,6 +734,11 @@ export async function getApiKeyForModel(params: {
   agentDir?: string;
   lockedProfile?: boolean;
   credentialPrecedence?: ProviderCredentialPrecedence;
+  /**
+   * When true, skip fallback to process.env API keys.
+   * Used by platform-api to prevent user agents from using platform credentials.
+   */
+  skipEnvFallback?: boolean;
 }): Promise<ResolvedProviderAuth> {
   return resolveApiKeyForProvider({
     provider: params.model.provider,
@@ -729,6 +749,7 @@ export async function getApiKeyForModel(params: {
     agentDir: params.agentDir,
     lockedProfile: params.lockedProfile,
     credentialPrecedence: params.credentialPrecedence,
+    skipEnvFallback: params.skipEnvFallback,
   });
 }
 

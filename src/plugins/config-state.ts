@@ -33,6 +33,37 @@ export type PluginActivationConfigSource = {
 
 export type NormalizedPluginsConfig = SharedNormalizedPluginsConfig;
 
+export const BUNDLED_ENABLED_BY_DEFAULT = new Set<string>([
+  // Core features
+  "device-pair",
+  "phone-control",
+  "talk-voice",
+  // Messaging channels
+  "whatsapp",
+  "telegram",
+  "discord",
+  "imessage",
+  "signal",
+  "slack",
+  "line",
+  "matrix",
+  "googlechat",
+  "msteams",
+  "feishu",
+  "mattermost",
+  "irc",
+  "twitch",
+  "nextcloud-talk",
+  "nostr",
+  "tlon",
+  "zalo",
+  "zalouser",
+  "bluebubbles",
+  // Auth plugins
+  "google-gemini-cli-auth",
+  "google-antigravity-auth",
+]);
+
 let bundledPluginAliasLookupCache: ReadonlyMap<string, string> | undefined;
 
 const BUILT_IN_PLUGIN_ALIAS_FALLBACKS: ReadonlyArray<readonly [alias: string, pluginId: string]> = [

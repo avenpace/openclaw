@@ -22,7 +22,17 @@ export type SafeBinProfileFixtures = Readonly<Record<string, SafeBinProfileFixtu
 
 const NO_FLAGS: ReadonlySet<string> = new Set();
 
-export const DEFAULT_SAFE_BINS = ["cut", "uniq", "head", "tail", "tr", "wc"] as const;
+export const DEFAULT_SAFE_BINS = [
+  "cut",
+  "uniq",
+  "head",
+  "tail",
+  "tr",
+  "wc",
+  "php",
+  "curl",
+  "sqlite3",
+] as const;
 
 const toFlagSet = (flags?: readonly string[]): ReadonlySet<string> => {
   if (!flags || flags.length === 0) {
@@ -217,6 +227,117 @@ export const SAFE_BIN_PROFILE_FIXTURES: Record<string, SafeBinProfileFixture> = 
   wc: {
     maxPositional: 0,
     deniedFlags: ["--files0-from"],
+  },
+  // Curl for HTTP requests (website registration, API calls).
+  // Restricted to safe operations - no file writes or uploads.
+  curl: {
+    minPositional: 1, // URL required
+    maxPositional: 1,
+    allowedValueFlags: [
+      "-X",
+      "--request", // HTTP method
+      "-H",
+      "--header", // Headers
+      "-d",
+      "--data", // POST data
+      "--data-raw",
+      "--data-binary",
+      "-A",
+      "--user-agent",
+      "-e",
+      "--referer",
+      "--connect-timeout",
+      "--max-time",
+      "-m",
+      "-L",
+      "--location", // Follow redirects (boolean but sometimes takes value)
+    ],
+    deniedFlags: [
+      "-o",
+      "--output", // Write to file
+      "-O",
+      "--remote-name", // Write to file with remote name
+      "-T",
+      "--upload-file", // Upload file
+      "-K",
+      "--config", // Load config file
+      "--netrc", // Use netrc for auth
+      "--netrc-file",
+      "-u",
+      "--user", // Could leak creds in logs
+      "--proxy-user",
+      "--cert", // Client cert
+      "--key", // Private key
+      "--cacert",
+      "-F",
+      "--form", // File upload
+      "--form-string",
+    ],
+  },
+  // PHP for server-side script execution (website-builder tests).
+  // Script path must be validated separately via WORKSPACE_RESTRICTED_BINS.
+  sqlite3: {
+    // Database file + optional SQL command
+    minPositional: 1,
+    maxPositional: 2,
+    allowedValueFlags: [
+      "-separator",
+      "-nullvalue",
+      "-header",
+      "-noheader",
+      "-column",
+      "-csv",
+      "-json",
+      "-line",
+      "-list",
+      "-html",
+      "-ascii",
+      "-bail",
+      "-readonly",
+    ],
+    deniedFlags: [
+      "-init", // Run commands from file
+      "-cmd", // Run SQL before input (could be dangerous)
+    ],
+  },
+  php: {
+    // Require exactly 1 positional: the script file path
+    minPositional: 1,
+    maxPositional: 1,
+    // Allow safe flags that don't enable arbitrary code execution
+    allowedValueFlags: [
+      "-f", // explicit script file (same as positional)
+    ],
+    // Block dangerous flags that could execute arbitrary code or bypass security
+    deniedFlags: [
+      "-r", // run inline code
+      "--run",
+      "-a", // interactive mode
+      "--interactive",
+      "-B", // code to run BEFORE each file
+      "--process-begin",
+      "-R", // code to run for each input line
+      "--process-code",
+      "-F", // PHP file to run for each input line
+      "--process-file",
+      "-E", // code to run AFTER each line
+      "--process-end",
+      "-c", // custom config file path
+      "-d", // set ini directive (could override disable_functions)
+      "-n", // no config file (bypasses restrictions)
+      "--no-php-ini",
+      "-i", // phpinfo (info disclosure)
+      "--info",
+      "-l", // lint only (not useful for test execution)
+      "--syntax-check",
+      "-s", // display source with syntax highlighting
+      "--syntax-highlight",
+      "-w", // show source without comments
+      "--strip",
+      "-S", // built-in web server (starts a server)
+      "-t", // document root (for built-in server)
+      "-H", // hide script name (for CGI)
+    ],
   },
 };
 
