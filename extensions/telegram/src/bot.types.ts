@@ -1,4 +1,5 @@
 import type { OpenClawConfig, ReplyToMode } from "openclaw/plugin-sdk/config-runtime";
+import type { getReplyFromConfig } from "openclaw/plugin-sdk/reply-runtime";
 import type { RuntimeEnv } from "openclaw/plugin-sdk/runtime-env";
 import type { TelegramBotDeps } from "./bot-deps.js";
 import type { TelegramTransport } from "./fetch.js";
@@ -27,4 +28,6 @@ export type TelegramBotOptions = {
   /** Pre-resolved Telegram transport to reuse across bot instances. If not provided, creates a new one. */
   telegramTransport?: TelegramTransport;
   telegramDeps?: TelegramBotDeps;
+  /** Custom reply resolver for platform integration (e.g., persona-specific agent logic) */
+  replyResolver?: typeof getReplyFromConfig;
 };

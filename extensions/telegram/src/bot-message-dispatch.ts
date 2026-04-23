@@ -6,6 +6,7 @@ import {
   removeAckReactionAfterReply,
 } from "openclaw/plugin-sdk/channel-feedback";
 import { createChannelReplyPipeline } from "openclaw/plugin-sdk/channel-reply-pipeline";
+import type { getReplyFromConfig } from "openclaw/plugin-sdk/reply-runtime";
 import {
   resolveChannelStreamingBlockEnabled,
   resolveChannelStreamingPreviewToolProgress,
@@ -139,6 +140,8 @@ type DispatchTelegramMessageParams = {
   telegramCfg: TelegramAccountConfig;
   telegramDeps?: TelegramBotDeps;
   opts: Pick<TelegramBotOptions, "token">;
+  /** Custom reply resolver for platform integration (e.g., persona-specific agent logic) */
+  replyResolver?: typeof getReplyFromConfig;
 };
 
 type TelegramReasoningLevel = "off" | "on" | "stream";
@@ -245,6 +248,7 @@ export const dispatchTelegramMessage = async ({
   telegramCfg,
   telegramDeps = defaultTelegramBotDeps,
   opts,
+  replyResolver,
 }: DispatchTelegramMessageParams) => {
   const {
     ctxPayload,
@@ -1056,6 +1060,7 @@ export const dispatchTelegramMessage = async ({
             : undefined,
           onModelSelected,
         },
+        replyResolver,
       }));
     } catch (err) {
       dispatchError = err;

@@ -3,6 +3,7 @@ import type {
   ChannelRuntimeSurface,
 } from "openclaw/plugin-sdk/channel-contract";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-runtime";
+import type { getReplyFromConfig } from "openclaw/plugin-sdk/reply-runtime";
 import type { RuntimeEnv } from "openclaw/plugin-sdk/runtime-env";
 
 export type MonitorTelegramOpts = {
@@ -21,6 +22,8 @@ export type MonitorTelegramOpts = {
   webhookUrl?: string;
   webhookCertPath?: string;
   setStatus?: (patch: Omit<ChannelAccountSnapshot, "accountId">) => void;
+  /** Custom reply resolver for platform integration (e.g., persona-specific agent logic) */
+  replyResolver?: typeof getReplyFromConfig;
 };
 
 export type TelegramMonitorFn = (opts?: MonitorTelegramOpts) => Promise<void>;

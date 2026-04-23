@@ -229,6 +229,7 @@ export async function monitorTelegramProvider(opts: MonitorTelegramOpts = {}) {
       createTelegramTransport: createTelegramTransportForPolling,
       stallThresholdMs: account.config.pollingStallThresholdMs,
       setStatus: opts.setStatus,
+      replyResolver: opts.replyResolver,
     });
     await pollingSession.runUntilAbort();
   } finally {

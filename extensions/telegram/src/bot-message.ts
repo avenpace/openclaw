@@ -1,3 +1,4 @@
+import type { getReplyFromConfig } from "openclaw/plugin-sdk/reply-runtime";
 import type { ReplyToMode } from "openclaw/plugin-sdk/config-runtime";
 import type { TelegramAccountConfig } from "openclaw/plugin-sdk/config-runtime";
 import { danger, logVerbose, shouldLogVerbose } from "openclaw/plugin-sdk/runtime-env";
@@ -26,6 +27,8 @@ type TelegramMessageProcessorDeps = Omit<
   textLimit: number;
   telegramDeps: TelegramBotDeps;
   opts: Pick<TelegramBotOptions, "token">;
+  /** Custom reply resolver for platform integration (e.g., persona-specific agent logic) */
+  replyResolver?: typeof getReplyFromConfig;
 };
 
 export const createTelegramMessageProcessor = (deps: TelegramMessageProcessorDeps) => {
@@ -52,6 +55,7 @@ export const createTelegramMessageProcessor = (deps: TelegramMessageProcessorDep
     textLimit,
     telegramDeps,
     opts,
+    replyResolver,
   } = deps;
 
   return async (
@@ -119,6 +123,7 @@ export const createTelegramMessageProcessor = (deps: TelegramMessageProcessorDep
         telegramCfg,
         telegramDeps,
         opts,
+        replyResolver,
       });
       if (ingressDebugEnabled && ingressReceivedAtMs) {
         logVerbose(

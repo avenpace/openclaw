@@ -27,7 +27,7 @@ import {
   resolveReconnectPolicy,
   sleepWithAbort,
 } from "../reconnect.js";
-import { formatError, getWebAuthAgeMs, readWebSelfId } from "../session.js";
+import { formatError, getWebAuthAgeMs } from "../session.js";
 import { getRuntimeConfigSourceSnapshot, loadConfig } from "./config.runtime.js";
 import { whatsappHeartbeatLog, whatsappLog } from "./loggers.js";
 import { buildMentionConfig } from "./mentions.js";
@@ -51,6 +51,15 @@ let replyResolverRuntimePromise: Promise<typeof import("./reply-resolver.runtime
 function loadReplyResolverRuntime() {
   replyResolverRuntimePromise ??= import("./reply-resolver.runtime.js");
   return replyResolverRuntimePromise;
+}
+
+type MonitorWebInboxWorkerModule = typeof import("../../../../src/web/inbound/monitor-worker.js");
+
+let workerModulePromise: Promise<MonitorWebInboxWorkerModule> | null = null;
+
+function loadWorkerModule(): Promise<MonitorWebInboxWorkerModule> {
+  workerModulePromise ??= import("../../../../src/web/inbound/monitor-worker.js");
+  return workerModulePromise;
 }
 
 function normalizeReconnectAccountId(accountId?: string | null): string {
@@ -115,6 +124,11 @@ export async function monitorWebChannel(
   statusController.emit();
 
   const baseCfg = loadConfig();
+  const useWorker =
+    typeof tuning.useWorker === "boolean"
+      ? tuning.useWorker
+      : baseCfg.channels?.whatsapp?.mode === "worker";
+  const workerCfg = tuning.worker ?? baseCfg.channels?.whatsapp?.worker;
   const sourceCfg = getRuntimeConfigSourceSnapshot();
   const account = resolveWhatsAppAccount({
     cfg: baseCfg,
@@ -180,6 +194,83 @@ export async function monitorWebChannel(
     sigintStop = true;
   };
   process.once("SIGINT", handleSigint);
+
+  // Worker mode: delegate to child-process worker instead of direct socket connection.
+  if (useWorker) {
+    const { monitorWebInboxWorker } = await loadWorkerModule();
+    const inboundDebounceMs = resolveInboundDebounceMs({
+      cfg,
+      channel: "whatsapp",
+      overrideMs: resolveExplicitWhatsAppDebounceOverride({
+        cfg,
+        sourceCfg,
+        accountId: account.accountId,
+      }),
+    });
+    const shouldDebounce = (msg: WebInboundMsg) => {
+      if (msg.mediaPath || msg.mediaType) {
+        return false;
+      }
+      if (msg.location) {
+        return false;
+      }
+      if (msg.replyToId || msg.replyToBody) {
+        return false;
+      }
+      return !hasControlCommand(msg.body, cfg);
+    };
+    const connectionId = newConnectionId();
+    const onMessage = createWebOnMessageHandler({
+      cfg,
+      verbose,
+      connectionId,
+      maxMediaBytes: maxMediaBytes,
+      groupHistoryLimit,
+      groupHistories,
+      groupMemberNames,
+      echoTracker,
+      backgroundTasks: new Set<Promise<unknown>>(),
+      replyResolver: activeReplyResolver,
+      replyLogger,
+      baseMentionConfig,
+      account,
+    });
+    const listener = await monitorWebInboxWorker({
+      verbose,
+      accountId: account.accountId,
+      authDir: account.authDir,
+      mediaMaxMb: account.mediaMaxMb,
+      sendReadReceipts: account.sendReadReceipts,
+      debounceMs: inboundDebounceMs,
+      shouldDebounce,
+      maxWorkers: workerCfg?.maxWorkers,
+      docker: workerCfg?.docker,
+      onMessage: async (msg: WebInboundMsg) => {
+        const inboundAt = Date.now();
+        statusController.noteInbound(inboundAt);
+        await onMessage(msg);
+      },
+    });
+
+    statusController.noteConnected();
+    // Get selfE164 from the worker listener
+    statusController.setSelfE164((listener as { selfE164?: string | null }).selfE164 ?? null);
+
+    if (!keepAlive) {
+      return;
+    }
+    // In worker mode, wait until abort signal fires.
+    if (abortSignal) {
+      await new Promise<void>((resolve) => {
+        if (abortSignal.aborted) {
+          resolve();
+          return;
+        }
+        abortSignal.addEventListener("abort", () => resolve(), { once: true });
+      });
+    }
+    return;
+  }
 
   const messageTimeoutMs = tuning.messageTimeoutMs ?? 30 * 60 * 1000;
   const watchdogCheckMs = tuning.watchdogCheckMs ?? 60 * 1000;
@@ -380,10 +471,9 @@ export async function monitorWebChannel(
         }),
       );
 
-      const { e164: selfE164 } = readWebSelfId(account.authDir);
       // Get selfE164 from the listener (sock.user.id) - works for encrypted creds too
-      const listenerSelfE164 = (connection as { selfE164?: string | null }).selfE164 ?? selfE164;
-      statusController.setSelfE164(listenerSelfE164 ?? null);
+      const selfE164 = (connection as { selfE164?: string | null }).selfE164 ?? null;
+      statusController.setSelfE164(selfE164);
       const connectRoute = resolveAgentRoute({
         cfg,
         channel: "whatsapp",

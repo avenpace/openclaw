@@ -599,6 +599,7 @@ export function createTelegramBot(opts: TelegramBotOptions): TelegramBotInstance
     textLimit,
     opts,
     telegramDeps,
+    replyResolver: opts.replyResolver,
   });
 
   registerTelegramNativeCommands({

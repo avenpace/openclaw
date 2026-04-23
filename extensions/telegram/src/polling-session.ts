@@ -1,5 +1,6 @@
 import { type RunOptions, run } from "@grammyjs/runner";
 import type { ChannelAccountSnapshot } from "openclaw/plugin-sdk/channel-contract";
+import type { getReplyFromConfig } from "openclaw/plugin-sdk/reply-runtime";
 import {
   computeBackoff,
   formatDurationPrecise,
@@ -80,6 +81,8 @@ type TelegramPollingSessionOpts = {
   /** Stall detection threshold in ms. Defaults to 120_000 (2 min). */
   stallThresholdMs?: number;
   setStatus?: (patch: Omit<ChannelAccountSnapshot, "accountId">) => void;
+  /** Custom reply resolver for platform integration (e.g., persona-specific agent logic) */
+  replyResolver?: typeof getReplyFromConfig;
 };
 
 export class TelegramPollingSession {
@@ -194,6 +197,7 @@ export class TelegramPollingSession {
           onUpdateId: this.opts.persistUpdateId,
         },
         telegramTransport,
+        replyResolver: this.opts.replyResolver,
       });
     } catch (err) {
       await this.#waitBeforeRetryOnRecoverableSetupError(err, "Telegram setup network error");
