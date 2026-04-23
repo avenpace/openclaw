@@ -39,6 +39,10 @@ export function createWebChannelStatusController(statusSink?: (status: WebChanne
       status.healthState = "healthy";
       emit();
     },
+    setSelfE164(e164: string | null) {
+      status.selfE164 = e164;
+      emit();
+    },
     noteInbound(at = Date.now()) {
       status.lastInboundAt = at;
       status.lastMessageAt = at;

@@ -8,14 +8,14 @@ import { info, success } from "openclaw/plugin-sdk/runtime-env";
 import { getChildLogger } from "openclaw/plugin-sdk/runtime-env";
 import { defaultRuntime, type RuntimeEnv } from "openclaw/plugin-sdk/runtime-env";
 import { resolveOAuthDir } from "./auth-store.runtime.js";
-import { hasWebCredsSync, resolveWebCredsBackupPath, resolveWebCredsPath } from "./creds-files.js";
+import { hasWebCredsSync, resolveWebCredsBackupPath, resolveWebCredsEncPath, resolveWebCredsPath } from "./creds-files.js";
 import {
   waitForCredsSaveQueueWithTimeout,
   type CredsQueueWaitResult,
 } from "./creds-persistence.js";
 import { resolveComparableIdentity, type WhatsAppSelfIdentity } from "./identity.js";
 import { resolveUserPath, type WebChannel } from "./text-runtime.js";
-export { hasWebCredsSync, resolveWebCredsBackupPath, resolveWebCredsPath };
+export { hasWebCredsSync, resolveWebCredsBackupPath, resolveWebCredsEncPath, resolveWebCredsPath };
 
 export const WHATSAPP_AUTH_UNSTABLE_CODE = "whatsapp-auth-unstable";
 
@@ -119,11 +119,23 @@ export async function restoreCredsFromBackupIfNeeded(authDir: string): Promise<b
 export async function webAuthExists(authDir: string = resolveDefaultWebAuthDir()) {
   const resolvedAuthDir = resolveUserPath(authDir);
   const credsPath = resolveWebCredsPath(resolvedAuthDir);
+  const encCredsPath = resolveWebCredsEncPath(resolvedAuthDir);
   try {
     await fs.access(resolvedAuthDir);
   } catch {
     return false;
   }
+  // Check for encrypted credentials first (preferred)
+  try {
+    const encStats = await fs.stat(encCredsPath);
+    if (encStats.isFile() && encStats.size > 1) {
+      // Encrypted creds exist - we can't validate content without key, but file exists
+      return true;
+    }
+  } catch {
+    // no encrypted creds, check plain
+  }
+  // Fall back to plain credentials
   try {
     const stats = await fs.stat(credsPath);
     if (!stats.isFile() || stats.size <= 1) {
@@ -226,13 +238,16 @@ async function clearLegacyBaileysAuthState(authDir: string) {
     if (name === "oauth.json") {
       return false;
     }
-    if (name === "creds.json" || name === "creds.json.bak") {
+    // Include encrypted variants
+    if (name === "creds.json" || name === "creds.json.bak" || name === "creds.json.enc") {
       return true;
     }
-    if (!name.endsWith(".json")) {
+    // Delete both .json and .json.enc files
+    if (!name.endsWith(".json") && !name.endsWith(".json.enc")) {
       return false;
     }
-    return /^(app-state-sync|session|sender-key|pre-key)-/.test(name);
+    const baseName = name.replace(/\.enc$/, "");
+    return /^(app-state-sync|session|sender-key|pre-key)-/.test(baseName);
   };
   await Promise.all(
     entries.map(async (entry) => {
@@ -314,9 +329,16 @@ export async function logoutWeb(params: {
 
 export function readWebSelfId(authDir: string = resolveDefaultWebAuthDir()) {
   // Read the cached WhatsApp Web identity (jid + E.164) from disk if present.
+  // Note: For encrypted credentials, we can't read the identity without the key.
+  const resolvedAuthDir = resolveUserPath(authDir);
   try {
-    const credsPath = resolveWebCredsPath(resolveUserPath(authDir));
+    const credsPath = resolveWebCredsPath(resolvedAuthDir);
     if (!fsSync.existsSync(credsPath)) {
+      // Check if encrypted creds exist - we have a session but can't read identity
+      const encCredsPath = resolveWebCredsEncPath(resolvedAuthDir);
+      if (fsSync.existsSync(encCredsPath)) {
+        return { e164: null, jid: null, lid: null, encrypted: true } as const;
+      }
       return emptyWebSelfId();
     }
     const raw = fsSync.readFileSync(credsPath, "utf-8");
@@ -382,10 +404,20 @@ export async function readWebSelfIdentityForDecision(
 /**
  * Return the age (in milliseconds) of the cached WhatsApp web auth state, or null when missing.
  * Helpful for heartbeats/observability to spot stale credentials.
+ * Checks encrypted credentials first, then falls back to plain.
  */
 export function getWebAuthAgeMs(authDir: string = resolveDefaultWebAuthDir()): number | null {
+  const resolvedAuthDir = resolveUserPath(authDir);
+  // Check encrypted first
   try {
-    const stats = fsSync.statSync(resolveWebCredsPath(resolveUserPath(authDir)));
+    const encStats = fsSync.statSync(resolveWebCredsEncPath(resolvedAuthDir));
+    return Date.now() - encStats.mtimeMs;
+  } catch {
+    // no encrypted creds
+  }
+  // Fall back to plain
+  try {
+    const stats = fsSync.statSync(resolveWebCredsPath(resolvedAuthDir));
     return Date.now() - stats.mtimeMs;
   } catch {
     return null;

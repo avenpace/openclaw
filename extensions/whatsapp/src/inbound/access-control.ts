@@ -42,12 +42,27 @@ export async function checkInboundAccessControl(params: {
     sendMessage: (jid: string, content: { text: string }) => Promise<unknown>;
   };
   remoteJid: string;
+  /** Override DM policy - bypasses config resolution. */
+  dmPolicyOverride?: "pairing" | "allowlist" | "open" | "disabled";
+  /** Override group policy - bypasses config resolution. */
+  groupPolicyOverride?: "open" | "allowlist" | "disabled";
+  /** Override group allowlist - bypasses config resolution. */
+  groupAllowFromOverride?: string[];
+  /** Override groups config - bypasses config resolution. */
+  groupsOverride?: Record<string, { requireMention?: boolean }>;
 }): Promise<InboundAccessControlResult> {
-  const policy = resolveWhatsAppInboundPolicy({
+  const basePolicy = resolveWhatsAppInboundPolicy({
     cfg: params.cfg,
     accountId: params.accountId,
     selfE164: params.selfE164,
   });
+  // Apply overrides if provided (platform-level control)
+  const policy = {
+    ...basePolicy,
+    ...(params.dmPolicyOverride ? { dmPolicy: params.dmPolicyOverride as typeof basePolicy.dmPolicy } : {}),
+    ...(params.groupPolicyOverride ? { groupPolicy: params.groupPolicyOverride as typeof basePolicy.groupPolicy } : {}),
+    ...(params.groupAllowFromOverride ? { groupAllowFrom: params.groupAllowFromOverride } : {}),
+  };
   const storeAllowFrom = await readStoreAllowFromForDmPolicy({
     provider: "whatsapp",
     accountId: policy.account.accountId,

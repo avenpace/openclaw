@@ -15,7 +15,11 @@ type LibraryExports = typeof import("./library.js");
 // These bindings are populated only for library consumers. The CLI entry stays
 // on the lean path and must not read them while running as main.
 export let applyTemplate: LibraryExports["applyTemplate"];
+export let buildWorkspaceSkillStatus: LibraryExports["buildWorkspaceSkillStatus"];
+export let clearConfigCache: LibraryExports["clearConfigCache"];
 export let createDefaultDeps: LibraryExports["createDefaultDeps"];
+export let ensureOpenClawModelsJson: LibraryExports["ensureOpenClawModelsJson"];
+export let loadModelCatalog: LibraryExports["loadModelCatalog"];
 export let deriveSessionKey: LibraryExports["deriveSessionKey"];
 export let describePortOwner: LibraryExports["describePortOwner"];
 export let ensureBinary: LibraryExports["ensureBinary"];
@@ -25,6 +29,7 @@ export let handlePortError: LibraryExports["handlePortError"];
 export let loadConfig: LibraryExports["loadConfig"];
 export let loadSessionStore: LibraryExports["loadSessionStore"];
 export let monitorWebChannel: LibraryExports["monitorWebChannel"];
+export let monitorTelegramProvider: LibraryExports["monitorTelegramProvider"];
 export let normalizeE164: LibraryExports["normalizeE164"];
 export let PortInUseError: LibraryExports["PortInUseError"];
 export let promptYesNo: LibraryExports["promptYesNo"];
@@ -32,8 +37,25 @@ export let resolveSessionKey: LibraryExports["resolveSessionKey"];
 export let resolveStorePath: LibraryExports["resolveStorePath"];
 export let runCommandWithTimeout: LibraryExports["runCommandWithTimeout"];
 export let runExec: LibraryExports["runExec"];
+export let runEmbeddedPiAgent: LibraryExports["runEmbeddedPiAgent"];
+export let loadOpenClawPlugins: LibraryExports["loadOpenClawPlugins"];
 export let saveSessionStore: LibraryExports["saveSessionStore"];
+export let sendMessageWhatsApp: LibraryExports["sendMessageWhatsApp"];
+export let setConfigOverride: LibraryExports["setConfigOverride"];
+export let getConfigOverrides: LibraryExports["getConfigOverrides"];
+export let startGatewayServer: LibraryExports["startGatewayServer"];
+export let transcribeFirstAudio: LibraryExports["transcribeFirstAudio"];
+export let applyMediaUnderstanding: LibraryExports["applyMediaUnderstanding"];
+export let updateLastRoute: LibraryExports["updateLastRoute"];
 export let waitForever: LibraryExports["waitForever"];
+export let normalizeGoogleModelId: LibraryExports["normalizeGoogleModelId"];
+export let normalizeProviderId: LibraryExports["normalizeProviderId"];
+export let normalizeModelRef: LibraryExports["normalizeModelRef"];
+export let DEFAULT_MODEL: LibraryExports["DEFAULT_MODEL"];
+export let DEFAULT_PROVIDER: LibraryExports["DEFAULT_PROVIDER"];
+export let maybeApplyTtsToPayload: LibraryExports["maybeApplyTtsToPayload"];
+export let textToSpeech: LibraryExports["textToSpeech"];
+export let resolveTtsConfig: LibraryExports["resolveTtsConfig"];
 
 async function loadLegacyCliDeps(): Promise<LegacyCliDeps> {
   const { runCli } = await import("./cli/run-main.js");
@@ -56,7 +78,11 @@ const isMain = isMainModule({
 if (!isMain) {
   ({
     applyTemplate,
+    buildWorkspaceSkillStatus,
+    clearConfigCache,
     createDefaultDeps,
+    ensureOpenClawModelsJson,
+    loadModelCatalog,
     deriveSessionKey,
     describePortOwner,
     ensureBinary,
@@ -66,6 +92,7 @@ if (!isMain) {
     loadConfig,
     loadSessionStore,
     monitorWebChannel,
+    monitorTelegramProvider,
     normalizeE164,
     PortInUseError,
     promptYesNo,
@@ -73,10 +100,37 @@ if (!isMain) {
     resolveStorePath,
     runCommandWithTimeout,
     runExec,
+    runEmbeddedPiAgent,
+    loadOpenClawPlugins,
     saveSessionStore,
+    sendMessageWhatsApp,
+    setConfigOverride,
+    getConfigOverrides,
+    startGatewayServer,
+    transcribeFirstAudio,
+    applyMediaUnderstanding,
+    updateLastRoute,
     waitForever,
+    normalizeGoogleModelId,
+    normalizeProviderId,
+    normalizeModelRef,
+    DEFAULT_MODEL,
+    DEFAULT_PROVIDER,
+    maybeApplyTtsToPayload,
+    textToSpeech,
+    resolveTtsConfig,
   } = await import("./library.js"));
 }
+
+// Re-export types for platform integration
+export type { MsgContext } from "./auto-reply/templating.js";
+export type { ReplyPayload } from "./auto-reply/types.js";
+export type { ModelCatalogEntry } from "./agents/model-catalog.js";
+export type { DevicesHandler } from "./agents/tools/devices-tool.js";
+export type { HermesMemoryHandler } from "./agents/tools/hermes-memory-tool.js";
+export type { HermesSkillsHandler } from "./agents/tools/hermes-skills-tool.js";
+export type { ModelRef } from "./agents/model-selection.js";
+export type { TtsResult } from "./tts/tts.js";
 
 if (isMain) {
   const { restoreTerminalState } = await import("./terminal/restore.js");

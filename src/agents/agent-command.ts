@@ -260,6 +260,7 @@ async function prepareAgentCommandExecution(
     groupChannel: opts.groupChannel,
     groupSpace: opts.groupSpace,
     workspaceDir: opts.workspaceDir,
+    cwd: opts.cwd,
   });
   const agentIdOverrideRaw = opts.agentId?.trim();
   const agentIdOverride = agentIdOverrideRaw ? normalizeAgentId(agentIdOverrideRaw) : undefined;
@@ -860,6 +861,8 @@ async function agentCommandInternal(
           opts.replyChannel ?? opts.channel,
         );
         const spawnedBy = normalizedSpawned.spawnedBy ?? sessionEntry?.spawnedBy;
+        // cwd offset for spawned subagents (e.g., "websites/my-project")
+        const cwd = normalizedSpawned.cwd;
         const effectiveFallbacksOverride = resolveEffectiveModelFallbacks({
           cfg,
           agentId: sessionAgentId,
@@ -887,6 +890,7 @@ async function agentCommandInternal(
               sessionAgentId,
               sessionFile,
               workspaceDir,
+              cwd,
               body,
               isFallbackRetry,
               resolvedThinkLevel,
@@ -914,6 +918,8 @@ async function agentCommandInternal(
                   lifecycleEnded = true;
                 }
               },
+              // Platform: pass inherited skill count for exec gating on external channels
+              installedSkillCount: opts.installedSkillCount ?? undefined,
             });
           },
         });

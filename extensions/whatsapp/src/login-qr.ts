@@ -165,12 +165,16 @@ export async function startWebLoginWithQr(
     timeoutMs?: number;
     force?: boolean;
     accountId?: string;
+    authDir?: string; // Direct authDir override (bypasses config resolution)
     runtime?: RuntimeEnv;
+    encryptionKey?: Buffer; // Optional encryption key for encrypted credential storage
   } = {},
 ): Promise<StartWebLoginWithQrResult> {
   const runtime = opts.runtime ?? defaultRuntime;
   const cfg = loadConfig();
-  const account = resolveWhatsAppAccount({ cfg, accountId: opts.accountId });
+  const resolvedAccount = resolveWhatsAppAccount({ cfg, accountId: opts.accountId });
+  // Allow direct authDir override for multi-tenant platforms
+  const account = opts.authDir ? { ...resolvedAccount, authDir: opts.authDir } : resolvedAccount;
   const authState = await readWebAuthExistsForDecision(account.authDir);
   if (authState.outcome === "unstable") {
     return {
@@ -187,7 +191,7 @@ export async function startWebLoginWithQr(
   }
 
   const existing = activeLogins.get(account.accountId);
-  if (existing && isLoginFresh(existing) && existing.qrDataUrl) {
+  if (!opts.force && existing && isLoginFresh(existing) && existing.qrDataUrl) {
     return {
       qrDataUrl: existing.qrDataUrl,
       message: "QR already active. Scan it in WhatsApp → Linked Devices.",
@@ -215,6 +219,7 @@ export async function startWebLoginWithQr(
   try {
     sock = await createWaSocket(false, Boolean(opts.verbose), {
       authDir: account.authDir,
+      encryptionKey: opts.encryptionKey,
       onQr: (qr: string) => {
         if (pendingQr) {
           return;
@@ -353,4 +358,153 @@ export async function waitForWebLogin(
 
     return { connected: false, message: "Login ended without a connection." };
   }
+}
+
+/**
+ * Start WhatsApp login using phone number + pairing code (alternative to QR).
+ * User enters the returned 8-digit code in WhatsApp -> Linked Devices -> Link with phone number.
+ */
+export async function startWebLoginWithCode(opts: {
+  phoneNumber: string; // E.164 format: +6281234567890
+  verbose?: boolean;
+  timeoutMs?: number;
+  force?: boolean;
+  accountId?: string;
+  authDir?: string;
+  runtime?: RuntimeEnv;
+  encryptionKey?: Buffer;
+}): Promise<{ pairingCode?: string; message: string }> {
+  const runtime = opts.runtime ?? defaultRuntime;
+  const cfg = loadConfig();
+  const resolvedAccount = resolveWhatsAppAccount({ cfg, accountId: opts.accountId });
+  const account = opts.authDir ? { ...resolvedAccount, authDir: opts.authDir } : resolvedAccount;
+  const authState = await readWebAuthExistsForDecision(account.authDir);
+  if (authState.outcome === "unstable") {
+    return {
+      message: "WhatsApp auth state is still stabilizing. Retry login in a moment.",
+    };
+  }
+
+  if (authState.exists && !opts.force) {
+    const selfId = readWebSelfId(account.authDir);
+    const who = selfId.e164 ?? selfId.jid ?? "unknown";
+    return {
+      message: `WhatsApp is already linked (${who}). Use force=true for fresh pairing.`,
+    };
+  }
+
+  await resetActiveLogin(account.accountId);
+
+  const phoneNumber = opts.phoneNumber.replace(/\s+/g, "");
+  if (!/^\+\d{10,15}$/.test(phoneNumber)) {
+    return {
+      message: "Invalid phone number format. Use E.164 format: +6281234567890",
+    };
+  }
+
+  // Clear auth dir for fresh code pairing
+  try {
+    const { rm, mkdir } = await import("node:fs/promises");
+    await rm(account.authDir, { recursive: true, force: true });
+    await mkdir(account.authDir, { recursive: true });
+  } catch {
+    // ignore
+  }
+
+  let sock: WaSocket;
+  try {
+    sock = await createWaSocket(false, Boolean(opts.verbose), {
+      authDir: account.authDir,
+      encryptionKey: opts.encryptionKey,
+      codePairing: true,
+    });
+    runtime.log(info("[CodePairing] Socket created, waiting for session..."));
+  } catch (err) {
+    return { message: `Failed to start WhatsApp connection: ${String(err)}` };
+  }
+
+  const phoneDigits = phoneNumber.slice(1);
+  const codePromise = new Promise<string>((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error("Timeout getting pairing code")), 30_000);
+    let resolved = false;
+    const handler = async (update: { connection?: string; qr?: string }) => {
+      if (resolved) return;
+      if (update.qr) {
+        clearTimeout(timeout);
+        try {
+          const code = await sock.requestPairingCode(phoneDigits);
+          resolved = true;
+          resolve(code);
+        } catch (err) {
+          resolved = true;
+          sock.ev.off("connection.update", handler);
+          reject(err);
+        }
+        return;
+      }
+      if (update.connection === "close") {
+        resolved = true;
+        sock.ev.off("connection.update", handler);
+        clearTimeout(timeout);
+        reject(new Error("Connection closed"));
+      }
+    };
+    sock.ev.on("connection.update", handler);
+  });
+
+  let pairingCode: string;
+  try {
+    pairingCode = await codePromise;
+    runtime.log(info(`WhatsApp pairing code generated for ${phoneNumber}`));
+  } catch (err) {
+    closeSocket(sock);
+    return { message: `Failed to get pairing code: ${String(err)}` };
+  }
+
+  const formattedCode =
+    pairingCode.length === 8 ? `${pairingCode.slice(0, 4)}-${pairingCode.slice(4)}` : pairingCode;
+
+  const login: ActiveLogin = {
+    accountId: account.accountId,
+    authDir: account.authDir,
+    isLegacyAuthDir: account.isLegacyAuthDir,
+    id: randomUUID(),
+    sock,
+    startedAt: Date.now(),
+    connected: false,
+    waitPromise: Promise.resolve(),
+    verbose: Boolean(opts.verbose),
+    runtime,
+  };
+  activeLogins.set(account.accountId, login);
+  attachLoginWaiter(account.accountId, login);
+
+  return {
+    pairingCode: formattedCode,
+    message: "Enter this code in WhatsApp -> Linked Devices -> Link with phone number.",
+  };
+}
+
+/**
+ * Get the current status of code-based pairing.
+ */
+export function getCodePairingStatus(opts: { accountId?: string }): {
+  active: boolean;
+  pairingCode?: string;
+  connected: boolean;
+  error?: string;
+} {
+  const cfg = loadConfig();
+  const account = resolveWhatsAppAccount({ cfg, accountId: opts.accountId });
+  const login = activeLogins.get(account.accountId);
+
+  if (!login) {
+    return { active: false, connected: false };
+  }
+
+  return {
+    active: isLoginFresh(login),
+    connected: login.connected,
+    error: login.error,
+  };
 }

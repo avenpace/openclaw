@@ -129,13 +129,14 @@ export async function monitorWebChannel(
         ackReaction: account.ackReaction,
         messagePrefix: account.messagePrefix,
         allowFrom: account.allowFrom,
-        groupAllowFrom: account.groupAllowFrom,
-        groupPolicy: account.groupPolicy,
+        // Use tuning overrides for group settings if provided (platform multi-tenant control)
+        groupAllowFrom: tuning.groupAllowFrom ?? account.groupAllowFrom,
+        groupPolicy: tuning.groupPolicy ?? account.groupPolicy,
         textChunkLimit: account.textChunkLimit,
         chunkMode: account.chunkMode,
         mediaMaxMb: account.mediaMaxMb,
         blockStreaming: account.blockStreaming,
-        groups: account.groups,
+        groups: tuning.groups ?? account.groups,
       },
     },
   } satisfies ReturnType<typeof loadConfig>;
@@ -380,6 +381,9 @@ export async function monitorWebChannel(
       );
 
       const { e164: selfE164 } = readWebSelfId(account.authDir);
+      // Get selfE164 from the listener (sock.user.id) - works for encrypted creds too
+      const listenerSelfE164 = (connection as { selfE164?: string | null }).selfE164 ?? selfE164;
+      statusController.setSelfE164(listenerSelfE164 ?? null);
       const connectRoute = resolveAgentRoute({
         cfg,
         channel: "whatsapp",

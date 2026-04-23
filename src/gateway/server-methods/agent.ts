@@ -354,6 +354,8 @@ export const agentHandlers: GatewayRequestHandlers = {
       cleanupBundleMcpOnRunEnd?: boolean;
       label?: string;
       inputProvenance?: InputProvenance;
+      // Platform: inherited skill count for exec gating on external channels
+      installedSkillCount?: number;
     };
     const senderIsOwner = resolveSenderIsOwnerFromClient(client);
     const allowModelOverride = resolveAllowModelOverrideFromClient(client);
@@ -378,6 +380,8 @@ export const agentHandlers: GatewayRequestHandlers = {
       groupId: request.groupId,
       groupChannel: request.groupChannel,
       groupSpace: request.groupSpace,
+      // Platform: inherited skill count for exec gating
+      installedSkillCount: request.installedSkillCount,
     });
     let resolvedGroupId: string | undefined = normalizedSpawned.groupId;
     let resolvedGroupChannel: string | undefined = normalizedSpawned.groupChannel;
@@ -958,6 +962,8 @@ export const agentHandlers: GatewayRequestHandlers = {
           spawnedBy: spawnedByValue,
           workspaceDir: sessionEntry?.spawnedWorkspaceDir,
         }),
+        // Platform: pass inherited skill count for exec gating
+        installedSkillCount: normalizedSpawned.installedSkillCount,
         senderIsOwner,
         allowModelOverride,
       },

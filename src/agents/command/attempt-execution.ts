@@ -233,6 +233,8 @@ export function runAgentAttempt(params: {
   sessionAgentId: string;
   sessionFile: string;
   workspaceDir: string;
+  /** Working directory offset relative to workspaceDir (e.g., "websites/my-project"). */
+  cwd?: string;
   body: string;
   isFallbackRetry: boolean;
   resolvedThinkLevel: ThinkLevel;
@@ -251,6 +253,8 @@ export function runAgentAttempt(params: {
   storePath?: string;
   allowTransientCooldownProbe?: boolean;
   sessionHasHistory?: boolean;
+  // Platform: pass inherited skill count for exec gating on external channels
+  installedSkillCount?: number;
 }) {
   const effectivePrompt = resolveFallbackRetryPrompt({
     body: params.body,
@@ -404,6 +408,7 @@ export function runAgentAttempt(params: {
     senderIsOwner: params.opts.senderIsOwner,
     sessionFile: params.sessionFile,
     workspaceDir: params.workspaceDir,
+    cwd: params.cwd,
     config: params.cfg,
     skillsSnapshot: params.skillsSnapshot,
     prompt: effectivePrompt,
@@ -432,6 +437,8 @@ export function runAgentAttempt(params: {
     onAgentEvent: params.onAgentEvent,
     bootstrapPromptWarningSignaturesSeen,
     bootstrapPromptWarningSignature,
+    // Platform: pass inherited skill count for exec gating on external channels
+    installedSkillCount: params.installedSkillCount ?? undefined,
   });
 }
 

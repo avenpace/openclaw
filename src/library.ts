@@ -25,7 +25,7 @@ import { DEFAULT_MODEL, DEFAULT_PROVIDER } from "./agents/defaults.js";
 import { loadModelCatalog, type ModelCatalogEntry } from "./agents/model-catalog.js";
 import { normalizeProviderId, normalizeModelRef, type ModelRef } from "./agents/model-selection.js";
 import { ensureOpenClawModelsJson } from "./agents/models-config.js";
-import { normalizeGoogleModelId } from "./agents/models-config.providers.js";
+import { normalizeGoogleModelId } from "./plugin-sdk/google-model-id.js";
 import { runEmbeddedPiAgent } from "./agents/pi-embedded.js";
 import { buildWorkspaceSkillStatus } from "./agents/skills-status.js";
 import type { DevicesHandler } from "./agents/tools/devices-tool.js";
@@ -37,22 +37,33 @@ import { startGatewayServer } from "./gateway/server.js";
 import { applyMediaUnderstanding } from "./media-understanding/apply.js";
 import { transcribeFirstAudio } from "./media-understanding/audio-preflight.js";
 import { loadOpenClawPlugins } from "./plugins/loader.js";
-import { monitorTelegramProvider } from "./telegram/monitor.js";
 import {
   maybeApplyTtsToPayload,
   textToSpeech,
   resolveTtsConfig,
   type TtsResult,
 } from "./tts/tts.js";
-import type { WebChannelStatus } from "./web/auto-reply/types.js";
-import { monitorWebInbox } from "./web/inbound/monitor.js";
-import {
-  startWebLoginWithQr,
-  startWebLoginWithCode,
-  waitForWebLogin,
-  getCodePairingStatus,
-} from "./web/login-qr.js";
-import { sendMessageWhatsApp } from "./web/outbound.js";
+
+// Clawku platform: channel-specific exports are loaded dynamically from extensions.
+// These lazy loaders avoid broken imports when the old src/ shim files are removed by upstream.
+async function loadTelegramExtension() {
+  return import("../extensions/telegram/runtime-api.js");
+}
+async function loadWhatsAppExtension() {
+  return import("../extensions/whatsapp/runtime-api.js");
+}
+
+const monitorTelegramProvider: (...args: unknown[]) => Promise<void> = async (...args) => {
+  const ext = await loadTelegramExtension();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return (ext as any).monitorTelegramProvider(...args);
+};
+
+const sendMessageWhatsApp: (...args: unknown[]) => Promise<unknown> = async (...args) => {
+  const ext = await loadWhatsAppExtension();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return (ext as any).sendMessageWhatsApp(...args);
+};
 
 type GetReplyFromConfig = typeof getReplyFromConfigRuntime;
 type PromptYesNo = typeof promptYesNoRuntime;
@@ -122,7 +133,7 @@ export {
   loadModelCatalog,
   loadSessionStore,
   monitorWebChannel,
-  monitorWebInbox,
+  // Platform: channel monitors loaded dynamically from extensions
   monitorTelegramProvider,
   normalizeE164,
   PortInUseError,
@@ -137,15 +148,10 @@ export {
   setConfigOverride,
   getConfigOverrides,
   startGatewayServer,
-  startWebLoginWithQr,
-  startWebLoginWithCode,
-  toWhatsappJid,
   transcribeFirstAudio,
   applyMediaUnderstanding,
   updateLastRoute,
   waitForever,
-  waitForWebLogin,
-  getCodePairingStatus,
   // Model selection utilities
   normalizeGoogleModelId,
   normalizeProviderId,
@@ -163,7 +169,6 @@ export {
 export type {
   MsgContext,
   ReplyPayload,
-  WebChannelStatus,
   ModelCatalogEntry,
   DevicesHandler,
   HermesMemoryHandler,

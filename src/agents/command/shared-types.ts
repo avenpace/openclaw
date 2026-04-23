@@ -4,6 +4,8 @@ export type AgentStreamParams = {
   maxTokens?: number;
   /** Provider fast-mode override (best-effort). */
   fastMode?: boolean;
+  /** Force tool usage behavior: "auto" (default), "none", "required", or specific function. */
+  toolChoice?: "auto" | "none" | "required" | { type: "function"; function: { name: string } };
 };
 
 // Simplified tool definition for client-provided tools (OpenResponses hosted tools)

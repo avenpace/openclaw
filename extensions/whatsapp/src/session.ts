@@ -23,6 +23,7 @@ import {
 } from "./creds-persistence.js";
 import { formatError, getStatusCode } from "./session-errors.js";
 import {
+  Browsers,
   DisconnectReason,
   fetchLatestBaileysVersion,
   makeCacheableSignalKeyStore,
@@ -120,7 +121,12 @@ async function safeSaveCreds(
 export async function createWaSocket(
   printQr: boolean,
   verbose: boolean,
-  opts: { authDir?: string; onQr?: (qr: string) => void } = {},
+  opts: {
+    authDir?: string;
+    onQr?: (qr: string) => void;
+    encryptionKey?: Buffer;
+    codePairing?: boolean;
+  } = {},
 ): Promise<ReturnType<typeof makeWASocket>> {
   const baseLogger = getChildLogger(
     { module: "baileys" },
@@ -143,6 +149,10 @@ export async function createWaSocket(
     await writeCredsJsonAtomically(authDir, state.creds);
   };
   const { version } = await fetchLatestBaileysVersion();
+  // For code pairing, Baileys requires a valid browser config
+  const browserConfig = opts.codePairing
+    ? Browsers.windows("Edge")
+    : (["openclaw", "cli", VERSION] as [string, string, string]);
   const agent = await resolveEnvProxyAgent(sessionLogger);
   const fetchAgent = await resolveEnvFetchDispatcher(sessionLogger, agent);
   const sock = makeWASocket({
@@ -153,7 +163,7 @@ export async function createWaSocket(
     version,
     logger,
     printQRInTerminal: false,
-    browser: ["openclaw", "cli", VERSION],
+    browser: browserConfig,
     syncFullHistory: false,
     markOnlineOnConnect: false,
     agent,

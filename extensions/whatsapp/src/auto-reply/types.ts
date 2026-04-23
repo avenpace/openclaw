@@ -28,6 +28,21 @@ export type WebChannelStatus = {
   lastEventAt?: number | null;
   lastError?: string | null;
   healthState?: WebChannelHealthState;
+  /** Phone number (E.164 format) when connected, from sock.user.id */
+  selfE164?: string | null;
+};
+
+export type WhatsAppWorkerDockerOptions = {
+  enabled?: boolean;
+  image?: string;
+  imageByAccount?: Record<string, string>;
+  authMountPath?: string;
+  workerEntry?: string;
+  command?: string[];
+  containerNamePrefix?: string;
+  network?: string;
+  extraArgs?: string[];
+  env?: Record<string, string>;
 };
 
 export type WebMonitorTuning = {
@@ -41,4 +56,17 @@ export type WebMonitorTuning = {
   accountId?: string;
   /** Debounce window (ms) for batching rapid consecutive messages from the same sender. */
   debounceMs?: number;
+  /** Override WhatsApp worker mode (true forces worker, false forces direct). */
+  useWorker?: boolean;
+  /** Override WhatsApp worker settings for this monitor invocation. */
+  worker?: {
+    maxWorkers?: number;
+    docker?: WhatsAppWorkerDockerOptions;
+  };
+  /** Override group policy for multi-tenant isolation. */
+  groupPolicy?: "open" | "allowlist" | "disabled";
+  /** Override group allowlist for multi-tenant isolation. */
+  groupAllowFrom?: string[];
+  /** Override per-group settings (e.g., requireMention) for multi-tenant isolation. */
+  groups?: Record<string, { requireMention?: boolean }>;
 };

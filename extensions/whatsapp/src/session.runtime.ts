@@ -1,4 +1,5 @@
 export {
+  Browsers,
   BufferJSON,
   DisconnectReason,
   fetchLatestBaileysVersion,

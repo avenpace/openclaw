@@ -87,6 +87,18 @@ export type MonitorWebInboxOptions = {
   };
   /** Abort in-flight reconnect waits when shutdown becomes terminal. */
   disconnectRetryAbortSignal?: AbortSignal;
+  /** Optional encryption key for encrypted credential storage (AES-256-GCM). */
+  encryptionKey?: Buffer;
+  /** Override DM policy - bypasses config resolution. Use 'allowlist' to silently ignore unauthorized senders. */
+  dmPolicy?: "pairing" | "allowlist" | "open" | "disabled";
+  /** Override group policy - bypasses config resolution. */
+  groupPolicy?: "open" | "allowlist" | "disabled";
+  /** Override groupAllowFrom - bypasses config resolution. */
+  groupAllowFrom?: string[];
+  /** Override groups config - bypasses config resolution. */
+  groups?: Record<string, { requireMention?: boolean }>;
+  /** Override root directory for saving inbound media (tenant isolation). */
+  mediaRootDir?: string;
 };
 
 export async function attachWebInboxToSocket(
@@ -400,6 +412,10 @@ export async function attachWebInboxToSocket(
       verbose: options.verbose,
       sock: { sendMessage: (jid, content) => sendTrackedMessage(jid, content) },
       remoteJid,
+      dmPolicyOverride: options.dmPolicy,
+      groupPolicyOverride: options.groupPolicy,
+      groupAllowFromOverride: options.groupAllowFrom,
+      groupsOverride: options.groups,
     });
     if (!access.allowed) {
       return null;
@@ -479,6 +495,7 @@ export async function attachWebInboxToSocket(
           "inbound",
           maxBytes,
           inboundMedia.fileName,
+          options.mediaRootDir,
         );
         mediaPath = saved.path;
         mediaType = inboundMedia.mimetype;
@@ -726,6 +743,7 @@ export async function attachWebInboxToSocket(
 export async function monitorWebInbox(options: MonitorWebInboxOptions) {
   const sock = await createWaSocket(false, options.verbose, {
     authDir: options.authDir,
+    encryptionKey: options.encryptionKey,
   });
   await waitForWaConnection(sock);
   return attachWebInboxToSocket({
