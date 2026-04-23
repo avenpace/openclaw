@@ -787,6 +787,10 @@ export async function runEmbeddedPiAgent(
             bootstrapPromptWarningSignaturesSeen,
             bootstrapPromptWarningSignature:
               bootstrapPromptWarningSignaturesSeen[bootstrapPromptWarningSignaturesSeen.length - 1],
+            devicesHandler: params.devicesHandler,
+            cloudStorageHandler: params.cloudStorageHandler,
+            imageResizeHandler: params.imageResizeHandler,
+            browserHandler: params.browserHandler,
           });
 
           const {

@@ -9,6 +9,10 @@ export type SpawnedRunMetadata = {
   groupChannel?: string | null;
   groupSpace?: string | null;
   workspaceDir?: string | null;
+  /** Working directory offset relative to workspaceDir (e.g., "websites/my-project") */
+  cwd?: string | null;
+  // Platform: inherited skill count for exec gating
+  installedSkillCount?: number | null;
 };
 
 export type SpawnedToolContext = {
@@ -17,6 +21,10 @@ export type SpawnedToolContext = {
   agentGroupSpace?: string | null;
   agentMemberRoleIds?: string[];
   workspaceDir?: string;
+  /** Working directory offset relative to workspaceDir (e.g., "websites/my-project") */
+  cwd?: string;
+  // Platform: inherited skill count for exec gating
+  installedSkillCount?: number;
 };
 
 export type NormalizedSpawnedRunMetadata = {
@@ -25,7 +33,18 @@ export type NormalizedSpawnedRunMetadata = {
   groupChannel?: string;
   groupSpace?: string;
   workspaceDir?: string;
+  /** Working directory offset relative to workspaceDir (e.g., "websites/my-project") */
+  cwd?: string;
+  // Platform: inherited skill count for exec gating
+  installedSkillCount?: number;
 };
+
+function normalizeOptionalNumber(value?: number | null): number | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return undefined;
+  }
+  return value;
+}
 
 export function normalizeSpawnedRunMetadata(
   value?: SpawnedRunMetadata | null,
@@ -36,17 +55,24 @@ export function normalizeSpawnedRunMetadata(
     groupChannel: normalizeOptionalString(value?.groupChannel),
     groupSpace: normalizeOptionalString(value?.groupSpace),
     workspaceDir: normalizeOptionalString(value?.workspaceDir),
+    cwd: normalizeOptionalString(value?.cwd),
+    installedSkillCount: normalizeOptionalNumber(value?.installedSkillCount),
   };
 }
 
 export function mapToolContextToSpawnedRunMetadata(
   value?: SpawnedToolContext | null,
-): Pick<NormalizedSpawnedRunMetadata, "groupId" | "groupChannel" | "groupSpace" | "workspaceDir"> {
+): Pick<
+  NormalizedSpawnedRunMetadata,
+  "groupId" | "groupChannel" | "groupSpace" | "workspaceDir" | "cwd" | "installedSkillCount"
+> {
   return {
     groupId: normalizeOptionalString(value?.agentGroupId),
     groupChannel: normalizeOptionalString(value?.agentGroupChannel),
     groupSpace: normalizeOptionalString(value?.agentGroupSpace),
     workspaceDir: normalizeOptionalString(value?.workspaceDir),
+    cwd: normalizeOptionalString(value?.cwd),
+    installedSkillCount: normalizeOptionalNumber(value?.installedSkillCount),
   };
 }
 

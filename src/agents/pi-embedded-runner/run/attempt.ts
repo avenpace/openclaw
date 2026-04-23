@@ -263,6 +263,14 @@ import {
   PREEMPTIVE_OVERFLOW_ERROR_TEXT,
   shouldPreemptivelyCompactBeforePrompt,
 } from "./preemptive-compaction.js";
+import { createCloudStorageTools } from "../../tools/cloud-storage-tool.js";
+import { createDevicesTools } from "../../tools/devices-tool.js";
+import { createHermesMemoryTools } from "../../tools/hermes-memory-tool.js";
+import { createHermesSkillsTools } from "../../tools/hermes-skills-tool.js";
+import { getBuiltinImageResizeHandler } from "../../tools/image-resize-handler-builtin.js";
+import { createImageResizeTools } from "../../tools/image-resize-tool.js";
+import { createPhpTool, isPhpAvailable } from "../../tools/php-tool.js";
+import { createPythonTool, isPythonAvailable } from "../../tools/python-tool.js";
 import type { EmbeddedRunAttemptParams, EmbeddedRunAttemptResult } from "./types.js";
 
 export {
@@ -505,6 +513,8 @@ export async function runEmbeddedAttempt(
             exec: {
               ...params.execOverrides,
               elevated: params.bashElevated,
+              // Platform: pass installed skill count for exec gating on external channels
+              installedSkillCount: params.installedSkillCount,
             },
             sandbox,
             messageProvider: params.messageChannel ?? params.messageProvider,
@@ -527,12 +537,11 @@ export async function runEmbeddedAttempt(
             runId: params.runId,
             agentDir,
             workspaceDir: effectiveWorkspace,
-            // When sandboxing uses a copied workspace (`ro` or `none`), effectiveWorkspace points
-            // at the sandbox copy. Spawned subagents should inherit the real workspace instead.
-            spawnWorkspaceDir: resolveAttemptSpawnWorkspaceDir({
-              sandbox,
-              resolvedWorkspace,
-            }),
+            // Working directory offset for spawned subagents (e.g., "websites/my-project")
+            cwd: params.cwd,
+            // Pass the real workspace for subagent inheritance when sandbox uses a copy
+            // This ensures spawned subagents work in the actual persona workspace, not the sandbox copy
+            spawnWorkspaceDir: sandbox?.agentWorkspaceDir ?? resolvedWorkspace,
             config: params.config,
             abortSignal: runAbortController.signal,
             modelProvider: params.model.provider,
@@ -550,6 +559,7 @@ export async function runEmbeddedAttempt(
             requireExplicitMessageTarget:
               params.requireExplicitMessageTarget ?? isSubagentSessionKey(params.sessionKey),
             disableMessageTool: params.disableMessageTool,
+            browserHandler: params.browserHandler,
             forceMessageTool: params.forceMessageTool,
             onYield: (message) => {
               yieldDetected = true;
@@ -559,6 +569,65 @@ export async function runEmbeddedAttempt(
               abortSessionForYield?.();
             },
           });
+          // Add devices tools if handler is provided (platform-api injects this)
+          if (params.devicesHandler) {
+            allTools.push(...createDevicesTools(params.devicesHandler));
+          }
+
+          // Add cloud storage tools if handler is provided (platform-api injects this)
+          if (params.cloudStorageHandler) {
+            allTools.push(...createCloudStorageTools(params.cloudStorageHandler));
+          }
+
+          // Add Hermes memory tools if handler is provided (platform-api injects this)
+          // Enables persistent cross-session memory and user preferences
+          if (params.hermesMemoryHandler) {
+            allTools.push(...createHermesMemoryTools(params.hermesMemoryHandler));
+          }
+
+          // Add Hermes skills tools if handler is provided (platform-api injects this)
+          // Enables autonomous skill creation and management
+          if (params.hermesSkillsHandler) {
+            allTools.push(...createHermesSkillsTools(params.hermesSkillsHandler));
+          }
+
+          // Add image resize tools - use provided handler or fall back to built-in Sharp handler
+          const imageResizeHandler = params.imageResizeHandler ?? getBuiltinImageResizeHandler();
+          const imageTools = createImageResizeTools(imageResizeHandler);
+          allTools.push(...imageTools);
+
+          // Add sandboxed Python tool for workspace file operations
+          // Runs on SERVER - use for editing files, text processing, batch operations
+          // Agent should prefer this for workspace tasks; use devices_run for system access
+          if (params.workspaceDir) {
+            const pythonAvailable = await isPythonAvailable();
+            console.log(
+              `[python-tool] isPythonAvailable: ${pythonAvailable}, workspaceDir: ${params.workspaceDir}`,
+            );
+            if (pythonAvailable) {
+              const pythonTool = createPythonTool({
+                workspaceDir: params.workspaceDir,
+                maxTimeoutSec: 30,
+              });
+              allTools.push(pythonTool);
+              console.log(`[python-tool] Added python_exec tool for workspace: ${params.workspaceDir}`);
+            }
+
+            // Add sandboxed PHP tool for website-builder tests and validation
+            // Runs on SERVER - use for running PHP scripts within workspace
+            const phpAvailable = await isPhpAvailable();
+            console.log(
+              `[php-tool] isPhpAvailable: ${phpAvailable}, workspaceDir: ${params.workspaceDir}`,
+            );
+            if (phpAvailable) {
+              const phpTool = createPhpTool({
+                workspaceDir: params.workspaceDir,
+                maxTimeoutSec: 60,
+              });
+              allTools.push(phpTool);
+              console.log(`[php-tool] Added php_exec tool for workspace: ${params.workspaceDir}`);
+            }
+          }
           return applyEmbeddedAttemptToolsAllow(allTools, params.toolsAllow);
         })();
     const toolsEnabled = supportsModelTools(params.model);
@@ -636,7 +705,14 @@ export async function runEmbeddedAttempt(
         (file) => file.name === DEFAULT_BOOTSTRAP_FILENAME && !file.missing,
       )
     ) {
-      workspaceNotes.push("Reminder: commit your changes in this workspace after edits.");
+      workspaceNotes.push(
+        "Reminder: commit your changes in this workspace after edits.",
+        "IMPORTANT: After making file edits, VERIFY the changes worked by reading the file or testing. Do NOT report 'done' without confirming the fix is applied.",
+      );
+    } else {
+      workspaceNotes.push(
+        "IMPORTANT: After making file edits, VERIFY the changes worked by reading the file or testing. Do NOT report 'done' without confirming the fix is applied.",
+      );
     }
     if (isEmbeddedMode()) {
       workspaceNotes.push(

@@ -389,7 +389,7 @@ export async function executeActAction(params: {
       }
       if (!tabs.length) {
         throw new Error(
-          `No browser tabs found for profile="${profile}". Make sure the configured Chromium-based browser (v144+) is running and has open tabs, then retry.`,
+          "No Chrome tabs are attached via the Clawku Browser Agent extension. Click the toolbar icon on the tab you want to control (badge ON), then retry.",
           { cause: err },
         );
       }

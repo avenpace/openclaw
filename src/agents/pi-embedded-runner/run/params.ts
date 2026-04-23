@@ -9,11 +9,13 @@ import type { InputProvenance } from "../../../sessions/input-provenance.js";
 import type { ExecElevatedDefaults, ExecToolDefaults } from "../../bash-tools.exec-types.js";
 import type { AgentStreamParams, ClientToolDefinition } from "../../command/shared-types.js";
 import type { AgentInternalEvent } from "../../internal-events.js";
-import type { BlockReplyPayload } from "../../pi-embedded-payloads.js";
-import type {
-  BlockReplyChunking,
-  ToolResultFormat,
-} from "../../pi-embedded-subscribe.shared-types.js";
+import type { BlockReplyChunking, ToolResultFormat } from "../../pi-embedded-subscribe.shared-types.js";
+import type { BrowserHandler } from "../../tools/browser-tool.js";
+import type { CloudStorageHandler } from "../../tools/cloud-storage-tool.js";
+import type { DevicesHandler } from "../../tools/devices-tool.js";
+import type { HermesMemoryHandler } from "../../tools/hermes-memory-tool.js";
+import type { HermesSkillsHandler } from "../../tools/hermes-skills-tool.js";
+import type { ImageResizeHandler } from "../../tools/image-resize-tool.js";
 import type { SkillSnapshot } from "../../skills.js";
 export type { ClientToolDefinition } from "../../command/shared-types.js";
 
@@ -27,6 +29,8 @@ export type RunEmbeddedPiAgentParams = {
   agentId?: string;
   messageChannel?: string;
   messageProvider?: string;
+  /** Number of skills installed in workspace - used for exec gating on external channels */
+  installedSkillCount?: number;
   agentAccountId?: string;
   /** What initiated this agent run: "user", "heartbeat", "cron", "memory", "overflow", or "manual". */
   trigger?: EmbeddedRunTrigger;
@@ -74,6 +78,8 @@ export type RunEmbeddedPiAgentParams = {
   allowGatewaySubagentBinding?: boolean;
   sessionFile: string;
   workspaceDir: string;
+  /** Working directory offset relative to workspaceDir (e.g., "websites/my-project"). */
+  cwd?: string;
   agentDir?: string;
   config?: OpenClawConfig;
   skillsSnapshot?: SkillSnapshot;
@@ -105,7 +111,10 @@ export type RunEmbeddedPiAgentParams = {
   bootstrapPromptWarningSignaturesSeen?: string[];
   /** Last shown bootstrap truncation warning signature for this session. */
   bootstrapPromptWarningSignature?: string;
-  execOverrides?: Pick<ExecToolDefaults, "host" | "security" | "ask" | "node">;
+  execOverrides?: Pick<
+    ExecToolDefaults,
+    "host" | "security" | "ask" | "node" | "proxy" | "safeBins" | "pathPrepend" | "cwd"
+  >;
   bashElevated?: ExecElevatedDefaults;
   timeoutMs: number;
   runId: string;
@@ -115,7 +124,14 @@ export type RunEmbeddedPiAgentParams = {
   shouldEmitToolOutput?: () => boolean;
   onPartialReply?: (payload: { text?: string; mediaUrls?: string[] }) => void | Promise<void>;
   onAssistantMessageStart?: () => void | Promise<void>;
-  onBlockReply?: (payload: BlockReplyPayload) => void | Promise<void>;
+  onBlockReply?: (payload: {
+    text?: string;
+    mediaUrls?: string[];
+    audioAsVoice?: boolean;
+    replyToId?: string;
+    replyToTag?: boolean;
+    replyToCurrent?: boolean;
+  }) => void | Promise<void>;
   onBlockReplyFlush?: () => void | Promise<void>;
   blockReplyBreak?: "text_end" | "message_end";
   blockReplyChunking?: BlockReplyChunking;
@@ -132,6 +148,18 @@ export type RunEmbeddedPiAgentParams = {
   ownerNumbers?: string[];
   enforceFinalTag?: boolean;
   silentExpected?: boolean;
+  /** Handler for devices tools (list, run command, check status). */
+  devicesHandler?: DevicesHandler;
+  /** Handler for cloud storage tools (list, read, write, convert files). */
+  cloudStorageHandler?: CloudStorageHandler;
+  /** Handler for image resize tools (resize, crop, convert, thumbnail images). */
+  imageResizeHandler?: ImageResizeHandler;
+  /** Handler for browser control (via Clawku extension or similar remote browser). */
+  browserHandler?: BrowserHandler;
+  /** Handler for Hermes memory (persistent cross-session memory and user preferences). */
+  hermesMemoryHandler?: HermesMemoryHandler;
+  /** Handler for Hermes skills (autonomous skill creation and management). */
+  hermesSkillsHandler?: HermesSkillsHandler;
   /**
    * Allow a single run attempt even when all auth profiles are in cooldown,
    * but only for inferred transient cooldowns like `rate_limit` or `overloaded`.

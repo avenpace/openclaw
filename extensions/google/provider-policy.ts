@@ -129,13 +129,11 @@ function normalizeProviderModels(
   provider: ModelProviderConfig,
   normalizeId: (id: string) => string,
 ): ModelProviderConfig {
-  const models = provider.models;
-  if (!Array.isArray(models) || models.length === 0) {
+  if (!provider.models) {
     return provider;
   }
-
   let mutated = false;
-  const nextModels = models.map((model) => {
+  const models = provider.models.map((model) => {
     const nextId = normalizeId(model.id);
     if (nextId === model.id) {
       return model;
@@ -144,7 +142,7 @@ function normalizeProviderModels(
     return Object.assign({}, model, { id: nextId });
   });
 
-  return mutated ? { ...provider, models: nextModels } : provider;
+  return mutated ? { ...provider, models } : provider;
 }
 
 export function normalizeGoogleProviderConfig(

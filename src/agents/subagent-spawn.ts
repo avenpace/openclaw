@@ -97,6 +97,8 @@ export type SpawnSubagentParams = {
   sandbox?: SpawnSubagentSandboxMode;
   lightContext?: boolean;
   expectsCompletionMessage?: boolean;
+  /** Working directory offset relative to workspace (e.g., "websites/my-project") */
+  cwd?: string;
   attachments?: Array<{
     name: string;
     content: string;
@@ -119,6 +121,8 @@ export type SpawnSubagentContext = {
   requesterAgentIdOverride?: string;
   /** Explicit workspace directory for subagent to inherit (optional). */
   workspaceDir?: string;
+  /** Platform: inherited skill count for exec gating on external channels. */
+  installedSkillCount?: number;
 };
 
 export type SpawnSubagentResult = {
@@ -223,6 +227,37 @@ function sanitizeMountPathHint(value?: string): string | undefined {
     return undefined;
   }
   return trimmed;
+}
+
+/**
+ * Sanitize cwd parameter to prevent path traversal outside workspace.
+ * Returns undefined if the path is invalid or attempts to escape workspace.
+ */
+function sanitizeCwdPath(value?: string): string | undefined {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+  // Reject absolute paths
+  if (trimmed.startsWith("/") || /^[A-Za-z]:/.test(trimmed)) {
+    return undefined;
+  }
+  // Reject path traversal attempts
+  if (trimmed.includes("..")) {
+    return undefined;
+  }
+  // Reject control characters and newlines
+  // eslint-disable-next-line no-control-regex
+  if (/[\r\n\u0000-\u001F\u007F\u0085\u2028\u2029]/.test(trimmed)) {
+    return undefined;
+  }
+  // Only allow safe path characters
+  if (!/^[A-Za-z0-9._\-/]+$/.test(trimmed)) {
+    return undefined;
+  }
+  // Normalize: remove leading/trailing slashes, collapse multiple slashes
+  const normalized = trimmed.replace(/^\/+|\/+$/g, "").replace(/\/+/g, "/");
+  return normalized || undefined;
 }
 
 async function cleanupProvisionalSession(
@@ -688,11 +723,17 @@ export async function spawnSubagentDirect(
     .filter((line): line is string => Boolean(line))
     .join("\n\n");
 
+  // Sanitize cwd to prevent path traversal outside workspace
+  const sanitizedCwd = sanitizeCwdPath(params.cwd);
+
   const toolSpawnMetadata = mapToolContextToSpawnedRunMetadata({
     agentGroupId: ctx.agentGroupId,
     agentGroupChannel: ctx.agentGroupChannel,
     agentGroupSpace: ctx.agentGroupSpace,
     workspaceDir: ctx.workspaceDir,
+    cwd: sanitizedCwd,
+    // Platform: pass inherited skill count for exec gating
+    installedSkillCount: ctx.installedSkillCount,
   });
   const spawnedMetadata = normalizeSpawnedRunMetadata({
     spawnedBy: spawnedByKey,

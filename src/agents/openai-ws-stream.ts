@@ -858,7 +858,13 @@ export function createOpenAIWebSocketStreamFn(
           }),
           metadata: turnState?.metadata,
         }) as Record<string, unknown>;
-        const nextPayload = await options?.onPayload?.(payload, model);
+        if (options?.toolChoice !== undefined) {
+          (payload as Record<string, unknown>).tool_choice = options.toolChoice;
+          log.info(`[ws-stream] tool_choice set to: ${JSON.stringify(options.toolChoice)}`);
+        }
+        const nextPayload = options?.onPayload
+          ? await Promise.resolve(options.onPayload(payload, model))
+          : undefined;
         payload = mergeTransportMetadata(
           (nextPayload ?? payload) as Record<string, unknown>,
           turnState?.metadata,

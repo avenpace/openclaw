@@ -1,7 +1,6 @@
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import type { SkillConfig } from "../../config/types.skills.js";
 import {
-  evaluateRuntimeEligibility,
   hasBinary,
   isConfigPathTruthyWithDefaults,
   resolveConfigPath,
@@ -16,6 +15,14 @@ const DEFAULT_CONFIG_VALUES: Record<string, boolean> = {
   "browser.enabled": true,
   "browser.evaluateEnabled": true,
 };
+
+const VERBOSE_LOGS = process.env.VERBOSE_LOGS === "true" || process.env.NODE_ENV === "development";
+
+function debugLog(skillKey: string, msg: string): void {
+  if (VERBOSE_LOGS) {
+    console.log(`[Skills Eligibility] ${skillKey}: ${msg}`);
+  }
+}
 
 export { hasBinary, resolveConfigPath, resolveRuntimePlatform };
 
@@ -79,27 +86,89 @@ export function shouldIncludeSkill(params: {
   const skillKey = resolveSkillKey(entry.skill, entry);
   const skillConfig = resolveSkillConfig(config, skillKey);
   const allowBundled = normalizeAllowlist(config?.skills?.allowBundled);
+  const osList = entry.metadata?.os ?? [];
+  const remotePlatforms = eligibility?.remote?.platforms ?? [];
+
+  debugLog(skillKey, `checking eligibility, source=${entry.skill.source}`);
 
   if (skillConfig?.enabled === false) {
+    debugLog(skillKey, "excluded: disabled in config");
     return false;
   }
   if (!isBundledSkillAllowed(entry, allowBundled)) {
+    debugLog(skillKey, "excluded: not in bundled allowlist");
     return false;
   }
-  return evaluateRuntimeEligibility({
-    os: entry.metadata?.os,
-    remotePlatforms: eligibility?.remote?.platforms,
-    always: entry.metadata?.always,
-    requires: entry.metadata?.requires,
-    hasBin: hasBinary,
-    hasRemoteBin: eligibility?.remote?.hasBin,
-    hasAnyRemoteBin: eligibility?.remote?.hasAnyBin,
-    hasEnv: (envName) =>
-      Boolean(
-        process.env[envName] ||
-        skillConfig?.env?.[envName] ||
-        (skillConfig?.apiKey && entry.metadata?.primaryEnv === envName),
-      ),
-    isConfigPathTruthy: (configPath) => isConfigPathTruthy(config, configPath),
-  });
+  if (
+    osList.length > 0 &&
+    !osList.includes(resolveRuntimePlatform()) &&
+    !remotePlatforms.some((platform) => osList.includes(platform))
+  ) {
+    debugLog(
+      skillKey,
+      `excluded: OS mismatch (requires ${osList.join(",")}, got ${resolveRuntimePlatform()})`,
+    );
+    return false;
+  }
+  if (entry.metadata?.always === true) {
+    debugLog(skillKey, "included: always=true");
+    return true;
+  }
+
+  const requiredBins = entry.metadata?.requires?.bins ?? [];
+  if (requiredBins.length > 0) {
+    for (const bin of requiredBins) {
+      if (hasBinary(bin)) {
+        continue;
+      }
+      if (eligibility?.remote?.hasBin?.(bin)) {
+        continue;
+      }
+      debugLog(skillKey, `excluded: missing binary '${bin}'`);
+      return false;
+    }
+  }
+  const requiredAnyBins = entry.metadata?.requires?.anyBins ?? [];
+  if (requiredAnyBins.length > 0) {
+    const anyFound =
+      requiredAnyBins.some((bin) => hasBinary(bin)) ||
+      eligibility?.remote?.hasAnyBin?.(requiredAnyBins);
+    if (!anyFound) {
+      debugLog(
+        skillKey,
+        `excluded: missing any of required binaries [${requiredAnyBins.join(",")}]`,
+      );
+      return false;
+    }
+  }
+
+  const requiredEnv = entry.metadata?.requires?.env ?? [];
+  if (requiredEnv.length > 0) {
+    for (const envName of requiredEnv) {
+      if (process.env[envName]) {
+        continue;
+      }
+      if (skillConfig?.env?.[envName]) {
+        continue;
+      }
+      if (skillConfig?.apiKey && entry.metadata?.primaryEnv === envName) {
+        continue;
+      }
+      debugLog(skillKey, `excluded: missing env var '${envName}'`);
+      return false;
+    }
+  }
+
+  const requiredConfig = entry.metadata?.requires?.config ?? [];
+  if (requiredConfig.length > 0) {
+    for (const configPath of requiredConfig) {
+      if (!isConfigPathTruthy(config, configPath)) {
+        debugLog(skillKey, `excluded: config path '${configPath}' not truthy`);
+        return false;
+      }
+    }
+  }
+
+  debugLog(skillKey, "included: all checks passed");
+  return true;
 }

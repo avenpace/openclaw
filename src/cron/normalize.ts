@@ -488,6 +488,15 @@ export function normalizeCronJobInput(
     next.payload = coercePayload(base.payload);
   }
 
+  // Extract delivery from inside payload if LLM nests it incorrectly
+  // e.g. { payload: { ..., delivery: {...} } } → { payload: {...}, delivery: {...} }
+  if (isRecord(next.payload) && isRecord(next.payload.delivery)) {
+    if (!isRecord(base.delivery)) {
+      next.delivery = coerceDelivery(next.payload.delivery as UnknownRecord);
+    }
+    delete next.payload.delivery;
+  }
+
   if (isRecord(base.delivery)) {
     next.delivery = coerceDelivery(base.delivery);
   }

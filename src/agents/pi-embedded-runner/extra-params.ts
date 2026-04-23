@@ -110,6 +110,7 @@ type CacheRetentionStreamOptions = Partial<SimpleStreamOptions> & {
   cacheRetention?: "none" | "short" | "long";
   cachedContent?: string;
   openaiWsWarmup?: boolean;
+  toolChoice?: "auto" | "none" | "required" | { type: "function"; function: { name: string } };
 };
 type SupportedTransport = Exclude<CacheRetentionStreamOptions["transport"], undefined>;
 
@@ -260,6 +261,11 @@ function createStreamFnWithExtraParams(
   if (typeof extraParams.openaiWsWarmup === "boolean") {
     streamParams.openaiWsWarmup = extraParams.openaiWsWarmup;
   }
+  // Support toolChoice for forcing tool usage
+  if (extraParams.toolChoice !== undefined) {
+    streamParams.toolChoice = extraParams.toolChoice as CacheRetentionStreamOptions["toolChoice"];
+    log.info(`[extra-params] toolChoice set to: ${JSON.stringify(extraParams.toolChoice)}`);
+  }
   const cachedContent =
     typeof extraParams.cachedContent === "string"
       ? extraParams.cachedContent
@@ -343,6 +349,45 @@ function createParallelToolCallsWrapper(
     );
     return streamWithPayloadPatch(underlying, model, context, options, (payloadObj) => {
       payloadObj.parallel_tool_calls = enabled;
+    });
+  };
+}
+
+/**
+ * Create a streamFn wrapper that injects tool_choice into the API payload.
+ * For 'required', only applies on first turn to avoid infinite loops.
+ * Subsequent turns use 'auto' so model can finish without tool calls.
+ */
+function createToolChoiceWrapper(
+  baseStreamFn: StreamFn | undefined,
+  toolChoice: "auto" | "none" | "required" | { type: "function"; function: { name: string } },
+): StreamFn {
+  const underlying = baseStreamFn ?? streamSimple;
+  let turnCount = 0; // Track API calls within this run
+
+  return (model, context, options) => {
+    // Only apply to OpenAI-compatible APIs that support tool_choice
+    const api = model.api as string;
+    if (!api?.includes("openai") && !api?.includes("codex")) {
+      return underlying(model, context, options);
+    }
+
+    // For 'required', only force on first turn to avoid infinite loops
+    const effectiveChoice = toolChoice === "required" && turnCount > 0 ? "auto" : toolChoice;
+    turnCount++;
+
+    log.info(
+      `[tool-choice] turn=${turnCount} applying tool_choice=${typeof effectiveChoice === "string" ? effectiveChoice : "function"} for ${model.provider ?? "unknown"}/${model.id ?? "unknown"} api=${api}`,
+    );
+    const originalOnPayload = options?.onPayload;
+    return underlying(model, context, {
+      ...options,
+      onPayload: (payload) => {
+        if (payload && typeof payload === "object") {
+          (payload as Record<string, unknown>).tool_choice = effectiveChoice;
+        }
+        return originalOnPayload?.(payload, model);
+      },
     });
   };
 }
@@ -511,6 +556,31 @@ export function applyExtraParamsToAgent(
     ...wrapperContext,
     providerWrapperHandled,
   });
+
+  // Apply tool_choice wrapper to force tool usage behavior
+  const rawToolChoice = merged?.toolChoice;
+  if (rawToolChoice !== undefined) {
+    if (
+      rawToolChoice === "auto" ||
+      rawToolChoice === "none" ||
+      rawToolChoice === "required" ||
+      (typeof rawToolChoice === "object" &&
+        rawToolChoice !== null &&
+        (rawToolChoice as Record<string, unknown>).type === "function")
+    ) {
+      agent.streamFn = createToolChoiceWrapper(
+        agent.streamFn,
+        rawToolChoice as
+          | "auto"
+          | "none"
+          | "required"
+          | { type: "function"; function: { name: string } },
+      );
+    } else {
+      const summary = typeof rawToolChoice === "string" ? rawToolChoice : typeof rawToolChoice;
+      log.warn(`ignoring invalid toolChoice param: ${summary}`);
+    }
+  }
 
   return { effectiveExtraParams };
 }

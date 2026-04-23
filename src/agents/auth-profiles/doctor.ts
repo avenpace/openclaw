@@ -12,31 +12,14 @@ const DEPRECATED_PROVIDER_MIGRATION_HINTS: Record<string, string> = {
     "Qwen OAuth via portal.qwen.ai has been deprecated. Please migrate to Qwen Cloud Coding Plan. Run: openclaw onboard --auth-choice qwen-api-key (or qwen-api-key-cn for the China endpoint). Legacy modelstudio auth-choice ids still work.",
 };
 
-export async function formatAuthDoctorHint(params: {
+export function formatAuthDoctorHint(params: {
   cfg?: OpenClawConfig;
   store: AuthProfileStore;
   provider: string;
   profileId?: string;
-}): Promise<string> {
-  const normalizedProvider = normalizeProviderId(params.provider);
-
-  // Check for deprecated provider migration hints first
-  const migrationHint = DEPRECATED_PROVIDER_MIGRATION_HINTS[normalizedProvider];
-  if (migrationHint) {
-    return migrationHint;
+}): string {
+  const providerKey = normalizeProviderId(params.provider);
+  if (providerKey !== "anthropic") {
+    return "";
   }
-
-  const pluginHint = await buildProviderAuthDoctorHintWithPlugin({
-    provider: normalizedProvider,
-    context: {
-      config: params.cfg,
-      store: params.store,
-      provider: normalizedProvider,
-      profileId: params.profileId,
-    },
-  });
-  if (typeof pluginHint === "string" && pluginHint.trim()) {
-    return pluginHint;
-  }
-  return "";
 }

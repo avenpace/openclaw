@@ -296,13 +296,17 @@ function resolveImplicitProfileAlsoAllow(params: {
     implicit.add("exec");
     implicit.add("process");
   }
-  if (
-    hasExplicitToolSection(params.agentTools?.fs) ||
-    hasExplicitToolSection(params.globalTools?.fs)
-  ) {
+  // DEBUG: Log fs tool resolution
+  const hasAgentFs = hasExplicitToolSection(params.agentTools?.fs);
+  const hasGlobalFs = hasExplicitToolSection(params.globalTools?.fs);
+  console.log(
+    `[policy] resolveImplicitProfileAlsoAllow: hasAgentFs=${hasAgentFs}, hasGlobalFs=${hasGlobalFs}, globalTools.fs=${JSON.stringify(params.globalTools?.fs)}`,
+  );
+  if (hasAgentFs || hasGlobalFs) {
     implicit.add("read");
     implicit.add("write");
     implicit.add("edit");
+    console.log(`[policy] Added read/write/edit to implicit alsoAllow`);
   }
   return implicit.size > 0 ? Array.from(implicit) : undefined;
 }

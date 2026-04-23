@@ -339,13 +339,14 @@ export function createSessionsSpawnTool(
           mode,
           cleanup,
           sandbox,
-          lightContext,
-          expectsCompletionMessage,
+          expectsCompletionMessage: true,
+          cwd,
           attachments,
           attachMountPath:
             params.attachAs && typeof params.attachAs === "object"
               ? readStringParam(params.attachAs as Record<string, unknown>, "mountPath")
               : undefined,
+          lightContext,
         },
         {
           agentSessionKey: opts?.agentSessionKey,
@@ -359,6 +360,8 @@ export function createSessionsSpawnTool(
           agentMemberRoleIds: opts?.agentMemberRoleIds,
           requesterAgentIdOverride: opts?.requesterAgentIdOverride,
           workspaceDir: opts?.workspaceDir,
+          // Platform: pass inherited skill count for exec gating
+          installedSkillCount: opts?.installedSkillCount,
         },
       );
 

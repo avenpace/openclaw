@@ -15,6 +15,7 @@ import type { SandboxFsBridge } from "./sandbox/fs-bridge.js";
 import type { SpawnedToolContext } from "./spawned-context.js";
 import type { ToolFsPolicy } from "./tool-fs-policy.js";
 import { createAgentsListTool } from "./tools/agents-list-tool.js";
+import { createBrowserTool, type BrowserHandler } from "./tools/browser-tool.js";
 import { createCanvasTool } from "./tools/canvas-tool.js";
 import type { AnyAgentTool } from "./tools/common.js";
 import { createCronTool } from "./tools/cron-tool.js";
@@ -61,11 +62,18 @@ export function createOpenClawTools(
     agentTo?: string;
     /** Thread/topic identifier for routing replies to the originating thread. */
     agentThreadId?: string | number;
+    /** Group id for channel-level tool policy inheritance. */
+    agentGroupId?: string | null;
+    /** Group channel label for channel-level tool policy inheritance. */
+    agentGroupChannel?: string | null;
+    /** Group space label for channel-level tool policy inheritance. */
+    agentGroupSpace?: string | null;
     agentDir?: string;
     sandboxRoot?: string;
     sandboxContainerWorkdir?: string;
     sandboxFsBridge?: SandboxFsBridge;
     fsPolicy?: ToolFsPolicy;
+    workspaceDir?: string;
     sandboxed?: boolean;
     config?: OpenClawConfig;
     pluginToolAllowlist?: string[];
@@ -112,6 +120,8 @@ export function createOpenClawTools(
     onYield?: (message: string) => Promise<void> | void;
     /** Allow plugin tools for this tool set to late-bind the gateway subagent. */
     allowGatewaySubagentBinding?: boolean;
+    /** Handler for browser control via remote extension (e.g., Clawku). */
+    browserHandler?: BrowserHandler;
   } & SpawnedToolContext,
 ): AnyAgentTool[] {
   const resolvedConfig = options?.config ?? openClawToolsDeps.config;
@@ -238,6 +248,12 @@ export function createOpenClawTools(
       ? []
       : [
           createCanvasTool({ config: options?.config }),
+          createBrowserTool({
+            sandboxBridgeUrl: options?.sandboxBrowserBridgeUrl,
+            allowHostControl: options?.allowHostBrowserControl,
+            agentSessionKey: options?.agentSessionKey,
+            browserHandler: options?.browserHandler,
+          }),
           nodesTool,
           createCronTool({
             agentSessionKey: options?.agentSessionKey,
@@ -313,6 +329,11 @@ export function createOpenClawTools(
     }),
     createSubagentsTool({
       agentSessionKey: options?.agentSessionKey,
+      sandboxed: options?.sandboxed,
+      requesterAgentIdOverride: options?.requesterAgentIdOverride,
+      workspaceDir: spawnWorkspaceDir,
+      // Platform: pass inherited skill count for exec gating
+      installedSkillCount: options?.installedSkillCount,
     }),
     createSessionStatusTool({
       agentSessionKey: options?.agentSessionKey,
