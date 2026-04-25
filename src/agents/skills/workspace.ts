@@ -575,12 +575,12 @@ function loadSkillEntries(
       })
     : [];
   const osHomeDir = resolveUserHomeDir();
-  const personalAgentsSkillsDir = workspaceSkillsOnly
+  const personalAgentsSkillsDir: string | undefined = workspaceSkillsOnly
     ? undefined
-    : path.resolve(osHomeDir, ".agents", "skills");
+    : path.resolve(osHomeDir || "", ".agents", "skills");
   const personalAgentsSkills = personalAgentsSkillsDir
     ? loadSkills({
-        dir: personalAgentsSkillsDir,
+        dir: personalAgentsSkillsDir as string,
         source: "agents-skills-personal",
       })
     : [];

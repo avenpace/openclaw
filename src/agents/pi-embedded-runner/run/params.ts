@@ -10,7 +10,14 @@ import type { ExecElevatedDefaults, ExecToolDefaults } from "../../bash-tools.ex
 import type { AgentStreamParams, ClientToolDefinition } from "../../command/shared-types.js";
 import type { AgentInternalEvent } from "../../internal-events.js";
 import type { BlockReplyChunking, ToolResultFormat } from "../../pi-embedded-subscribe.shared-types.js";
-import type { BrowserHandler } from "../../tools/browser-tool.js";
+// Clawku: BrowserHandler type for remote browser control
+type BrowserHandler = {
+  navigate?: (url: string) => Promise<{ html?: string; screenshot?: string }>;
+  screenshot?: () => Promise<string>;
+  click?: (selector: string) => Promise<void>;
+  type?: (selector: string, text: string) => Promise<void>;
+  evaluate?: (script: string) => Promise<unknown>;
+};
 import type { CloudStorageHandler } from "../../tools/cloud-storage-tool.js";
 import type { DevicesHandler } from "../../tools/devices-tool.js";
 import type { HermesMemoryHandler } from "../../tools/hermes-memory-tool.js";

@@ -1,16 +1,21 @@
 import { Type, type TSchema } from "@sinclair/typebox";
 import { loadConfig } from "../../config/config.js";
-import { loadSessionStore, resolveStorePath } from "../../config/sessions.js";
 import { normalizeCronJobCreate, normalizeCronJobPatch } from "../../cron/normalize.js";
 import type { CronDelivery, CronMessageChannel } from "../../cron/types.js";
-import { buildAgentMainSessionKey } from "../../routing/session-key.js";
+import { normalizeHttpWebhookUrl } from "../../cron/webhook-url.js";
 import { parseAgentSessionKey } from "../../sessions/session-key-utils.js";
 import { extractTextFromChatContent } from "../../shared/chat-content.js";
+import {
+  normalizeLowercaseStringOrEmpty,
+  normalizeOptionalLowercaseString,
+} from "../../shared/string-coerce.js";
 import { isRecord, truncateUtf16Safe } from "../../utils.js";
 import { resolveSessionAgentId } from "../agent-scope.js";
 import { optionalStringEnum, stringEnum } from "../schema/typebox.js";
+import { CRON_TOOL_DISPLAY_SUMMARY } from "../tool-description-presets.js";
 import { type AnyAgentTool, jsonResult, readStringParam } from "./common.js";
-import { callGatewayTool, type GatewayCallOptions } from "./gateway.js";
+import { callGatewayTool, readGatewayCallOptions, type GatewayCallOptions } from "./gateway.js";
+import { isOpenClawOwnerOnlyCoreToolName } from "./owner-only-tools.js";
 import { resolveInternalSessionKey, resolveMainSessionAlias } from "./sessions-helpers.js";
 
 // We spell out job/patch properties so that LLMs know what fields to send.
@@ -252,60 +257,11 @@ type CronToolOptions = {
   agentSessionKey?: string;
 };
 
-// Phone number regex that matches:
-// - International format: +1234567890, +62 812 345 6789
-// - With/without spaces, dashes, parentheses
-const PHONE_NUMBER_REGEX = /\+\d[\d\s\-().]{6,18}\d/g;
+type GatewayToolCaller = typeof callGatewayTool;
 
-/**
- * Extract phone numbers from text, normalizing to digits only (with + prefix)
- */
-function extractPhoneNumbers(text: string): string[] {
-  const matches = text.match(PHONE_NUMBER_REGEX);
-  if (!matches) {
-    return [];
-  }
-  // Normalize: keep only + and digits
-  return matches.map((m) => m.replace(/[\s\-().]/g, ""));
-}
-
-/**
- * Extract the explicit delivery target phone number from the payload.
- * Checks both agentTurn.message and systemEvent.text for phone numbers.
- * Returns the first phone number found that differs from the sender (inferred from session key).
- */
-function extractDeliveryTargetFromPayload(params: {
-  payload?: { kind?: string; text?: string; message?: string };
-  senderPhone?: string;
-}): string | null {
-  const { payload, senderPhone } = params;
-  if (!payload) {
-    return null;
-  }
-
-  // Get text from payload (message for agentTurn, text for systemEvent)
-  const text = payload.message || payload.text || "";
-  if (!text.trim()) {
-    return null;
-  }
-
-  const phoneNumbers = extractPhoneNumbers(text);
-  if (phoneNumbers.length === 0) {
-    return null;
-  }
-
-  // Normalize sender phone for comparison (if provided)
-  const normalizedSender = senderPhone?.replace(/[\s\-().]/g, "") || "";
-
-  // Find the first phone number that's different from the sender
-  for (const phone of phoneNumbers) {
-    if (phone !== normalizedSender) {
-      return phone;
-    }
-  }
-
-  return null;
-}
+type CronToolDeps = {
+  callGatewayTool?: GatewayToolCaller;
+};
 
 type ChatMessage = {
   role?: unknown;
@@ -393,150 +349,13 @@ async function buildReminderContextLines(params: {
 }
 
 function stripThreadSuffixFromSessionKey(sessionKey: string): string {
-  return sessionKey;
-}
-
-// Phone number regex that matches:
-// - International format: +1234567890, +62 812 345 6789
-// - With/without spaces, dashes, parentheses
-const PHONE_NUMBER_REGEX = /\+\d[\d\s\-().]{6,18}\d/g;
-
-/**
- * Extract phone numbers from text, normalizing to digits only (with + prefix)
- */
-function extractPhoneNumbers(text: string): string[] {
-  const matches = text.match(PHONE_NUMBER_REGEX);
-  if (!matches) {
-    return [];
+  const normalized = normalizeLowercaseStringOrEmpty(sessionKey);
+  const idx = normalized.lastIndexOf(":thread:");
+  if (idx <= 0) {
+    return sessionKey;
   }
-  // Normalize: keep only + and digits
-  return matches.map((m) => m.replace(/[\s\-().]/g, ""));
-}
-
-/**
- * Extract the explicit delivery target phone number from the payload.
- * Checks both agentTurn.message and systemEvent.text for phone numbers.
- * Returns the first phone number found that differs from the sender (inferred from session key).
- */
-function extractDeliveryTargetFromPayload(params: {
-  payload?: { kind?: string; text?: string; message?: string };
-  senderPhone?: string;
-}): string | null {
-  const { payload, senderPhone } = params;
-  if (!payload) {
-    return null;
-  }
-
-  // Get text from payload (message for agentTurn, text for systemEvent)
-  const text = payload.message || payload.text || "";
-  if (!text.trim()) {
-    return null;
-  }
-
-  const phoneNumbers = extractPhoneNumbers(text);
-  if (phoneNumbers.length === 0) {
-    return null;
-  }
-
-  // Normalize sender phone for comparison (if provided)
-  const normalizedSender = senderPhone?.replace(/[\s\-().]/g, "") || "";
-
-  // Find the first phone number that's different from the sender
-  for (const phone of phoneNumbers) {
-    if (phone !== normalizedSender) {
-      return phone;
-    }
-  }
-
-  return null;
-}
-
-function inferDeliveryFromSessionKey(agentSessionKey?: string): CronDelivery | null {
-  const rawSessionKey = agentSessionKey?.trim();
-  if (!rawSessionKey) {
-    return null;
-  }
-  const parsed = parseAgentSessionKey(rawSessionKey);
-  if (!parsed || !parsed.agentId) {
-    return null;
-  }
-
-  // Extract channel and peer info from session key parts
-  const parts = rawSessionKey.split(":").filter(Boolean);
-  if (parts.length < 3) {
-    return null;
-  }
-
-  // Look for channel and peer id pattern
-  let channel: CronMessageChannel | undefined;
-  let to: string | undefined;
-
-  // Parse different session key formats
-  if (parts.length >= 4) {
-    // Format: agent:<id>:<channel>:<type>:<peer>
-    channel = parts[2] as CronMessageChannel;
-    to = parts.slice(4).join(":"); // Remaining parts form the peer id
-  } else {
-    // Basic format: agent:<id>:<channel>:<peer>
-    channel = parts[2] as CronMessageChannel;
-    to = parts[3];
-  }
-
-  if (!channel || !to) {
-    return null;
-  }
-
-  const delivery: CronDelivery = { mode: "announce", channel, to };
-  return delivery;
-}
-
-/**
- * Fallback: look up delivery context from the session store when the session key
- * doesn't encode delivery info (e.g., agent:persona-xxx:unified format).
- */
-function inferDeliveryFromSessionStore(agentSessionKey?: string): CronDelivery | null {
-  const rawSessionKey = agentSessionKey?.trim();
-  if (!rawSessionKey) {
-    return null;
-  }
-  const parsed = parseAgentSessionKey(rawSessionKey);
-  if (!parsed || !parsed.agentId) {
-    return null;
-  }
-  try {
-    const cfg = loadConfig();
-    const storePath = resolveStorePath(cfg.session?.store, { agentId: parsed.agentId });
-    const store = loadSessionStore(storePath);
-
-    // Try the exact session key first
-    const sessionEntry = store[rawSessionKey];
-    if (sessionEntry?.lastChannel && sessionEntry?.lastTo) {
-      const delivery: CronDelivery = {
-        mode: "announce",
-        channel: sessionEntry.lastChannel as CronMessageChannel,
-        to: sessionEntry.lastTo,
-      };
-      // Note: accountId NOT added - gateway schema rejects it
-      return delivery;
-    }
-
-    // Also try looking up :main session (cron often routes there)
-    const mainSessionKey = `agent:${parsed.agentId}:main`;
-    const mainEntry = store[mainSessionKey];
-    if (mainEntry?.lastChannel && mainEntry?.lastTo) {
-      const delivery: CronDelivery = {
-        mode: "announce",
-        channel: mainEntry.lastChannel as CronMessageChannel,
-        to: mainEntry.lastTo,
-      };
-      // Note: accountId NOT added - gateway schema rejects it
-      return delivery;
-    }
-
-    return null;
-  } catch {
-    return null;
-  }
+  const parent = sessionKey.slice(0, idx).trim();
+  return parent ? parent : sessionKey;
 }
 
 function inferDeliveryFromSessionKey(agentSessionKey?: string): CronDelivery | null {

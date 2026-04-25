@@ -52,13 +52,6 @@ export function resolvePdfInputs(record: Record<string, unknown>): string[] {
 }
 
 /**
- * Check whether a provider supports native PDF document input.
- */
-export function providerSupportsNativePdf(provider: string): boolean {
-  return providerSupportsNativePdfDocument({ providerId: provider });
-}
-
-/**
  * Parse a page range string (e.g. "1-5", "3", "1-3,7-9") into an array of 1-based page numbers.
  */
 export function parsePageRange(range: string, maxPages: number): number[] {

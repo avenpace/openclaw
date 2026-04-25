@@ -506,7 +506,7 @@ export async function runEmbeddedAttempt(
     const agentDir = params.agentDir ?? resolveOpenClawAgentDir();
     const toolsRaw = params.disableTools
       ? []
-      : (() => {
+      : await (async () => {
           const allTools = createOpenClawCodingTools({
             agentId: sessionAgentId,
             ...buildEmbeddedAttemptToolRunContext(params),

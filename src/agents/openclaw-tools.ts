@@ -15,7 +15,14 @@ import type { SandboxFsBridge } from "./sandbox/fs-bridge.js";
 import type { SpawnedToolContext } from "./spawned-context.js";
 import type { ToolFsPolicy } from "./tool-fs-policy.js";
 import { createAgentsListTool } from "./tools/agents-list-tool.js";
-import { createBrowserTool, type BrowserHandler } from "./tools/browser-tool.js";
+// Clawku: BrowserHandler type for remote browser control
+type BrowserHandler = {
+  navigate?: (url: string) => Promise<{ html?: string; screenshot?: string }>;
+  screenshot?: () => Promise<string>;
+  click?: (selector: string) => Promise<void>;
+  type?: (selector: string, text: string) => Promise<void>;
+  evaluate?: (script: string) => Promise<unknown>;
+};
 import { createCanvasTool } from "./tools/canvas-tool.js";
 import type { AnyAgentTool } from "./tools/common.js";
 import { createCronTool } from "./tools/cron-tool.js";

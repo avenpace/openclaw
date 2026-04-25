@@ -48,7 +48,14 @@ import {
 } from "./pi-tools.read.js";
 import { cleanToolSchemaForGemini, normalizeToolParameters } from "./pi-tools.schema.js";
 import type { AnyAgentTool } from "./pi-tools.types.js";
-import type { BrowserHandler } from "./tools/browser-tool.js";
+// Clawku: BrowserHandler type for remote browser control via extension
+type BrowserHandler = {
+  navigate?: (url: string) => Promise<{ html?: string; screenshot?: string }>;
+  screenshot?: () => Promise<string>;
+  click?: (selector: string) => Promise<void>;
+  type?: (selector: string, text: string) => Promise<void>;
+  evaluate?: (script: string) => Promise<unknown>;
+};
 import type { SandboxContext } from "./sandbox.js";
 import {
   isSubagentEnvelopeSession,
