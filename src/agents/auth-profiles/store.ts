@@ -1,17 +1,12 @@
 import fs from "node:fs";
 import { withFileLock } from "../../infra/file-lock.js";
-import { loadJsonFile, saveJsonFile } from "../../infra/json-file.js";
+import { saveJsonFile } from "../../infra/json-file.js";
 import {
   AUTH_STORE_LOCK_OPTIONS,
   AUTH_STORE_VERSION,
   EXTERNAL_CLI_SYNC_TTL_MS,
   log,
 } from "./constants.js";
-import {
-  readEncryptedAuthProfilesSync,
-  writeEncryptedAuthProfilesSync,
-  encryptedAuthProfilesExists,
-} from "./encrypted-store.js";
 import { overlayExternalAuthProfiles, shouldPersistExternalAuthProfile } from "./external-auth.js";
 import {
   ensureAuthStoreFile,
@@ -22,12 +17,8 @@ import {
 import {
   applyLegacyAuthStore,
   buildPersistedAuthProfileSecretsStore,
-  coerceAuthProfileState,
-  coercePersistedAuthProfileStore,
   loadLegacyAuthProfileStore,
   loadPersistedAuthProfileStore,
-  loadPersistedAuthProfileState,
-  mergeAuthProfileState,
   mergeAuthProfileStores,
   mergeOAuthFileIntoStore,
 } from "./persisted.js";
@@ -40,30 +31,6 @@ import {
 } from "./runtime-snapshots.js";
 import { savePersistedAuthProfileState } from "./state.js";
 import type { AuthProfileStore } from "./types.js";
-
-/**
- * Global encryption key for auth-profiles.json
- * Set by platform-api to enable encrypted storage
- */
-let globalAuthProfilesEncryptionKey: Buffer | null = null;
-
-/**
- * Configure encryption key for auth-profiles storage
- * Call this at startup with the user's derived encryption key
- */
-export function setAuthProfilesEncryptionKey(key: Buffer | null): void {
-  globalAuthProfilesEncryptionKey = key;
-  if (key) {
-    console.log("[AuthProfiles] Encryption enabled for auth-profiles.json");
-  }
-}
-
-/**
- * Get the current encryption key (for testing/debugging)
- */
-export function getAuthProfilesEncryptionKey(): Buffer | null {
-  return globalAuthProfilesEncryptionKey;
-}
 
 type LoadAuthProfileStoreOptions = {
   allowKeychainPrompt?: boolean;
@@ -181,63 +148,10 @@ export async function updateAuthProfileStoreWithLock(params: {
   }
 }
 
-function loadCoercedStore(authPath: string): AuthProfileStore | null {
-  // Try encrypted first if encryption key is available
-  if (globalAuthProfilesEncryptionKey) {
-    // Check if encrypted file exists OR plain file exists (for migration)
-    if (encryptedAuthProfilesExists(authPath) || fs.existsSync(authPath)) {
-      const raw = readEncryptedAuthProfilesSync<unknown>(authPath, globalAuthProfilesEncryptionKey);
-      if (raw) {
-        return coerceAuthStore(raw);
-      }
-    }
-    return null;
-  }
-  // Fall back to plain JSON if no encryption key
-  const raw = loadJsonFile(authPath);
-  return coerceAuthStore(raw);
-}
-
-/**
- * Internal helper to save auth store with encryption if available
- */
-function saveAuthStoreInternal(authPath: string, store: AuthProfileStore): void {
-  if (globalAuthProfilesEncryptionKey) {
-    writeEncryptedAuthProfilesSync(authPath, store, globalAuthProfilesEncryptionKey);
-  } else {
-    saveJsonFile(authPath, store);
-  }
-}
-
 export function loadAuthProfileStore(): AuthProfileStore {
-  const authPath = resolveAuthStorePath();
-  let asStore: AuthProfileStore | null = null;
-  // Try encrypted first if encryption key is available
-  if (globalAuthProfilesEncryptionKey) {
-    // Check if encrypted file exists OR plain file exists (for migration)
-    if (encryptedAuthProfilesExists(authPath) || fs.existsSync(authPath)) {
-      const raw = readEncryptedAuthProfilesSync<unknown>(authPath, globalAuthProfilesEncryptionKey);
-      if (raw) {
-        asStore = coercePersistedAuthProfileStore(raw);
-        if (asStore) {
-          asStore = {
-            ...asStore,
-            ...mergeAuthProfileState(coerceAuthProfileState(raw), loadPersistedAuthProfileState()),
-          };
-        }
-      }
-    }
-  } else {
-    asStore = loadPersistedAuthProfileStore();
-  }
-
+  const asStore = loadPersistedAuthProfileStore();
   if (asStore) {
-    // Sync from external CLI tools on every load.
-    const synced = overlayExternalAuthProfiles(asStore);
-    if (synced) {
-      saveAuthStoreInternal(authPath, asStore);
-    }
-    return asStore;
+    return overlayExternalAuthProfiles(asStore);
   }
   const legacy = loadLegacyAuthProfileStore();
   if (legacy) {
@@ -272,26 +186,7 @@ function loadAuthProfileStoreForAgent(
       return cached;
     }
   }
-  // Try encrypted first if encryption key is available
-  let asStore: AuthProfileStore | null = null;
-  if (globalAuthProfilesEncryptionKey) {
-    // Check if encrypted file exists OR plain file exists (for migration)
-    if (encryptedAuthProfilesExists(authPath) || fs.existsSync(authPath)) {
-      const raw = readEncryptedAuthProfilesSync<unknown>(authPath, globalAuthProfilesEncryptionKey);
-      if (raw) {
-        asStore = coercePersistedAuthProfileStore(raw);
-        if (asStore) {
-          asStore = {
-            ...asStore,
-            ...mergeAuthProfileState(coerceAuthProfileState(raw), loadPersistedAuthProfileState(agentDir)),
-          };
-        }
-      }
-    }
-  } else {
-    asStore = loadPersistedAuthProfileStore(agentDir);
-  }
-
+  const asStore = loadPersistedAuthProfileStore(agentDir);
   if (asStore) {
     if (!readOnly) {
       writeCachedAuthProfileStore({
@@ -306,27 +201,10 @@ function loadAuthProfileStoreForAgent(
 
   // Fallback: inherit auth-profiles from main agent if subagent has none
   if (agentDir && !readOnly) {
-    let mainStore: AuthProfileStore | null = null;
-    if (globalAuthProfilesEncryptionKey) {
-      const mainAuthPath = resolveAuthStorePath(); // without agentDir = main
-      if (encryptedAuthProfilesExists(mainAuthPath) || fs.existsSync(mainAuthPath)) {
-        const mainRaw = readEncryptedAuthProfilesSync<unknown>(mainAuthPath, globalAuthProfilesEncryptionKey);
-        if (mainRaw) {
-          mainStore = coercePersistedAuthProfileStore(mainRaw);
-          if (mainStore) {
-            mainStore = {
-              ...mainStore,
-              ...mergeAuthProfileState(coerceAuthProfileState(mainRaw), loadPersistedAuthProfileState()),
-            };
-          }
-        }
-      }
-    } else {
-      mainStore = loadPersistedAuthProfileStore();
-    }
+    const mainStore = loadPersistedAuthProfileStore();
     if (mainStore && Object.keys(mainStore.profiles).length > 0) {
       // Clone only secret-bearing profiles to subagent directory for auth inheritance.
-      saveAuthStoreInternal(authPath, buildPersistedAuthProfileSecretsStore(mainStore));
+      saveJsonFile(authPath, buildPersistedAuthProfileSecretsStore(mainStore));
       log.info("inherited auth-profiles from main agent", { agentDir });
       const inherited = { version: mainStore.version, profiles: { ...mainStore.profiles } };
       writeCachedAuthProfileStore({
@@ -515,12 +393,7 @@ export function saveAuthProfileStore(
       agentDir,
     });
   });
-  // Use encrypted storage if encryption key is available
-  if (globalAuthProfilesEncryptionKey) {
-    writeEncryptedAuthProfilesSync(authPath, payload, globalAuthProfilesEncryptionKey);
-  } else {
-    saveJsonFile(authPath, payload);
-  }
+  saveJsonFile(authPath, payload);
   savePersistedAuthProfileState(store, agentDir);
   const runtimeStore = cloneAuthProfileStore(store);
   writeCachedAuthProfileStore({

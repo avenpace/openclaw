@@ -367,7 +367,7 @@ function extractInterpreterScriptPathsFromSegment(rawSegment: string): string[] 
 
 function extractScriptTargetFromCommand(
   command: string,
-): { kind: "python"; relOrAbsPaths: string[] } | { kind: "node"; relOrAbsPaths: string[] } | null {
+): { kind: "python"; relOrAbsPaths: string[] } | { kind: "node"; relOrAbsPaths: string[] } | { kind: "php"; relOrAbsPaths: string[] } | null {
   const raw = command.trim();
   const splitShellArgsPreservingBackslashes = (value: string): string[] | null => {
     const tokens: string[] = [];
@@ -1484,7 +1484,7 @@ export function createExecTool(
           analysis.ok &&
           analysis.segments.length > 0 &&
           analysis.segments.every((segment) => {
-            const execName = segment.resolution?.executableName?.toLowerCase() ?? "";
+            const execName = segment.resolution?.execution?.executableName?.toLowerCase() ?? "";
             return execName && safeSet.has(execName);
           });
 
@@ -1564,7 +1564,7 @@ export function createExecTool(
         // Validate paths relative to the effective workdir (where command runs)
         // This allows relative paths like "tests/run.php" when workdir is the website directory
         for (const segment of analysis.segments) {
-          const execName = segment.resolution?.executableName?.toLowerCase() ?? "";
+          const execName = segment.resolution?.execution?.executableName?.toLowerCase() ?? "";
           if (WORKSPACE_RESTRICTED_BINS.has(execName)) {
             const pathValidation = validateWorkspacePaths({
               argv: segment.argv,

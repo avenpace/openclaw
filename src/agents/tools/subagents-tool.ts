@@ -30,7 +30,13 @@ const SubagentsToolSchema = Type.Object({
   recentMinutes: Type.Optional(Type.Number({ minimum: 1 })),
 });
 
-export function createSubagentsTool(opts?: { agentSessionKey?: string }): AnyAgentTool {
+export function createSubagentsTool(opts?: {
+  agentSessionKey?: string;
+  sandboxed?: boolean;
+  requesterAgentIdOverride?: string;
+  workspaceDir?: string;
+  installedSkillCount?: number;
+}): AnyAgentTool {
   return {
     label: "Subagents",
     name: "subagents",

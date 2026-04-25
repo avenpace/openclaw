@@ -858,9 +858,9 @@ export function createOpenAIWebSocketStreamFn(
           }),
           metadata: turnState?.metadata,
         }) as Record<string, unknown>;
-        if (options?.toolChoice !== undefined) {
-          (payload as Record<string, unknown>).tool_choice = options.toolChoice;
-          log.info(`[ws-stream] tool_choice set to: ${JSON.stringify(options.toolChoice)}`);
+        if ((options as Record<string, unknown>)?.toolChoice !== undefined) {
+          (payload as Record<string, unknown>).tool_choice = (options as Record<string, unknown>).toolChoice;
+          log.info(`[ws-stream] tool_choice set to: ${JSON.stringify((options as Record<string, unknown>).toolChoice)}`);
         }
         const nextPayload = options?.onPayload
           ? await Promise.resolve(options.onPayload(payload, model))

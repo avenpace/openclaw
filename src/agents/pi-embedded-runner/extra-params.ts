@@ -558,7 +558,7 @@ export function applyExtraParamsToAgent(
   });
 
   // Apply tool_choice wrapper to force tool usage behavior
-  const rawToolChoice = merged?.toolChoice;
+  const rawToolChoice = effectiveExtraParams?.toolChoice;
   if (rawToolChoice !== undefined) {
     if (
       rawToolChoice === "auto" ||
