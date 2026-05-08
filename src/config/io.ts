@@ -77,6 +77,7 @@ import {
   getRuntimeConfigSnapshot as getRuntimeConfigSnapshotState,
   getRuntimeConfigSourceSnapshot as getRuntimeConfigSourceSnapshotState,
   loadPinnedRuntimeConfig,
+  resetRuntimeConfigSnapshot,
   notifyRuntimeConfigWriteListeners,
   registerRuntimeConfigWriteListener,
   resetConfigRuntimeState as resetConfigRuntimeStateState,
@@ -1899,7 +1900,9 @@ const AUTO_OWNER_DISPLAY_SECRET_BY_PATH = new Map<string, string>();
 const AUTO_OWNER_DISPLAY_SECRET_PERSIST_IN_FLIGHT = new Set<string>();
 const AUTO_OWNER_DISPLAY_SECRET_PERSIST_WARNED = new Set<string>();
 export function clearConfigCache(): void {
-  // Compat shim: runtime snapshot is the only in-process cache now.
+  // Reset the pinned runtime snapshot so the next loadConfig() call
+  // re-reads from disk and re-applies overrides.
+  resetRuntimeConfigSnapshot();
 }
 
 export function registerConfigWriteListener(
@@ -1969,7 +1972,8 @@ export function loadConfig(): OpenClawConfig {
   // First successful load becomes the process snapshot. Long-lived runtimes
   // should swap this snapshot via explicit reload/watcher paths instead of
   // reparsing openclaw.json on hot code paths.
-  return loadPinnedRuntimeConfig(() => createConfigIO().loadConfig());
+  const base = loadPinnedRuntimeConfig(() => createConfigIO().loadConfig());
+  return applyConfigOverrides(base);
 }
 
 export function getRuntimeConfig(): OpenClawConfig {

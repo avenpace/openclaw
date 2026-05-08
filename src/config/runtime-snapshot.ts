@@ -22,6 +22,11 @@ let runtimeConfigSourceSnapshot: OpenClawConfig | null = null;
 let runtimeConfigSnapshotRefreshHandler: RuntimeConfigSnapshotRefreshHandler | null = null;
 const runtimeConfigWriteListeners = new Set<(event: RuntimeConfigWriteNotification) => void>();
 
+export function resetRuntimeConfigSnapshot(): void {
+  runtimeConfigSnapshot = null;
+  runtimeConfigSourceSnapshot = null;
+}
+
 export function setRuntimeConfigSnapshot(
   config: OpenClawConfig,
   sourceConfig?: OpenClawConfig,

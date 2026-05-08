@@ -29,6 +29,10 @@ export let handlePortError: LibraryExports["handlePortError"];
 export let loadConfig: LibraryExports["loadConfig"];
 export let loadSessionStore: LibraryExports["loadSessionStore"];
 export let monitorWebChannel: LibraryExports["monitorWebChannel"];
+export let monitorWebInbox: LibraryExports["monitorWebInbox"];
+export let startWebLoginWithQr: LibraryExports["startWebLoginWithQr"];
+export let startWebLoginWithCode: LibraryExports["startWebLoginWithCode"];
+export let waitForWebLogin: LibraryExports["waitForWebLogin"];
 export let monitorTelegramProvider: LibraryExports["monitorTelegramProvider"];
 export let normalizeE164: LibraryExports["normalizeE164"];
 export let PortInUseError: LibraryExports["PortInUseError"];
@@ -92,6 +96,10 @@ if (!isMain) {
     loadConfig,
     loadSessionStore,
     monitorWebChannel,
+    monitorWebInbox,
+    startWebLoginWithQr,
+    startWebLoginWithCode,
+    waitForWebLogin,
     monitorTelegramProvider,
     normalizeE164,
     PortInUseError,
