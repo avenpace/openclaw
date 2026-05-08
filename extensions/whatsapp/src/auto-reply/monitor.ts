@@ -28,7 +28,7 @@ import {
   sleepWithAbort,
 } from "../reconnect.js";
 import { formatError, getWebAuthAgeMs } from "../session.js";
-import { getRuntimeConfigSourceSnapshot, loadConfig } from "./config.runtime.js";
+import { getRuntimeConfig, getRuntimeConfigSourceSnapshot } from "./config.runtime.js";
 import { whatsappHeartbeatLog, whatsappLog } from "./loggers.js";
 import { buildMentionConfig } from "./mentions.js";
 import { createWebChannelStatusController } from "./monitor-state.js";
@@ -162,7 +162,7 @@ export async function monitorWebChannel(
   const statusController = createWebChannelStatusController(tuning.statusSink);
   statusController.emit();
 
-  const baseCfg = loadConfig();
+  const baseCfg = getRuntimeConfig();
   const useWorker =
     typeof tuning.useWorker === "boolean"
       ? tuning.useWorker
