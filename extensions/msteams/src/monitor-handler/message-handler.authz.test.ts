@@ -39,10 +39,40 @@ const graphThreadMockState = vi.hoisted(() => ({
   >(async () => []),
 }));
 
-vi.mock("../graph-thread.js", async () => {
-  const actual = await vi.importActual<typeof import("../graph-thread.js")>("../graph-thread.js");
+vi.mock("../graph-thread.js", () => {
+  const stripHtmlFromTeamsMessage = (html: string) =>
+    html
+      .replace(/<at[^>]*>(.*?)<\/at>/gi, "@$1")
+      .replace(/<[^>]*>/g, " ")
+      .replace(/&amp;/g, "&")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/&nbsp;/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  const formatThreadContext = (messages: GraphThreadMessage[], currentMessageId?: string) => {
+    const lines: string[] = [];
+    for (const msg of messages) {
+      if (msg.id && msg.id === currentMessageId) {
+        continue;
+      }
+      const sender = msg.from?.user?.displayName ?? msg.from?.application?.displayName ?? "unknown";
+      const rawContent = msg.body?.content ?? "";
+      const content =
+        msg.body?.contentType === "html"
+          ? stripHtmlFromTeamsMessage(rawContent)
+          : rawContent.trim();
+      if (content) {
+        lines.push(`${sender}: ${content}`);
+      }
+    }
+    return lines.join("\n");
+  };
   return {
-    ...actual,
+    stripHtmlFromTeamsMessage,
+    formatThreadContext,
     resolveTeamGroupId: graphThreadMockState.resolveTeamGroupId,
     fetchChannelMessage: graphThreadMockState.fetchChannelMessage,
     fetchThreadReplies: graphThreadMockState.fetchThreadReplies,
@@ -558,18 +588,20 @@ describe("msteams monitor handler authz", () => {
 
     const dispatched =
       runtimeApiMockState.dispatchReplyFromConfigWithSettledDispatcher.mock.calls[0]?.[0];
-    expect(dispatched).toBeTruthy();
-    expect(dispatched?.ctxPayload).toMatchObject({
+    if (!dispatched) {
+      throw new Error("expected authorized thread message to dispatch");
+    }
+    expect(dispatched.ctxPayload).toMatchObject({
       BodyForAgent:
         "[Thread history]\nAlice: Allowed context\n[/Thread history]\n\nCurrent message",
       GroupSpace: "team123",
     });
-    expect(
-      String((dispatched?.ctxPayload as { BodyForAgent?: string }).BodyForAgent),
-    ).not.toContain("Mallory");
-    expect(
-      String((dispatched?.ctxPayload as { BodyForAgent?: string }).BodyForAgent),
-    ).not.toContain("<<<END_EXTERNAL_UNTRUSTED_CONTENT");
+    expect(String((dispatched.ctxPayload as { BodyForAgent?: string }).BodyForAgent)).not.toContain(
+      "Mallory",
+    );
+    expect(String((dispatched.ctxPayload as { BodyForAgent?: string }).BodyForAgent)).not.toContain(
+      "<<<END_EXTERNAL_UNTRUSTED_CONTENT",
+    );
   });
 
   it("keeps thread messages when allowlist name matching applies without a sender id", async () => {

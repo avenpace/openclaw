@@ -152,10 +152,16 @@ function uniqueRuntimeBinNames(
   ];
 }
 
+let cachedNativeBinaryFixturePath: string | undefined;
+
 function resolveNativeBinaryFixturePath(): string {
+  if (cachedNativeBinaryFixturePath) {
+    return cachedNativeBinaryFixturePath;
+  }
   for (const candidate of ["/bin/ls", "/usr/bin/ls", "/bin/echo", "/usr/bin/printf"]) {
     try {
       if (fs.statSync(candidate).isFile()) {
+        cachedNativeBinaryFixturePath = candidate;
         return candidate;
       }
     } catch {
@@ -826,11 +832,14 @@ describe("hardenApprovedExecutionPaths", () => {
             if (!prepared.ok) {
               throw new Error("unreachable");
             }
-            expect(prepared.plan.mutableFileOperand).toBeDefined();
+            const mutableFileOperand = prepared.plan.mutableFileOperand;
+            if (mutableFileOperand == null) {
+              throw new Error("expected mutable file operand snapshot");
+            }
             fs.writeFileSync(fixture.scriptPath, 'console.log("PWNED");\n');
             expect(
               revalidateApprovedMutableFileOperand({
-                snapshot: prepared.plan.mutableFileOperand!,
+                snapshot: mutableFileOperand,
                 argv: prepared.plan.argv,
                 cwd: prepared.plan.cwd ?? tmp,
               }),

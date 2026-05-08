@@ -6,18 +6,16 @@
 import * as http from "node:http";
 import * as https from "node:https";
 import { safeParseJsonWithSchema, safeParseWithSchema } from "openclaw/plugin-sdk/extension-shared";
+import { sleep } from "openclaw/plugin-sdk/runtime-env";
 import {
   formatErrorMessage,
   resolvePinnedHostnameWithPolicy,
 } from "openclaw/plugin-sdk/ssrf-runtime";
-import { z } from "zod";
+import { normalizeLowercaseStringOrEmpty } from "openclaw/plugin-sdk/text-runtime";
+import { z } from "openclaw/plugin-sdk/zod";
 
 const MIN_SEND_INTERVAL_MS = 500;
 let lastSendTime = 0;
-
-function normalizeLowercaseStringOrEmpty(value: unknown): string {
-  return typeof value === "string" ? value.trim().toLowerCase() : "";
-}
 
 // --- Chat user_id resolution ---
 // Synology Chat uses two different user_id spaces:
@@ -119,7 +117,7 @@ export async function sendMessage(
     }
 
     if (attempt < maxRetries - 1) {
-      await sleep(baseDelay * Math.pow(2, attempt));
+      await sleep(baseDelay * 2 ** attempt);
     }
   }
 
@@ -281,7 +279,7 @@ function parseNumericUserId(userId?: string | number): number | undefined {
   if (userId === undefined) {
     return undefined;
   }
-  const numericId = typeof userId === "number" ? userId : parseInt(userId, 10);
+  const numericId = typeof userId === "number" ? userId : Number.parseInt(userId, 10);
   return Number.isNaN(numericId) ? undefined : numericId;
 }
 
@@ -328,8 +326,4 @@ function doPost(url: string, body: string, allowInsecureSsl = false): Promise<bo
     req.write(body);
     req.end();
   });
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }

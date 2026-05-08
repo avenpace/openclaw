@@ -27,7 +27,7 @@ export type SpawnedToolContext = {
   installedSkillCount?: number;
 };
 
-export type NormalizedSpawnedRunMetadata = {
+type NormalizedSpawnedRunMetadata = {
   spawnedBy?: string;
   groupId?: string;
   groupChannel?: string;

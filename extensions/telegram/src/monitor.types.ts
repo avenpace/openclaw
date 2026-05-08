@@ -5,6 +5,7 @@ import type {
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-runtime";
 import type { getReplyFromConfig } from "openclaw/plugin-sdk/reply-runtime";
 import type { RuntimeEnv } from "openclaw/plugin-sdk/runtime-env";
+import type { TelegramBotInfo } from "./bot-info.js";
 
 export type MonitorTelegramOpts = {
   token?: string;
@@ -21,6 +22,7 @@ export type MonitorTelegramOpts = {
   proxyFetch?: typeof fetch;
   webhookUrl?: string;
   webhookCertPath?: string;
+  botInfo?: TelegramBotInfo;
   setStatus?: (patch: Omit<ChannelAccountSnapshot, "accountId">) => void;
   /** Custom reply resolver for platform integration (e.g., persona-specific agent logic) */
   replyResolver?: typeof getReplyFromConfig;

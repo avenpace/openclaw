@@ -1,6 +1,6 @@
 import path from "node:path";
+import { withTempHome as withTempHomeBase } from "openclaw/plugin-sdk/test-env";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { withTempHome as withTempHomeBase } from "../../test/helpers/temp-home.js";
 import { resolveAgentRuntimeConfig } from "../agents/agent-runtime-config.js";
 import { resolveSession } from "../agents/command/session.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
@@ -24,6 +24,7 @@ const readConfigFileSnapshotForWriteMock = vi.hoisted(() =>
   vi.fn<() => Promise<ConfigSnapshotForWrite>>(),
 );
 vi.mock("../config/io.js", () => ({
+  getRuntimeConfig: loadConfigMock,
   loadConfig: loadConfigMock,
   readConfigFileSnapshotForWrite: readConfigFileSnapshotForWriteMock,
 }));
@@ -206,8 +207,14 @@ describe("agentCommand runtime config", () => {
       const resolved = resolveSession({ cfg, to: "+1555" });
 
       expect(resolved.storePath).toBe(store);
-      expect(resolved.sessionKey).toBeTruthy();
-      expect(resolved.sessionId).toBeTruthy();
+      expect(resolved.sessionKey).toEqual(expect.any(String));
+      const sessionKey = resolved.sessionKey;
+      if (!sessionKey) {
+        throw new Error("expected session key");
+      }
+      expect(sessionKey.length).toBeGreaterThan(0);
+      expect(resolved.sessionId).toEqual(expect.any(String));
+      expect(resolved.sessionId.length).toBeGreaterThan(0);
       expect(resolved.isNewSession).toBe(true);
     });
   });

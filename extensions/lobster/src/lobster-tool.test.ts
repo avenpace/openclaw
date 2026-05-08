@@ -1,5 +1,5 @@
+import { createTestPluginApi } from "openclaw/plugin-sdk/plugin-test-api";
 import { describe, expect, it, vi } from "vitest";
-import { createTestPluginApi } from "../../../test/helpers/plugins/plugin-api.js";
 import type { OpenClawPluginApi, OpenClawPluginToolContext } from "../runtime-api.js";
 import { createLobsterTool } from "./lobster-tool.js";
 import { createFakeTaskFlow } from "./taskflow-test-helpers.js";
@@ -336,7 +336,7 @@ describe("lobster plugin tool", () => {
     ).rejects.toThrow(/must stay within/);
   });
 
-  it("can be gated off in sandboxed contexts", async () => {
+  it("can be gated off in sandboxed contexts", () => {
     const api = fakeApi();
     const factoryTool = (ctx: OpenClawPluginToolContext) => {
       if (ctx.sandboxed) {

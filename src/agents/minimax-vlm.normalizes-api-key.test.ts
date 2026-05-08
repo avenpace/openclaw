@@ -80,10 +80,33 @@ describe("minimaxUnderstandImage apiKey normalization", () => {
 
     expect(fetchSpy).toHaveBeenCalledOnce();
   });
+
+  it("uses the caller-provided request timeout", async () => {
+    const timeoutSpy = vi.spyOn(AbortSignal, "timeout");
+    const fetchSpy = vi.fn(async () => {
+      return new Response(apiResponse, {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+    global.fetch = withFetchPreconnect(fetchSpy);
+
+    await expect(
+      minimaxUnderstandImage({
+        apiKey: "minimax-test-key",
+        prompt: "hi",
+        imageDataUrl: "data:image/png;base64,AAAA",
+        apiHost: "https://api.minimax.io",
+        timeoutMs: 180_000,
+      }),
+    ).resolves.toBe("ok");
+
+    expect(timeoutSpy).toHaveBeenCalledWith(180_000);
+  });
 });
 
 describe("isMinimaxVlmModel", () => {
-  it("only matches the canonical MiniMax VLM model id", async () => {
+  it("only matches the canonical MiniMax VLM model id", () => {
     expect(isMinimaxVlmModel("minimax", "MiniMax-VL-01")).toBe(true);
     expect(isMinimaxVlmModel("minimax-portal", "MiniMax-VL-01")).toBe(true);
     expect(isMinimaxVlmModel("minimax-portal", "custom-vision")).toBe(false);

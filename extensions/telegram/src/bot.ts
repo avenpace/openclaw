@@ -1,53 +1,14 @@
 import {
-  isNativeCommandsExplicitlyDisabled,
-  resolveNativeCommandsEnabled,
-  resolveNativeSkillsEnabled,
-} from "openclaw/plugin-sdk/config-runtime";
-import {
-  resolveChannelGroupPolicy,
-  resolveChannelGroupRequireMention,
-} from "openclaw/plugin-sdk/config-runtime";
-import {
-  resolveThreadBindingIdleTimeoutMsForChannel,
-  resolveThreadBindingMaxAgeMsForChannel,
-  resolveThreadBindingSpawnPolicy,
-} from "openclaw/plugin-sdk/conversation-runtime";
-import { formatErrorMessage, formatUncaughtError } from "openclaw/plugin-sdk/error-runtime";
-import { resolveTextChunkLimit } from "openclaw/plugin-sdk/reply-chunking";
-import { DEFAULT_GROUP_HISTORY_LIMIT, type HistoryEntry } from "openclaw/plugin-sdk/reply-history";
-import { danger, logVerbose, shouldLogVerbose } from "openclaw/plugin-sdk/runtime-env";
-import { getChildLogger } from "openclaw/plugin-sdk/runtime-env";
-import { createSubsystemLogger } from "openclaw/plugin-sdk/runtime-env";
-import { createNonExitingRuntime, type RuntimeEnv } from "openclaw/plugin-sdk/runtime-env";
-import {
-  normalizeOptionalLowercaseString,
-  normalizeOptionalString,
-} from "openclaw/plugin-sdk/text-runtime";
-import { resolveTelegramAccount } from "./accounts.js";
+  createTelegramBotCore,
+  getTelegramSequentialKey,
+  setTelegramBotRuntimeForTest,
+} from "./bot-core.js";
 import { defaultTelegramBotDeps } from "./bot-deps.js";
-import { registerTelegramHandlers } from "./bot-handlers.runtime.js";
-import { createTelegramMessageProcessor } from "./bot-message.js";
-import { registerTelegramNativeCommands } from "./bot-native-commands.js";
-import {
-  buildTelegramUpdateKey,
-  createTelegramUpdateDedupe,
-  resolveTelegramUpdateId,
-  type TelegramUpdateKeyContext,
-} from "./bot-updates.js";
-import { resolveDefaultAgentId } from "./bot.agent.runtime.js";
-import { apiThrottler, Bot, sequentialize, type ApiClientOptions } from "./bot.runtime.js";
 import type { TelegramBotOptions } from "./bot.types.js";
-import { buildTelegramGroupPeerId, resolveTelegramStreamMode } from "./bot/helpers.js";
-import { resolveTelegramTransport } from "./fetch.js";
-import { tagTelegramNetworkError } from "./network-errors.js";
-import { resolveTelegramRequestTimeoutMs } from "./request-timeouts.js";
-import { createTelegramSendChatActionHandler } from "./sendchataction-401-backoff.js";
-import { getTelegramSequentialKey } from "./sequential-key.js";
-import { createTelegramThreadBindingManager } from "./thread-bindings.js";
 
 export type { TelegramBotOptions } from "./bot.types.js";
 
-export { getTelegramSequentialKey };
+export { getTelegramSequentialKey, setTelegramBotRuntimeForTest };
 
 type TelegramBotRuntime = {
   Bot: typeof Bot;

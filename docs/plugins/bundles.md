@@ -4,10 +4,8 @@ read_when:
   - You want to install a Codex, Claude, or Cursor-compatible bundle
   - You need to understand how OpenClaw maps bundle content into native features
   - You are debugging bundle detection or missing capabilities
-title: "Plugin Bundles"
+title: "Plugin bundles"
 ---
-
-# Plugin Bundles
 
 OpenClaw can install plugins from three external ecosystems: **Codex**, **Claude**,
 and **Cursor**. These are called **bundles** — content and metadata packs that
@@ -151,6 +149,7 @@ MCP servers can use stdio or HTTP transport:
 ```
 
 - `transport` may be set to `"streamable-http"` or `"sse"`; when omitted, OpenClaw uses `sse`
+- `type: "http"` is a CLI-native downstream shape; use `transport: "streamable-http"` in OpenClaw config. `openclaw mcp set` and `openclaw doctor --fix` normalize the common alias.
 - only `http:` and `https:` URL schemes are allowed
 - `headers` values support `${ENV_VAR}` interpolation
 - a server entry with both `command` and `url` is rejected
@@ -253,6 +252,18 @@ OpenClaw checks for native plugin format first:
 
 If a directory contains both, OpenClaw uses the native path. This prevents
 dual-format packages from being partially installed as bundles.
+
+## Runtime dependencies and cleanup
+
+- Third-party compatible bundles do not get startup `npm install` repair. They
+  should be installed through `openclaw plugins install` and ship everything
+  they need in the installed plugin directory.
+- OpenClaw-owned bundled plugins are either shipped lightweight in core or
+  downloadable through the plugin installer. Gateway startup never runs a
+  package manager for them.
+- `openclaw doctor --fix` removes legacy staged dependency directories and can
+  recover downloadable plugins that are missing from the local plugin index when
+  config references them.
 
 ## Security
 

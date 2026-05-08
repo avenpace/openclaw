@@ -689,6 +689,7 @@ vi.mock("../infra/update-check.js", () => ({
   compareSemverStrings: vi.fn(() => 0),
 }));
 vi.mock("../config/config.js", () => ({
+  getRuntimeConfig: mocks.loadConfig,
   loadConfig: mocks.loadConfig,
   readBestEffortConfig: vi.fn(async () => mocks.loadConfig()),
   resolveGatewayPort: vi.fn(() => 18789),
@@ -740,6 +741,7 @@ vi.mock("./status-runtime-shared.ts", () => ({
       deep: false,
       includeFilesystem: true,
       includeChannelSecurity: true,
+      loadPluginSecurityCollectors: false,
     }),
   ),
   resolveStatusUsageSummary: vi.fn(async () => undefined),
@@ -759,6 +761,7 @@ vi.mock("./status-runtime-shared.ts", () => ({
                 deep: false,
                 includeFilesystem: true,
                 includeChannelSecurity: true,
+                loadPluginSecurityCollectors: false,
               }))
           )({
             config: params.config,
@@ -971,7 +974,7 @@ describe("statusCommand", () => {
     expect(payload.memoryPlugin.slot).toBe("memory-core");
     expect(payload.sessions.count).toBe(1);
     expect(payload.sessions.paths).toContain("/tmp/sessions.json");
-    expect(payload.sessions.defaults.model).toBeTruthy();
+    expect(payload.sessions.defaults.model).toEqual(expect.any(String));
     expect(payload.sessions.defaults.contextTokens).toBeGreaterThan(0);
     expect(payload.sessions.recent[0].percentUsed).toBe(50);
     expect(payload.sessions.recent[0].cacheRead).toBe(2_000);
@@ -1006,6 +1009,24 @@ describe("statusCommand", () => {
         includeFilesystem: true,
         includeChannelSecurity: true,
       }),
+    );
+  });
+
+  it("keeps default text status off the security audit path", async () => {
+    await statusCommand({}, runtime as never);
+
+    expect(mocks.runSecurityAudit).not.toHaveBeenCalled();
+  });
+
+  it("passes deep mode through to the text status scan", async () => {
+    const { scanStatus } = await import("./status.scan.js");
+    vi.mocked(scanStatus).mockClear();
+
+    await statusCommand({ deep: true, timeoutMs: 5000 }, runtime as never);
+
+    expect(scanStatus).toHaveBeenCalledWith(
+      { json: false, timeoutMs: 5000, all: undefined, deep: true },
+      runtime,
     );
   });
 
@@ -1049,8 +1070,7 @@ describe("statusCommand", () => {
       "OpenClaw status",
       "Overview",
       "Security audit",
-      "Summary:",
-      "CRITICAL",
+      "Skipped in fast status",
       "Dashboard",
       "macos 14.0 (arm64)",
       "Memory",
@@ -1068,21 +1088,21 @@ describe("statusCommand", () => {
       "Troubleshooting:",
       "Next steps:",
     ]) {
-      expect(logs.some((line) => line.includes(token))).toBe(true);
+      expect(logs).toEqual(expect.arrayContaining([expect.stringContaining(token)]));
     }
-    expect(
-      logs.some((line) => line.includes("legacy-plugin still uses legacy before_agent_start")),
-    ).toBe(true);
-    expect(
-      logs.some(
-        (line) =>
-          line.includes("openclaw status --all") ||
-          line.includes("openclaw --profile isolated status --all"),
-      ),
-    ).toBe(true);
-    expect(logs.some((line) => line.includes("Cache"))).toBe(true);
-    expect(logs.some((line) => line.includes("40% hit"))).toBe(true);
-    expect(logs.some((line) => line.includes("read 2.0k"))).toBe(true);
+    expect(logs).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("legacy-plugin still uses legacy before_agent_start"),
+      ]),
+    );
+    expect(logs).toEqual(
+      expect.arrayContaining([
+        expect.stringMatching(/openclaw (?:--profile isolated )?status --all/),
+      ]),
+    );
+    expect(logs).toEqual(expect.arrayContaining([expect.stringContaining("Cache")]));
+    expect(logs).toEqual(expect.arrayContaining([expect.stringContaining("40% hit")]));
+    expect(logs).toEqual(expect.arrayContaining([expect.stringContaining("read 2.0k")]));
   });
 
   it("shows a maintenance hint when task audit errors are present", async () => {
@@ -1137,8 +1157,8 @@ describe("statusCommand", () => {
       },
     });
     const logs = await runStatusAndGetLogs();
-    expect(logs.some((line) => line.includes("100% cached"))).toBe(true);
-    expect(logs.some((line) => line.includes("120% cached"))).toBe(false);
+    expect(logs).toEqual(expect.arrayContaining([expect.stringContaining("100% cached")]));
+    expect(logs).not.toEqual(expect.arrayContaining([expect.stringContaining("120% cached")]));
 
     mocks.loadSessionStore.mockReturnValue({
       "+1000": {
@@ -1150,8 +1170,10 @@ describe("statusCommand", () => {
       },
     });
     const promptSideLogs = await runStatusAndGetLogs();
-    expect(promptSideLogs.some((line) => line.includes("67% cached"))).toBe(true);
-    expect(promptSideLogs.some((line) => line.includes("40% cached"))).toBe(false);
+    expect(promptSideLogs).toEqual(expect.arrayContaining([expect.stringContaining("67% cached")]));
+    expect(promptSideLogs).not.toEqual(
+      expect.arrayContaining([expect.stringContaining("40% cached")]),
+    );
   });
 
   it("shows node-only gateway info when no local gateway service is installed", async () => {
@@ -1196,7 +1218,7 @@ describe("statusCommand", () => {
         presence: [],
       });
       const logs = await runStatusAndGetLogs();
-      expect(logs.some((l: string) => l.includes("auth token"))).toBe(true);
+      expect(logs).toEqual(expect.arrayContaining([expect.stringContaining("auth token")]));
     });
   });
 

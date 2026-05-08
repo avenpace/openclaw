@@ -94,6 +94,11 @@ const subCliCommandCatalog = defineCommandDescriptorCatalog([
     hasSubcommands: false,
   },
   {
+    name: "path",
+    description: "Inspect and edit workspace files via the oc:// addressing scheme",
+    hasSubcommands: true,
+  },
+  {
     name: "qa",
     description: "Run QA scenarios and launch the private QA debugger UI",
     hasSubcommands: true,
@@ -130,7 +135,7 @@ const subCliCommandCatalog = defineCommandDescriptorCatalog([
   },
   {
     name: "plugins",
-    description: "Manage OpenClaw plugins and extensions",
+    description: "Manage OpenClaw plugins",
     hasSubcommands: true,
   },
   {

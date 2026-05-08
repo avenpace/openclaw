@@ -1,6 +1,6 @@
-import { installPinnedHostnameTestHooks } from "openclaw/plugin-sdk/testing";
+import { expectExplicitVideoGenerationCapabilities } from "openclaw/plugin-sdk/provider-test-contracts";
+import { installPinnedHostnameTestHooks } from "openclaw/plugin-sdk/test-env";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { expectExplicitVideoGenerationCapabilities } from "../../test/helpers/media-generation/provider-capability-assertions.js";
 import {
   binaryResponse,
   jsonResponse,
@@ -30,7 +30,7 @@ describe("vydra video-generation provider", () => {
         status: "completed",
         videoUrl: "https://cdn.vydra.ai/generated/test.mp4",
       }),
-      binaryResponse("mp4-data", "video/mp4"),
+      binaryResponse("webm-data", "video/webm"),
     );
 
     const provider = buildVydraVideoGenerationProvider();
@@ -54,7 +54,8 @@ describe("vydra video-generation provider", () => {
       "https://www.vydra.ai/api/v1/jobs/job-123",
       expect.objectContaining({ method: "GET" }),
     );
-    expect(result.videos[0]?.mimeType).toBe("video/mp4");
+    expect(result.videos[0]?.mimeType).toBe("video/webm");
+    expect(result.videos[0]?.fileName).toBe("video-1.webm");
     expect(result.metadata).toEqual({
       jobId: "job-123",
       videoUrl: "https://cdn.vydra.ai/generated/test.mp4",

@@ -1,5 +1,5 @@
-import { resolvePluginConfigObject } from "openclaw/plugin-sdk/config-runtime";
-import { normalizeOptionalString } from "openclaw/plugin-sdk/text-runtime";
+import { resolveLivePluginConfigObject } from "openclaw/plugin-sdk/plugin-config-runtime";
+import { escapeRegExp, normalizeOptionalString } from "openclaw/plugin-sdk/text-runtime";
 import {
   definePluginEntry,
   fetchWithSsrFGuard,
@@ -27,10 +27,6 @@ function isThreadOwnershipConfig(value: unknown): value is ThreadOwnershipConfig
 
 function resolveThreadToken(value: unknown): string {
   return typeof value === "string" || typeof value === "number" ? String(value) : "";
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function resolveSlackConversationId(value: unknown): string {
@@ -83,16 +79,17 @@ export default definePluginEntry({
   description: "Slack thread claim coordination for multi-agent setups",
   register(api: OpenClawPluginApi) {
     const resolveCurrentState = () => {
-      const runtimeConfigAvailable = typeof api.runtime.config?.loadConfig === "function";
-      const currentConfig = runtimeConfigAvailable
-        ? (api.runtime.config.loadConfig() ?? api.config)
-        : api.config;
-      const livePluginCfg = resolvePluginConfigObject(currentConfig, "thread-ownership");
-      const pluginCfg = isThreadOwnershipConfig(livePluginCfg)
-        ? livePluginCfg
-        : !runtimeConfigAvailable && isThreadOwnershipConfig(api.pluginConfig)
-          ? api.pluginConfig
-          : {};
+      const currentConfig = (api.runtime.config?.current?.() ?? api.config) as OpenClawConfig;
+      const livePluginCfg = resolveLivePluginConfigObject(
+        api.runtime.config?.current
+          ? () => api.runtime.config.current() as OpenClawConfig
+          : undefined,
+        "thread-ownership",
+        isThreadOwnershipConfig(api.pluginConfig)
+          ? (api.pluginConfig as Record<string, unknown>)
+          : undefined,
+      );
+      const pluginCfg = isThreadOwnershipConfig(livePluginCfg) ? livePluginCfg : {};
       return {
         currentConfig,
         forwarderUrl: (

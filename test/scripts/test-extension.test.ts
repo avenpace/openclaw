@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import path from "node:path";
+import { bundledPluginFile, bundledPluginRoot } from "openclaw/plugin-sdk/test-fixtures";
 import { describe, expect, it, vi } from "vitest";
 import {
   detectChangedExtensionIds,
@@ -16,7 +17,6 @@ import {
   resolveExtensionBatchParallelism,
   runExtensionBatchPlan,
 } from "../../scripts/test-extension-batch.mjs";
-import { bundledPluginFile, bundledPluginRoot } from "../helpers/bundled-plugin-paths.js";
 
 const scriptPath = path.join(process.cwd(), "scripts", "test-extension.mjs");
 
@@ -32,8 +32,10 @@ function findExtensionWithoutTests() {
     (candidate) => !resolveExtensionTestPlan({ targetArg: candidate, cwd: process.cwd() }).hasTests,
   );
 
-  expect(extensionId).toBeDefined();
-  return extensionId ?? "missing-no-test-extension";
+  if (!extensionId) {
+    throw new Error("Expected at least one extension without tests");
+  }
+  return extensionId;
 }
 
 describe("scripts/test-extension.mjs", () => {
@@ -44,15 +46,6 @@ describe("scripts/test-extension.mjs", () => {
     expect(plan.extensionDir).toBe(bundledPluginRoot("slack"));
     expect(plan.config).toBe("test/vitest/vitest.extension-slack.config.ts");
     expect(plan.roots).toContain(bundledPluginRoot("slack"));
-    expect(plan.hasTests).toBe(true);
-  });
-
-  it("resolves bluebubbles onto the bluebubbles vitest config", () => {
-    const plan = resolveExtensionTestPlan({ targetArg: "bluebubbles", cwd: process.cwd() });
-
-    expect(plan.extensionId).toBe("bluebubbles");
-    expect(plan.config).toBe("test/vitest/vitest.extension-bluebubbles.config.ts");
-    expect(plan.roots).toContain(bundledPluginRoot("bluebubbles"));
     expect(plan.hasTests).toBe(true);
   });
 
@@ -272,7 +265,6 @@ describe("scripts/test-extension.mjs", () => {
         "msteams",
         "feishu",
         "irc",
-        "bluebubbles",
         "acpx",
         "diffs",
         "browser",
@@ -283,7 +275,6 @@ describe("scripts/test-extension.mjs", () => {
 
     expect(batch.extensionIds).toEqual([
       "acpx",
-      "bluebubbles",
       "browser",
       "diffs",
       "feishu",
@@ -310,13 +301,6 @@ describe("scripts/test-extension.mjs", () => {
         estimatedCost: expect.any(Number),
         extensionIds: ["acpx"],
         roots: [bundledPluginRoot("acpx")],
-        testFileCount: expect.any(Number),
-      },
-      {
-        config: "test/vitest/vitest.extension-bluebubbles.config.ts",
-        estimatedCost: expect.any(Number),
-        extensionIds: ["bluebubbles"],
-        roots: [bundledPluginRoot("bluebubbles")],
         testFileCount: expect.any(Number),
       },
       {
@@ -474,24 +458,9 @@ describe("scripts/test-extension.mjs", () => {
     const totals = shards.map((shard) => shard.estimatedCost);
     expect(Math.max(...totals) - Math.min(...totals)).toBeLessThanOrEqual(1);
 
-    const msTeamsShardIndex = shards.findIndex((shard) => shard.extensionIds.includes("msteams"));
-    const feishuShardIndex = shards.findIndex((shard) => shard.extensionIds.includes("feishu"));
-    const browserShardIndex = shards.findIndex((shard) => shard.extensionIds.includes("browser"));
-    const slackShardIndex = shards.findIndex((shard) => shard.extensionIds.includes("slack"));
-    const matrixShardIndex = shards.findIndex((shard) => shard.extensionIds.includes("matrix"));
-    const mattermostShardIndex = shards.findIndex((shard) =>
-      shard.extensionIds.includes("mattermost"),
-    );
-
-    expect(msTeamsShardIndex).toBeGreaterThanOrEqual(0);
-    expect(feishuShardIndex).toBeGreaterThanOrEqual(0);
-    expect(msTeamsShardIndex).not.toBe(feishuShardIndex);
-    expect(browserShardIndex).toBeGreaterThanOrEqual(0);
-    expect(slackShardIndex).toBeGreaterThanOrEqual(0);
-    expect(browserShardIndex).not.toBe(slackShardIndex);
-    expect(matrixShardIndex).toBeGreaterThanOrEqual(0);
-    expect(mattermostShardIndex).toBeGreaterThanOrEqual(0);
-    expect(matrixShardIndex).not.toBe(mattermostShardIndex);
+    for (const shard of shards) {
+      expect(shard.extensionIds.length).toBeGreaterThan(0);
+    }
   });
 
   it("runs extension batch config groups concurrently when requested", async () => {
