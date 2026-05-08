@@ -1450,7 +1450,7 @@ export const agentHandlers: GatewayRequestHandlers = {
           activeRunAbort.cleanup();
         }
       }
-    }
+    })();
 
     const resolvedThreadId = explicitThreadId ?? deliveryPlan.resolvedThreadId;
 

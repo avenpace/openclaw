@@ -65,6 +65,13 @@ export type {
   ProfileStatus,
   SnapshotResult,
 } from "./browser-runtime.js";
+export { BrowserToolSchema } from "./browser-tool.schema.js";
+export { normalizeOptionalString, readStringValue } from "openclaw/plugin-sdk/text-runtime";
+export {
+  touchSessionBrowserTab,
+  trackSessionBrowserTab,
+  untrackSessionBrowserTab,
+} from "./browser/session-tab-registry.js";
 export {
   callGatewayTool,
   danger,

@@ -63,7 +63,6 @@ export type BrowserHandler = {
     error?: string;
   }>;
 };
-import { callGatewayTool } from "./core-api.js";
 
 const browserToolDeps = {
   browserAct,

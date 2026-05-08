@@ -259,26 +259,10 @@ export async function monitorTelegramProvider(opts: MonitorTelegramOpts = {}) {
         stallThresholdMs: account.config.pollingStallThresholdMs,
         setStatus: opts.setStatus,
       });
-    const telegramTransport = createTelegramTransportForPolling();
-
-    pollingSession = new TelegramPollingSession({
-      token,
-      config: cfg,
-      accountId: account.accountId,
-      runtime: opts.runtime,
-      proxyFetch,
-      abortSignal: opts.abortSignal,
-      runnerOptions: createTelegramRunnerOptions(cfg),
-      getLastUpdateId: () => lastUpdateId,
-      persistUpdateId,
-      log,
-      telegramTransport,
-      createTelegramTransport: createTelegramTransportForPolling,
-      stallThresholdMs: account.config.pollingStallThresholdMs,
-      setStatus: opts.setStatus,
-      replyResolver: opts.replyResolver,
-    });
-    await pollingSession.runUntilAbort();
+      await pollingSession.runUntilAbort();
+    } finally {
+      pollingLease.release();
+    }
   } finally {
     unregisterUnhandledRejectionHandler();
     unregisterUncaughtExceptionHandler();

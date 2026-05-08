@@ -709,29 +709,17 @@ function loadSkillEntries(
     return loadedSkills;
   };
 
-  // OPENCLAW_WORKSPACE_SKILLS_ONLY: When set to "1" or "true", only load skills from workspace directory.
-  // This is used for multi-tenant platforms where each user should only see their own installed skills.
-  const workspaceSkillsOnly =
-    process.env.OPENCLAW_WORKSPACE_SKILLS_ONLY === "1" ||
-    process.env.OPENCLAW_WORKSPACE_SKILLS_ONLY?.toLowerCase() === "true";
-
-  const managedSkillsDir = workspaceSkillsOnly
-    ? undefined
-    : (opts?.managedSkillsDir ?? path.join(CONFIG_DIR, "skills"));
+  const managedSkillsDir = opts?.managedSkillsDir ?? path.join(CONFIG_DIR, "skills");
   const workspaceSkillsDir = path.resolve(workspaceDir, "skills");
-  const bundledSkillsDir = workspaceSkillsOnly
-    ? undefined
-    : (opts?.bundledSkillsDir ?? resolveBundledSkillsDir());
-  const extraDirsRaw = workspaceSkillsOnly ? [] : (opts?.config?.skills?.load?.extraDirs ?? []);
-  const extraDirs = extraDirsRaw
-    .map((d) => (typeof d === "string" ? d.trim() : ""))
-    .filter(Boolean);
-  const pluginSkillDirs = workspaceSkillsOnly
-    ? []
-    : resolvePluginSkillDirs({
-        workspaceDir,
-        config: opts?.config,
-      });
+  const bundledSkillsDir = opts?.bundledSkillsDir ?? resolveBundledSkillsDir();
+  const pluginSkillsDir = opts?.pluginSkillsDir ?? path.join(CONFIG_DIR, "plugin-skills");
+  const extraDirsRaw = opts?.config?.skills?.load?.extraDirs ?? [];
+  const extraDirs = extraDirsRaw.map((d) => normalizeOptionalString(d) ?? "").filter(Boolean);
+  const pluginSkillDirs = resolvePluginSkillDirs({
+    workspaceDir,
+    config: opts?.config,
+    pluginSkillsDir,
+  });
   const mergedExtraDirs = [...extraDirs, ...pluginSkillDirs];
 
   const bundledSkills = bundledSkillsDir
@@ -752,24 +740,21 @@ function loadSkillEntries(
       pluginSkillsDir,
       pluginSkillDirs,
       source: "openclaw-extra",
-    });
+      limits,
+    }),
+  ];
+  const managedSkills = loadSkills({
+    dir: managedSkillsDir,
+    source: "openclaw-managed",
   });
-  const managedSkills = managedSkillsDir
-    ? loadSkills({
-        dir: managedSkillsDir,
-        source: "openclaw-managed",
-      })
-    : [];
   const osHomeDir = resolveUserHomeDir();
-  const personalAgentsSkillsDir: string | undefined = workspaceSkillsOnly
-    ? undefined
-    : path.resolve(osHomeDir || "", ".agents", "skills");
-  const personalAgentsSkills = personalAgentsSkillsDir
-    ? loadSkills({
-        dir: personalAgentsSkillsDir as string,
-        source: "agents-skills-personal",
-      })
-    : [];
+  const personalAgentsSkillsDir = osHomeDir
+    ? path.resolve(osHomeDir, ".agents", "skills")
+    : path.resolve(".agents", "skills");
+  const personalAgentsSkills = loadSkills({
+    dir: personalAgentsSkillsDir,
+    source: "agents-skills-personal",
+  });
   const projectAgentsSkillsDir = path.resolve(workspaceDir, ".agents", "skills");
   const projectAgentsSkills = loadSkills({
     dir: projectAgentsSkillsDir,

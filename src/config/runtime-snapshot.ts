@@ -85,11 +85,55 @@ let runtimeConfigSourceSnapshot: OpenClawConfig | null = null;
 let runtimeConfigSnapshotMetadata: RuntimeConfigSnapshotMetadata | null = null;
 let runtimeConfigSnapshotRevision = 0;
 let runtimeConfigSnapshotRefreshHandler: RuntimeConfigSnapshotRefreshHandler | null = null;
-const runtimeConfigWriteListeners = new Set<(event: RuntimeConfigWriteNotification) => void>();
 
 export function resetRuntimeConfigSnapshot(): void {
   runtimeConfigSnapshot = null;
-  runtimeConfigSourceSnapshot = null;
+  runtimeConfigSnapshotMetadata = null;
+  runtimeConfigSnapshotRevision = 0;
+  runtimeConfigSnapshotRefreshHandler = null;
+}
+const runtimeConfigWriteListeners = new Set<(event: RuntimeConfigWriteNotification) => void>();
+
+function stableConfigStringify(value: unknown): string {
+  if (value === null || typeof value !== "object") {
+    return JSON.stringify(value) ?? "null";
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map((entry) => stableConfigStringify(entry)).join(",")}]`;
+  }
+  const record = value as Record<string, unknown>;
+  const keys = Object.keys(record).toSorted();
+  return `{${keys
+    .map((key) => `${JSON.stringify(key)}:${stableConfigStringify(record[key])}`)
+    .join(",")}}`;
+}
+
+function configSnapshotsMatch(left: OpenClawConfig, right: OpenClawConfig): boolean {
+  if (left === right) {
+    return true;
+  }
+  try {
+    return stableConfigStringify(left) === stableConfigStringify(right);
+  } catch {
+    return false;
+  }
+}
+
+export function hashRuntimeConfigValue(value: OpenClawConfig): string {
+  return createHash("sha256").update(stableConfigStringify(value)).digest("base64url");
+}
+
+function createRuntimeConfigSnapshotMetadata(
+  config: OpenClawConfig,
+  sourceConfig?: OpenClawConfig,
+): RuntimeConfigSnapshotMetadata {
+  runtimeConfigSnapshotRevision += 1;
+  return {
+    revision: runtimeConfigSnapshotRevision,
+    fingerprint: hashRuntimeConfigValue(config),
+    sourceFingerprint: sourceConfig ? hashRuntimeConfigValue(sourceConfig) : null,
+    updatedAtMs: Date.now(),
+  };
 }
 
 export function setRuntimeConfigSnapshot(

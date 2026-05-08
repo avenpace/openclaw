@@ -1450,7 +1450,7 @@ export const dispatchTelegramMessage = async ({
           onModelSelected,
         },
         replyResolver,
-      }));
+      });
     } catch (err) {
       dispatchError = err;
       runtime.error?.(danger(`telegram dispatch failed: ${String(err)}`));
