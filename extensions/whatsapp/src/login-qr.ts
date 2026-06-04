@@ -285,7 +285,7 @@ export async function startWebLoginWithQr(
   } = {},
 ): Promise<StartWebLoginWithQrResult> {
   const runtime = opts.runtime ?? defaultRuntime;
-  const cfg = loadConfig();
+  const cfg = getRuntimeConfig();
   const resolvedAccount = resolveWhatsAppAccount({ cfg, accountId: opts.accountId });
   // Allow direct authDir override for multi-tenant platforms
   const account = opts.authDir ? { ...resolvedAccount, authDir: opts.authDir } : resolvedAccount;
@@ -559,7 +559,7 @@ export async function startWebLoginWithCode(opts: {
   encryptionKey?: Buffer;
 }): Promise<{ pairingCode?: string; message: string }> {
   const runtime = opts.runtime ?? defaultRuntime;
-  const cfg = loadConfig();
+  const cfg = getRuntimeConfig();
   const resolvedAccount = resolveWhatsAppAccount({ cfg, accountId: opts.accountId });
   const account = opts.authDir ? { ...resolvedAccount, authDir: opts.authDir } : resolvedAccount;
   const authState = await readWebAuthExistsForDecision(account.authDir);
@@ -678,7 +678,7 @@ export function getCodePairingStatus(opts: { accountId?: string }): {
   connected: boolean;
   error?: string;
 } {
-  const cfg = loadConfig();
+  const cfg = getRuntimeConfig();
   const account = resolveWhatsAppAccount({ cfg, accountId: opts.accountId });
   const login = activeLogins.get(account.accountId);
 
