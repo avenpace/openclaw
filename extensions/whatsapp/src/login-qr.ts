@@ -363,6 +363,7 @@ export async function startWebLoginWithQr(
       message: `Failed to start WhatsApp login: ${String(err)}`,
     };
   }
+  const socketTiming = resolveWhatsAppSocketTiming(cfg);
   const login: ActiveLogin = {
     accountId: account.accountId,
     authDir: account.authDir,
@@ -659,6 +660,7 @@ export async function startWebLoginWithCode(opts: {
     waitPromise: Promise.resolve(),
     verbose: Boolean(opts.verbose),
     runtime,
+    socketTiming: resolveWhatsAppSocketTiming(cfg),
   };
   activeLogins.set(account.accountId, login);
   attachLoginWaiter(account.accountId, login);
