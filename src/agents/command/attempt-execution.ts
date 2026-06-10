@@ -385,6 +385,8 @@ export function runAgentAttempt(params: {
   sessionHasHistory?: boolean;
   // Platform: pass inherited skill count for exec gating on external channels
   installedSkillCount?: number;
+  suppressPromptPersistenceOnRetry?: boolean;
+  onUserMessagePersisted?: (message: Extract<AgentMessage, { role: "user" }>) => void;
 }) {
   const isRawModelRun = params.opts.modelRun === true || params.opts.promptMode === "none";
   const claudeCliFallbackPrelude =

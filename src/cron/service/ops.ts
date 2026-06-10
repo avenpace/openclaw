@@ -473,6 +473,7 @@ export async function remove(state: CronServiceState, id: string, opts?: { agent
     if (!state.store) {
       return { ok: false, removed: false } as const;
     }
+    const removedJob = state.store.jobs.find((j) => j.id === id);
     // Multi-tenant: only remove if agentId matches (or no filter)
     state.store.jobs = state.store.jobs.filter((j) => {
       if (j.id !== id) {
