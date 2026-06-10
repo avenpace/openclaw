@@ -1,3 +1,4 @@
+/** Tests ACP translator initialize/session lifecycle and prompt bridge behavior. */
 import type {
   CloseSessionRequest,
   InitializeRequest,
@@ -7,10 +8,10 @@ import type {
   ResumeSessionRequest,
 } from "@agentclientprotocol/sdk";
 import { PROTOCOL_VERSION } from "@agentclientprotocol/sdk";
+import { createInMemorySessionStore } from "@openclaw/acp-core/session";
 import { describe, expect, it, vi } from "vitest";
 import type { GatewayClient } from "../gateway/client.js";
 import type { GatewaySessionRow } from "../gateway/session-utils.js";
-import { createInMemorySessionStore } from "./session.js";
 import { AcpGatewayAgent } from "./translator.js";
 import { createAcpConnection, createAcpGateway } from "./translator.test-helpers.js";
 
@@ -43,7 +44,7 @@ function createListSessionsRequest(params: {
     request.cursor = params.cursor;
   }
   if (params.limit !== undefined) {
-    request._meta = { limit: params.limit };
+    request["_meta"] = { limit: params.limit };
   }
   return request;
 }
@@ -141,16 +142,38 @@ describe("acp translator stable lifecycle handlers", () => {
 
     expect(capabilities.loadSession).toBe(true);
     expect(typeof agent.loadSession).toBe("function");
-    expect(capabilities.sessionCapabilities?.list).toEqual({});
+    expect(capabilities.sessionCapabilities?.list).toStrictEqual({});
     expect(typeof agent.listSessions).toBe("function");
-    expect(capabilities.sessionCapabilities?.resume).toEqual({});
+    expect(capabilities.sessionCapabilities?.resume).toStrictEqual({});
     expect(typeof agent.resumeSession).toBe("function");
-    expect(capabilities.sessionCapabilities?.close).toEqual({});
+    expect(capabilities.sessionCapabilities?.close).toStrictEqual({});
     expect(typeof agent.closeSession).toBe("function");
     expect(capabilities.sessionCapabilities?.fork).toBeUndefined();
     expect("unstable_listSessions" in agent).toBe(false);
 
     sessionStore.clearAllSessionsForTest();
+  });
+
+  it("captures ACP client capabilities during initialize", async () => {
+    const agent = new AcpGatewayAgent(createAcpConnection(), createAcpGateway());
+
+    expect(agent.supportsClientReadTextFile()).toBe(false);
+    expect(agent.supportsClientWriteTextFile()).toBe(false);
+    expect(agent.supportsClientTerminal()).toBe(false);
+
+    await agent.initialize({
+      ...createInitializeRequest(),
+      clientCapabilities: {
+        fs: { readTextFile: true, writeTextFile: false },
+        terminal: true,
+      },
+      clientInfo: { name: "test-client", version: "1.2.3" },
+    } as InitializeRequest);
+
+    expect(agent.supportsClientReadTextFile()).toBe(true);
+    expect(agent.supportsClientWriteTextFile()).toBe(false);
+    expect(agent.supportsClientTerminal()).toBe(true);
+    expect(agent.getClientInfo()).toEqual({ name: "test-client", version: "1.2.3" });
   });
 
   it("lists Gateway sessions through the stable handler with opaque cursors and cwd filtering", async () => {
@@ -187,7 +210,8 @@ describe("acp translator stable lifecycle handlers", () => {
       "agent:main:a2",
     ]);
     expect(first.sessions.map((session) => session.cwd)).toEqual(["/work/a", "/work/a"]);
-    expect(first.nextCursor).toEqual(expect.any(String));
+    expect(first.nextCursor).toBeTypeOf("string");
+    expect(first.nextCursor).not.toBe("");
     expect(second.sessions.map((session) => session.sessionId)).toEqual([
       "agent:main:a3",
       "agent:main:a4",
@@ -231,6 +255,33 @@ describe("acp translator stable lifecycle handlers", () => {
     sessionStore.clearAllSessionsForTest();
   });
 
+  it("lists Gateway sessions with invalid updated timestamps", async () => {
+    const request = vi.fn(async (method: string) => {
+      if (method === "sessions.list") {
+        return createGatewaySessions([
+          createSessionRow({
+            key: "agent:main:work",
+            cwd: "/tmp/openclaw",
+            title: "Work session",
+            updatedAt: Number.POSITIVE_INFINITY,
+          }),
+        ]);
+      }
+      return { ok: true };
+    }) as GatewayClient["request"];
+    const sessionStore = createInMemorySessionStore();
+    const agent = new AcpGatewayAgent(createAcpConnection(), createAcpGateway(request), {
+      sessionStore,
+    });
+
+    const result = await agent.listSessions(createListSessionsRequest({ cwd: "/tmp/openclaw" }));
+
+    expect(result.sessions).toHaveLength(1);
+    expect(result.sessions[0]?.updatedAt).toBeUndefined();
+
+    sessionStore.clearAllSessionsForTest();
+  });
+
   it("rejects session/list cursors when the cwd filter changes", async () => {
     const allRows = [
       createSessionRow({ key: "agent:main:a1", cwd: "/work/a", title: "A1" }),
@@ -254,7 +305,8 @@ describe("acp translator stable lifecycle handlers", () => {
     });
 
     const unfiltered = await agent.listSessions(createListSessionsRequest({ limit: 1 }));
-    expect(unfiltered.nextCursor).toEqual(expect.any(String));
+    expect(unfiltered.nextCursor).toBeTypeOf("string");
+    expect(unfiltered.nextCursor).not.toBe("");
     await expect(
       agent.listSessions(
         createListSessionsRequest({ cwd: "/work/a", cursor: unfiltered.nextCursor }),
@@ -264,7 +316,8 @@ describe("acp translator stable lifecycle handlers", () => {
     const filtered = await agent.listSessions(
       createListSessionsRequest({ cwd: "/work/a", limit: 1 }),
     );
-    expect(filtered.nextCursor).toEqual(expect.any(String));
+    expect(filtered.nextCursor).toBeTypeOf("string");
+    expect(filtered.nextCursor).not.toBe("");
     await expect(
       agent.listSessions(createListSessionsRequest({ cursor: filtered.nextCursor })),
     ).rejects.toThrow(/cursor does not match the cwd filter/i);
@@ -287,7 +340,7 @@ describe("acp translator stable lifecycle handlers", () => {
 
   it("resumes an existing Gateway session without replaying transcript history", async () => {
     const connection = createAcpConnection();
-    const sessionUpdate = connection.__sessionUpdateMock;
+    const sessionUpdate = connection["__sessionUpdateMock"];
     const request = vi.fn(async (method: string) => {
       if (method === "sessions.list") {
         return createGatewaySessions([
@@ -311,15 +364,25 @@ describe("acp translator stable lifecycle handlers", () => {
     const result = await agent.resumeSession(createResumeSessionRequest("agent:main:work"));
 
     expect(result.modes?.currentModeId).toBe("adaptive");
-    expect(result.configOptions).toEqual(expect.any(Array));
+    if (!result.configOptions) {
+      throw new Error("expected resume session config options");
+    }
+    const thoughtLevelOption = result.configOptions.find((option) => option.id === "thought_level");
+    expect(thoughtLevelOption?.currentValue).toBe("adaptive");
     expect(sessionStore.getSession("agent:main:work")?.sessionKey).toBe("agent:main:work");
-    expect(request).not.toHaveBeenCalledWith("sessions.get", expect.anything());
+    const requestCalls = (request as unknown as { mock: { calls: Array<[string]> } }).mock.calls;
+    expect(requestCalls.map((call) => call[0])).not.toContain("sessions.get");
     expect(sessionUpdate).toHaveBeenCalledWith({
       sessionId: "agent:main:work",
       update: {
         sessionUpdate: "session_info_update",
         title: "Work session",
         updatedAt: "2024-03-09T16:00:00.000Z",
+        _meta: {
+          sessionKey: "agent:main:work",
+          kind: "direct",
+          spawnedWorkspaceDir: "/tmp/openclaw",
+        },
       },
     });
 
@@ -369,7 +432,9 @@ describe("acp translator stable lifecycle handlers", () => {
     });
     const pending = await startPendingPrompt({ agent, sentRunIds, sessionId: "session-1" });
 
-    await expect(agent.closeSession(createCloseSessionRequest("session-1"))).resolves.toEqual({});
+    await expect(agent.closeSession(createCloseSessionRequest("session-1"))).resolves.toStrictEqual(
+      {},
+    );
 
     expect(request).toHaveBeenCalledWith("chat.abort", {
       sessionKey: "agent:main:work",

@@ -26,7 +26,7 @@
 
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { Type } from "@sinclair/typebox";
+import { Type } from "typebox";
 import type { AnyAgentTool } from "./common.js";
 import { jsonResult } from "./common.js";
 
@@ -476,7 +476,6 @@ TIMEOUT: ${maxTimeoutSec}s | NO network | NO system access
 ALLOWED: json, math, random, re, datetime, collections, itertools, string, base64, hashlib, csv
 BLOCKED: os, subprocess, sys, socket, requests, exec, eval`,
     parameters: PythonExecSchema,
-    ownerOnly: false, // Agent can use for internal operations
     execute: async (_toolCallId, params) => {
       const code = (params as { code: string; timeout?: number }).code;
       const timeout = Math.min(

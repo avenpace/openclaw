@@ -1,3 +1,4 @@
+// Sandbox explain tests cover command output for sandbox browser and container diagnostics.
 import { describe, expect, it, vi } from "vitest";
 import { sandboxExplainCommand } from "./sandbox-explain.js";
 
@@ -13,6 +14,13 @@ vi.mock("../config/config.js", async () => {
     loadConfig: vi.fn().mockImplementation(() => mockCfg),
   };
 });
+
+vi.mock("./session-state-migration.js", async () => ({
+  ...(await vi.importActual<typeof import("./session-state-migration.js")>(
+    "./session-state-migration.js",
+  )),
+  ensureSessionStateMigratedForCommand: vi.fn(async () => {}),
+}));
 
 describe("sandbox explain command", () => {
   it("prints JSON shape + fix-it keys", { timeout: SANDBOX_EXPLAIN_TEST_TIMEOUT_MS }, async () => {
@@ -41,10 +49,17 @@ describe("sandbox explain command", () => {
     expect(parsed).toHaveProperty("docsUrl", "https://docs.openclaw.ai/sandbox");
     expect(parsed).toHaveProperty("sandbox.mode", "all");
     expect(parsed).toHaveProperty("sandbox.tools.sources.allow.source");
-    expect(Array.isArray(parsed.fixIt)).toBe(true);
-    expect(parsed.fixIt).toContain("agents.defaults.sandbox.mode=off");
-    expect(parsed.fixIt).toContain("tools.sandbox.tools.alsoAllow");
-    expect(parsed.fixIt).toContain("tools.sandbox.tools.deny");
+    expect(parsed.fixIt).toEqual([
+      "agents.defaults.sandbox.mode=off",
+      "agents.list[].sandbox.mode=off",
+      "tools.sandbox.tools.allow",
+      "tools.sandbox.tools.alsoAllow",
+      "tools.sandbox.tools.deny",
+      "agents.list[].tools.sandbox.tools.allow",
+      "agents.list[].tools.sandbox.tools.alsoAllow",
+      "agents.list[].tools.sandbox.tools.deny",
+      "tools.elevated.enabled",
+    ]);
   });
 
   it("shows effective sandbox alsoAllow grants and default-deny removals", async () => {
@@ -84,9 +99,7 @@ describe("sandbox explain command", () => {
     } as unknown as Parameters<typeof sandboxExplainCommand>[1]);
 
     const parsed = JSON.parse(logs.join(""));
-    expect(parsed.sandbox.tools.allow).toEqual(
-      expect.arrayContaining(["browser", "message", "tts"]),
-    );
+    expect(parsed.sandbox.tools.allow).toEqual(["browser", "message", "tts", "image"]);
     expect(parsed.sandbox.tools.deny).not.toContain("browser");
     expect(parsed.sandbox.tools.sources.allow).toEqual({
       source: "agent",

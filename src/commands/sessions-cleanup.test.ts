@@ -1,3 +1,4 @@
+// Sessions cleanup tests cover stale session cleanup and runtime output.
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SessionEntry } from "../config/sessions.js";
 import type { RuntimeEnv } from "../runtime.js";
@@ -19,6 +20,9 @@ const mocks = vi.hoisted(() => ({
   serializeSessionCleanupResult: vi.fn(),
   callGateway: vi.fn(),
   isGatewayTransportError: vi.fn(),
+  ensureExplicitSessionStoreMigratedForCommand: vi.fn(),
+  ensureSessionStateMigratedForCommand: vi.fn(),
+  loadExplicitSessionStorePreviewForCommand: vi.fn(),
 }));
 
 vi.mock("../config/config.js", () => ({
@@ -50,17 +54,25 @@ vi.mock("../gateway/call.js", () => ({
   isGatewayTransportError: mocks.isGatewayTransportError,
 }));
 
+vi.mock("./session-state-migration.js", () => ({
+  ensureExplicitSessionStoreMigratedForCommand: mocks.ensureExplicitSessionStoreMigratedForCommand,
+  ensureSessionStateMigratedForCommand: mocks.ensureSessionStateMigratedForCommand,
+  loadExplicitSessionStorePreviewForCommand: mocks.loadExplicitSessionStorePreviewForCommand,
+}));
+
 import { sessionsCleanupCommand } from "./sessions-cleanup.js";
 
-function makeRuntime(): { runtime: RuntimeEnv; logs: string[] } {
+function makeRuntime(): { runtime: RuntimeEnv; logs: string[]; errors: string[] } {
   const logs: string[] = [];
+  const errors: string[] = [];
   return {
     runtime: {
       log: (msg: unknown) => logs.push(String(msg)),
-      error: () => {},
+      error: (msg: unknown) => errors.push(String(msg)),
       exit: () => {},
     },
     logs,
+    errors,
   };
 }
 
@@ -117,6 +129,7 @@ describe("sessionsCleanupCommand", () => {
     mocks.updateSessionStore.mockResolvedValue(0);
     mocks.callGateway.mockResolvedValue(null);
     mocks.isGatewayTransportError.mockReturnValue(true);
+    mocks.loadExplicitSessionStorePreviewForCommand.mockReturnValue(undefined);
     mocks.resolveSessionCleanupAction.mockImplementation(
       (params: {
         key: string;
@@ -221,29 +234,134 @@ describe("sessionsCleanupCommand", () => {
     );
 
     expect(logs).toHaveLength(1);
-    const payload = JSON.parse(logs[0] ?? "{}") as Record<string, unknown>;
-    expect(payload.applied).toBe(true);
-    expect(payload.mode).toBe("enforce");
-    expect(payload.beforeCount).toBe(3);
-    expect(payload.appliedCount).toBe(1);
-    expect(payload.pruned).toBe(0);
-    expect(payload.capped).toBe(2);
-    expect(payload.diskBudget).toEqual(
-      expect.objectContaining({
+    expect(JSON.parse(logs[0] ?? "{}")).toEqual({
+      agentId: "main",
+      storePath: "/resolved/sessions.json",
+      mode: "enforce",
+      dryRun: false,
+      beforeCount: 3,
+      afterCount: 1,
+      missing: 0,
+      dmScopeRetired: 0,
+      pruned: 0,
+      capped: 2,
+      diskBudget: {
+        totalBytesBefore: 1200,
+        totalBytesAfter: 800,
         removedFiles: 0,
         removedEntries: 0,
-      }),
+        freedBytes: 400,
+        maxBytes: 1000,
+        highWaterBytes: 800,
+        overBudget: true,
+      },
+      wouldMutate: true,
+      applied: true,
+      appliedCount: 1,
+    });
+    expect(mocks.runSessionsCleanup).toHaveBeenCalledOnce();
+    expect(mocks.ensureSessionStateMigratedForCommand).toHaveBeenCalledWith({
+      session: { store: "/cfg/sessions.json" },
+    });
+    expect(mocks.ensureExplicitSessionStoreMigratedForCommand).toHaveBeenCalledWith(
+      "/resolved/sessions.json",
+      expect.objectContaining({ onWarning: expect.any(Function) }),
     );
-    expect(mocks.runSessionsCleanup).toHaveBeenCalledWith(
-      expect.objectContaining({
-        cfg: { session: { store: "/cfg/sessions.json" } },
-        opts: expect.objectContaining({
-          enforce: true,
-          activeKey: "agent:main:main",
-        }),
-        targets: [{ agentId: "main", storePath: "/resolved/sessions.json" }],
-      }),
+    const cleanupCall = mocks.runSessionsCleanup.mock.calls[0]?.[0];
+    expect(cleanupCall?.cfg).toEqual({ session: { store: "/cfg/sessions.json" } });
+    expect(cleanupCall?.opts.enforce).toBe(true);
+    expect(cleanupCall?.opts.activeKey).toBe("agent:main:main");
+    expect(cleanupCall?.targets).toEqual([
+      { agentId: "main", storePath: "/resolved/sessions.json" },
+    ]);
+  });
+
+  it("validates local cleanup targets before session migrations", async () => {
+    const callOrder: string[] = [];
+    mocks.ensureSessionStateMigratedForCommand.mockImplementation(async () => {
+      callOrder.push("migrate");
+    });
+    mocks.resolveSessionStoreTargets.mockImplementation(() => {
+      callOrder.push("targets");
+      return [{ agentId: "main", storePath: "/resolved/sessions.json" }];
+    });
+    mocks.ensureExplicitSessionStoreMigratedForCommand.mockImplementation(async () => {
+      callOrder.push("explicit");
+    });
+    mocks.runSessionsCleanup.mockImplementation(async () => {
+      callOrder.push("cleanup");
+      return {
+        mode: "warn",
+        previewResults: [],
+        appliedSummaries: [],
+      };
+    });
+
+    const { runtime } = makeRuntime();
+    await sessionsCleanupCommand({ enforce: true }, runtime);
+
+    expect(callOrder).toEqual(["targets", "migrate", "explicit", "cleanup"]);
+  });
+
+  it("does not migrate stores when cleanup target validation exits", async () => {
+    mocks.resolveSessionStoreTargets.mockImplementation(() => {
+      throw new Error("--store cannot be combined with --agent or --all-agents");
+    });
+
+    const { runtime, errors } = makeRuntime();
+    await sessionsCleanupCommand(
+      {
+        enforce: true,
+        store: "/legacy/sessions.json",
+        allAgents: true,
+      },
+      runtime,
     );
+
+    expect(errors).toStrictEqual(["--store cannot be combined with --agent or --all-agents"]);
+    expect(mocks.ensureSessionStateMigratedForCommand).not.toHaveBeenCalled();
+    expect(mocks.ensureExplicitSessionStoreMigratedForCommand).not.toHaveBeenCalled();
+    expect(mocks.runSessionsCleanup).not.toHaveBeenCalled();
+  });
+
+  it("reports explicit store cleanup warnings without aborting cleanup", async () => {
+    mocks.ensureExplicitSessionStoreMigratedForCommand.mockImplementation(
+      async (_store: string, opts: { onWarning: (warning: string) => void }) => {
+        opts.onWarning("failed removing legacy sessions.json");
+      },
+    );
+    mocks.runSessionsCleanup.mockResolvedValue({
+      mode: "warn",
+      previewResults: [],
+      appliedSummaries: [],
+    });
+
+    const { runtime, errors } = makeRuntime();
+    await sessionsCleanupCommand({ enforce: true }, runtime);
+
+    expect(errors).toContain("failed removing legacy sessions.json");
+    expect(mocks.runSessionsCleanup).toHaveBeenCalledOnce();
+  });
+
+  it("keeps dry-run cleanup read-only by skipping session migrations", async () => {
+    const previewStore = {
+      "agent:main:main": { sessionId: "legacy-session", updatedAt: Date.now() },
+    };
+    mocks.loadExplicitSessionStorePreviewForCommand.mockReturnValue(previewStore);
+    mocks.runSessionsCleanup.mockResolvedValue({
+      mode: "warn",
+      previewResults: [],
+      appliedSummaries: [],
+    });
+
+    const { runtime } = makeRuntime();
+    await sessionsCleanupCommand({ dryRun: true }, runtime);
+
+    expect(mocks.ensureSessionStateMigratedForCommand).not.toHaveBeenCalled();
+    expect(mocks.ensureExplicitSessionStoreMigratedForCommand).not.toHaveBeenCalled();
+    expect(mocks.runSessionsCleanup).toHaveBeenCalledOnce();
+    const cleanupCall = mocks.runSessionsCleanup.mock.calls[0]?.[0];
+    expect(cleanupCall?.previewStores?.get("/resolved/sessions.json")).toBe(previewStore);
   });
 
   it("delegates non-store enforcing cleanup through the Gateway writer when reachable", async () => {
@@ -273,15 +391,30 @@ describe("sessionsCleanupCommand", () => {
       runtime,
     );
 
-    expect(mocks.callGateway).toHaveBeenCalledWith(
-      expect.objectContaining({
-        method: "sessions.cleanup",
-        params: expect.objectContaining({ enforce: true }),
-        requiredMethods: ["sessions.cleanup"],
-      }),
-    );
+    expect(mocks.callGateway).toHaveBeenCalledOnce();
+    expect(mocks.ensureSessionStateMigratedForCommand).not.toHaveBeenCalled();
+    const gatewayCall = mocks.callGateway.mock.calls[0]?.[0];
+    expect(gatewayCall?.method).toBe("sessions.cleanup");
+    expect(gatewayCall?.params.enforce).toBe(true);
+    expect(gatewayCall?.requiredMethods).toEqual(["sessions.cleanup"]);
     expect(mocks.updateSessionStore).not.toHaveBeenCalled();
-    expect(JSON.parse(logs[0] ?? "{}")).toEqual(expect.objectContaining({ appliedCount: 1 }));
+    expect(logs).toHaveLength(1);
+    expect(JSON.parse(logs[0] ?? "{}")).toEqual({
+      agentId: "main",
+      storePath: "/resolved/sessions.json",
+      mode: "enforce",
+      dryRun: false,
+      beforeCount: 3,
+      afterCount: 1,
+      missing: 0,
+      dmScopeRetired: 0,
+      pruned: 2,
+      capped: 0,
+      diskBudget: null,
+      wouldMutate: true,
+      applied: true,
+      appliedCount: 1,
+    });
   });
 
   it("returns dry-run JSON without mutating the store", async () => {
@@ -333,17 +466,31 @@ describe("sessionsCleanupCommand", () => {
     );
 
     expect(logs).toHaveLength(1);
-    const payload = JSON.parse(logs[0] ?? "{}") as Record<string, unknown>;
-    expect(payload.dryRun).toBe(true);
-    expect(payload.applied).toBeUndefined();
-    expect(mocks.runSessionsCleanup).toHaveBeenCalled();
-    expect(mocks.updateSessionStore).not.toHaveBeenCalled();
-    expect(payload.diskBudget).toEqual(
-      expect.objectContaining({
+    expect(JSON.parse(logs[0] ?? "{}")).toEqual({
+      agentId: "main",
+      storePath: "/resolved/sessions.json",
+      mode: "warn",
+      dryRun: true,
+      beforeCount: 2,
+      afterCount: 1,
+      missing: 0,
+      dmScopeRetired: 0,
+      pruned: 1,
+      capped: 0,
+      diskBudget: {
+        totalBytesBefore: 1000,
+        totalBytesAfter: 700,
         removedFiles: 1,
         removedEntries: 1,
-      }),
-    );
+        freedBytes: 300,
+        maxBytes: 900,
+        highWaterBytes: 700,
+        overBudget: true,
+      },
+      wouldMutate: true,
+    });
+    expect(mocks.runSessionsCleanup).toHaveBeenCalled();
+    expect(mocks.updateSessionStore).not.toHaveBeenCalled();
   });
 
   it("counts missing transcript entries when --fix-missing is enabled in dry-run", async () => {
@@ -388,10 +535,20 @@ describe("sessionsCleanupCommand", () => {
     );
 
     expect(logs).toHaveLength(1);
-    const payload = JSON.parse(logs[0] ?? "{}") as Record<string, unknown>;
-    expect(payload.beforeCount).toBe(1);
-    expect(payload.afterCount).toBe(0);
-    expect(payload.missing).toBe(1);
+    expect(JSON.parse(logs[0] ?? "{}")).toEqual({
+      agentId: "main",
+      storePath: "/resolved/sessions.json",
+      mode: "warn",
+      dryRun: true,
+      beforeCount: 1,
+      afterCount: 0,
+      missing: 1,
+      dmScopeRetired: 0,
+      pruned: 0,
+      capped: 0,
+      diskBudget: null,
+      wouldMutate: true,
+    });
   });
 
   it("renders a dry-run action table with keep/prune actions", async () => {
@@ -421,8 +578,8 @@ describe("sessionsCleanupCommand", () => {
             wouldMutate: true,
           },
           beforeStore: {
-            stale: { sessionId: "stale", updatedAt: 1, model: "pi:opus" },
-            fresh: { sessionId: "fresh", updatedAt: 2, model: "pi:opus" },
+            stale: { sessionId: "stale", updatedAt: 1, model: "test:opus" },
+            fresh: { sessionId: "fresh", updatedAt: 2, model: "test:opus" },
           },
           missingKeys: new Set<string>(),
           staleKeys: new Set(["stale"]),
@@ -522,9 +679,40 @@ describe("sessionsCleanupCommand", () => {
     );
 
     expect(logs).toHaveLength(1);
-    const payload = JSON.parse(logs[0] ?? "{}") as Record<string, unknown>;
-    expect(payload.allAgents).toBe(true);
-    expect(Array.isArray(payload.stores)).toBe(true);
-    expect((payload.stores as unknown[]).length).toBe(2);
+    expect(JSON.parse(logs[0] ?? "{}")).toEqual({
+      allAgents: true,
+      mode: "warn",
+      dryRun: true,
+      stores: [
+        {
+          agentId: "main",
+          storePath: "/resolved/main-sessions.json",
+          mode: "warn",
+          dryRun: true,
+          beforeCount: 1,
+          afterCount: 0,
+          missing: 0,
+          dmScopeRetired: 0,
+          pruned: 1,
+          capped: 0,
+          diskBudget: null,
+          wouldMutate: true,
+        },
+        {
+          agentId: "work",
+          storePath: "/resolved/work-sessions.json",
+          mode: "warn",
+          dryRun: true,
+          beforeCount: 1,
+          afterCount: 0,
+          missing: 0,
+          dmScopeRetired: 0,
+          pruned: 1,
+          capped: 0,
+          diskBudget: null,
+          wouldMutate: true,
+        },
+      ],
+    });
   });
 });

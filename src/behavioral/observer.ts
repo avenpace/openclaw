@@ -51,7 +51,6 @@ const DEFAULT_OBSERVER_CONFIG: BehavioralObserverConfig = {
 export class BehavioralObserver {
   private config: BehavioralObserverConfig;
   private store: BehavioralStore;
-  private pendingObservations: Map<string, ToolObservation> = new Map();
 
   constructor(store: BehavioralStore, config: Partial<BehavioralObserverConfig> = {}) {
     this.store = store;
@@ -77,7 +76,7 @@ export class BehavioralObserver {
    */
   createAfterToolCallHandler(): (
     event: PluginHookAfterToolCallEvent,
-    ctx: PluginHookToolContext,
+    _ctx: PluginHookToolContext,
   ) => Promise<void> {
     return async (event, ctx) => {
       await this.handleAfterToolCall(event, ctx);
@@ -131,7 +130,7 @@ export class BehavioralObserver {
    */
   private buildObservation(
     event: PluginHookAfterToolCallEvent,
-    ctx: PluginHookToolContext,
+    _ctx: PluginHookToolContext,
     personaId: string,
   ): ToolObservation {
     const toolName = normalizeToolName(event.toolName);

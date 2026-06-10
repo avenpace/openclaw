@@ -1,8 +1,10 @@
+// Tests agent runner session reset cleanup and restart behavior.
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SessionEntry } from "../../config/sessions.js";
+import { readSessionStoreForTest } from "../../config/sessions/test-helpers.js";
 import {
   resetReplyRunSession,
   setAgentRunnerSessionResetTestDeps,
@@ -11,6 +13,16 @@ import { createTestFollowupRun, writeTestSessionStore } from "./agent-runner.tes
 
 const refreshQueuedFollowupSessionMock = vi.fn();
 const errorMock = vi.fn();
+
+async function expectPathMissing(targetPath: string): Promise<void> {
+  let accessError: NodeJS.ErrnoException | undefined;
+  try {
+    await fs.access(targetPath);
+  } catch (error) {
+    accessError = error as NodeJS.ErrnoException;
+  }
+  expect(accessError?.code).toBe("ENOENT");
+}
 
 describe("resetReplyRunSession", () => {
   let rootDir = "";
@@ -40,6 +52,26 @@ describe("resetReplyRunSession", () => {
       modelProvider: "qwencode",
       model: "qwen",
       contextTokens: 123,
+      contextBudgetStatus: {
+        schemaVersion: 1,
+        source: "pre-prompt-estimate",
+        updatedAt: 1,
+        provider: "qwencode",
+        model: "qwen",
+        route: "compact_then_truncate",
+        shouldCompact: true,
+        estimatedPromptTokens: 120_000,
+        contextTokenBudget: 80_000,
+        promptBudgetBeforeReserve: 70_000,
+        reserveTokens: 10_000,
+        effectiveReserveTokens: 10_000,
+        remainingPromptBudgetTokens: 0,
+        overflowTokens: 50_000,
+        toolResultReducibleChars: 0,
+        messageCount: 10,
+        unwindowedMessageCount: 10,
+        sessionId: "session",
+      },
       fallbackNoticeSelectedModel: "anthropic/claude",
       fallbackNoticeActiveModel: "openai/gpt",
       fallbackNoticeReason: "rate limit",
@@ -84,6 +116,7 @@ describe("resetReplyRunSession", () => {
     expect(activeSessionEntry?.modelProvider).toBeUndefined();
     expect(activeSessionEntry?.model).toBeUndefined();
     expect(activeSessionEntry?.contextTokens).toBeUndefined();
+    expect(activeSessionEntry?.contextBudgetStatus).toBeUndefined();
     expect(activeSessionEntry?.fallbackNoticeSelectedModel).toBeUndefined();
     expect(activeSessionEntry?.fallbackNoticeActiveModel).toBeUndefined();
     expect(activeSessionEntry?.fallbackNoticeReason).toBeUndefined();
@@ -96,10 +129,9 @@ describe("resetReplyRunSession", () => {
     });
     expect(errorMock).toHaveBeenCalledWith("reset 00000000-0000-0000-0000-000000000123");
 
-    const persisted = JSON.parse(await fs.readFile(storePath, "utf8")) as {
-      main: SessionEntry;
-    };
+    const persisted = readSessionStoreForTest(storePath);
     expect(persisted.main.sessionId).toBe(activeSessionEntry?.sessionId);
+    expect(persisted.main.contextBudgetStatus).toBeUndefined();
     expect(persisted.main.fallbackNoticeReason).toBeUndefined();
   });
 
@@ -131,6 +163,6 @@ describe("resetReplyRunSession", () => {
       onNewSession: () => {},
     });
 
-    await expect(fs.access(oldTranscriptPath)).rejects.toThrow();
+    await expectPathMissing(oldTranscriptPath);
   });
 });

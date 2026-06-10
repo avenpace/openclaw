@@ -1,11 +1,18 @@
-import type { AnyMessageContent } from "@whiskeysockets/baileys";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import readline from "node:readline";
 import { fileURLToPath } from "node:url";
-import type { WebInboundMessage, WebListenerCloseReason } from "./types.js";
+import type { AnyMessageContent } from "baileys";
+import type {
+  WhatsAppSendKind,
+  WhatsAppSendResult,
+} from "../../../extensions/whatsapp/src/inbound/send-result.js";
+import type {
+  WebInboundMessage,
+  WebListenerCloseReason,
+} from "../../../extensions/whatsapp/src/inbound/types.js";
 
 type WorkerCall = {
   type: "call";
@@ -104,10 +111,11 @@ function createProxyMessage(
     sendComposing: async () => {
       await call("sendComposingTo", [replyTo]);
     },
-    reply: async (text: string) => {
+    reply: async (text: string): Promise<WhatsAppSendResult> => {
       await call("sendMessage", [replyTo, text, undefined, undefined, { accountId }]);
+      return workerProxySendResult("text");
     },
-    sendMedia: async (content: AnyMessageContent) => {
+    sendMedia: async (content: AnyMessageContent): Promise<WhatsAppSendResult> => {
       const mapped = mapMediaContent(content);
       await call("sendMessage", [
         replyTo,
@@ -120,8 +128,15 @@ function createProxyMessage(
           gifPlayback: mapped.gifPlayback,
         },
       ]);
+      return workerProxySendResult("media");
     },
   };
+}
+
+// The real send happens in the parent process over IPC; the worker proxy only
+// needs a well-formed accepted result since callers here do not read send keys.
+function workerProxySendResult(kind: WhatsAppSendKind): WhatsAppSendResult {
+  return { kind, messageId: "worker-proxy", keys: [], providerAccepted: true };
 }
 
 function mapMediaContent(content: AnyMessageContent): {

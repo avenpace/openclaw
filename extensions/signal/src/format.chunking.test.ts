@@ -1,3 +1,4 @@
+// Signal tests cover format.chunking plugin behavior.
 import { describe, expect, it } from "vitest";
 import { markdownToSignalTextChunks } from "./format.js";
 
@@ -62,7 +63,7 @@ describe("splitSignalFormattedText", () => {
     it("empty text returns empty array", () => {
       // Empty input produces no chunks (not an empty chunk)
       const chunks = markdownToSignalTextChunks("", 100);
-      expect(chunks).toEqual([]);
+      expect(chunks).toStrictEqual([]);
     });
 
     it("text under limit returns single chunk unchanged", () => {

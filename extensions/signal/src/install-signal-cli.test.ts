@@ -1,3 +1,4 @@
+// Signal tests cover install signal cli plugin behavior.
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -80,6 +81,15 @@ function requireAsset(asset: ReleaseAsset | undefined, label: string): ReleaseAs
     throw new Error(`expected release asset for ${label}`);
   }
   return asset;
+}
+
+async function expectPathMissing(targetPath: string): Promise<void> {
+  try {
+    await fs.access(targetPath);
+    throw new Error(`expected ${targetPath} to be missing`);
+  } catch (error) {
+    expect((error as { code?: string }).code).toBe("ENOENT");
+  }
 }
 
 describe("looksLikeArchive", () => {
@@ -182,14 +192,14 @@ describe("downloadToFile", () => {
       await expect(fs.readFile(filePath, "utf-8")).resolves.toBe("archive");
     });
 
-    expect(fetchWithSsrFGuardMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        url: "https://example.com/signal-cli.tgz",
-        requireHttps: true,
-        timeoutMs: 5 * 60_000,
-        auditContext: "signal-cli-install-archive",
-      }),
-    );
+    expect(fetchWithSsrFGuardMock).toHaveBeenCalledWith({
+      url: "https://example.com/signal-cli.tgz",
+      maxRedirects: 5,
+      requireHttps: true,
+      timeoutMs: 5 * 60_000,
+      capture: false,
+      auditContext: "signal-cli-install-archive",
+    });
     expect(fetchResult.release).toHaveBeenCalledTimes(1);
   });
 
@@ -204,11 +214,29 @@ describe("downloadToFile", () => {
         downloadToFile("https://example.com/signal-cli.tgz", filePath, 5, 8),
       ).rejects.toThrow("declared 12");
 
-      await expect(fs.access(filePath)).rejects.toThrow();
+      await expectPathMissing(filePath);
     });
 
     expect(fetchResult.release).toHaveBeenCalledTimes(1);
   });
+
+  it.each(["1e3", "0x10", `1${"0".repeat(309)}`])(
+    "ignores malformed declared archive lengths: %s",
+    async (contentLength) => {
+      const fetchResult = okDownloadResponse("archive", {
+        headers: { "content-length": contentLength },
+      });
+      fetchWithSsrFGuardMock.mockResolvedValue(fetchResult);
+
+      await withTempFile(async (filePath) => {
+        await downloadToFile("https://example.com/signal-cli.tgz", filePath, 5, 8);
+
+        await expect(fs.readFile(filePath, "utf-8")).resolves.toBe("archive");
+      });
+
+      expect(fetchResult.release).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it("aborts streamed archives above the download cap and removes partial files", async () => {
     const body = new ReadableStream<Uint8Array>({
@@ -226,7 +254,7 @@ describe("downloadToFile", () => {
         downloadToFile("https://example.com/signal-cli.tgz", filePath, 5, 8),
       ).rejects.toThrow("8-byte download cap");
 
-      await expect(fs.access(filePath)).rejects.toThrow();
+      await expectPathMissing(filePath);
     });
 
     expect(fetchResult.release).toHaveBeenCalledTimes(1);
@@ -234,27 +262,45 @@ describe("downloadToFile", () => {
 });
 
 describe("installSignalCliFromRelease", () => {
+  it("returns an installer error when GitHub release metadata is malformed JSON", async () => {
+    const fetchResult = okDownloadResponse("{not json", {
+      headers: { "content-type": "application/json" },
+    });
+    fetchWithSsrFGuardMock.mockResolvedValue(fetchResult);
+
+    const result = await installSignalCliFromRelease({ log: vi.fn() } as unknown as RuntimeEnv);
+
+    expect(result).toEqual({
+      ok: false,
+      error: "Failed to parse signal-cli release info.",
+    });
+    expect(fetchResult.release).toHaveBeenCalledTimes(1);
+  });
+
   it("bounds the release metadata request with an explicit timeout", async () => {
     const fetchResult = okDownloadResponse(JSON.stringify({ tag_name: "v0.14.3", assets: [] }), {
       headers: { "content-type": "application/json" },
     });
     fetchWithSsrFGuardMock.mockResolvedValue(fetchResult);
 
-    await expect(
-      installSignalCliFromRelease({ log: vi.fn() } as unknown as RuntimeEnv),
-    ).resolves.toMatchObject({
-      ok: false,
-      error: "No compatible release asset found for this platform.",
-    });
+    const result = await installSignalCliFromRelease({ log: vi.fn() } as unknown as RuntimeEnv);
+    expect(result.ok).toBe(false);
+    expect(result.error).toBe("No compatible release asset found for this platform.");
 
-    expect(fetchWithSsrFGuardMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        url: "https://api.github.com/repos/AsamK/signal-cli/releases/latest",
-        requireHttps: true,
-        timeoutMs: 30_000,
-        auditContext: "signal-cli-release-info",
-      }),
-    );
+    expect(fetchWithSsrFGuardMock).toHaveBeenCalledWith({
+      url: "https://api.github.com/repos/AsamK/signal-cli/releases/latest",
+      maxRedirects: 5,
+      requireHttps: true,
+      timeoutMs: 30_000,
+      capture: false,
+      auditContext: "signal-cli-release-info",
+      init: {
+        headers: {
+          "User-Agent": "openclaw",
+          Accept: "application/vnd.github+json",
+        },
+      },
+    });
     expect(fetchResult.release).toHaveBeenCalledTimes(1);
   });
 });

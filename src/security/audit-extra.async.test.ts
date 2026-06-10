@@ -1,15 +1,17 @@
+// Covers asynchronous extra security audit checks.
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../config/config.js";
+import * as skillScanner from "../skills/security/scanner.js";
 import {
   collectInstalledSkillsCodeSafetyFindings,
   collectPluginsCodeSafetyFindings,
+  collectStateDeepFilesystemFindings,
 } from "./audit-extra.async.js";
-import * as skillScanner from "./skill-scanner.js";
 
-vi.mock("../agents/skills.js", () => ({
+vi.mock("../skills/loading/workspace.js", () => ({
   loadWorkspaceSkillEntries: (workspaceDir: string) => {
     const sep = workspaceDir.includes("\\") ? "\\" : "/";
     const baseDir = `${workspaceDir}${sep}skills${sep}evil-skill`;
@@ -108,6 +110,7 @@ description: test skill
         critical: 1,
         warn: 0,
         info: 0,
+        truncated: false,
         findings: [
           {
             ruleId: "dangerous-exec",
@@ -173,6 +176,7 @@ description: test skill
         critical: dirPath.includes(`${path.sep}demo`) ? 1 : 0,
         warn: 0,
         info: 0,
+        truncated: false,
         findings: dirPath.includes(`${path.sep}demo`)
           ? [
               {
@@ -205,8 +209,12 @@ description: test skill
       const findings = await collectPluginsCodeSafetyFindings({ stateDir: tmpDir });
 
       expect(scanSpy.mock.calls.map(([dirPath]) => path.basename(dirPath))).toEqual(["demo"]);
-      const codeSafetyFinding = findings.find((f) => f.checkId === "plugins.code_safety");
-      expect(codeSafetyFinding?.title).toContain('Plugin "demo"');
+      const codeSafetyFinding = requireFinding(
+        findings,
+        (finding) => finding.checkId === "plugins.code_safety",
+        "plugin code-safety",
+      );
+      expect(codeSafetyFinding.title).toContain('Plugin "demo"');
       expect(findings.map((f) => f.title).join("\n")).not.toContain(".openclaw-install-backups");
     } finally {
       scanSpy.mockRestore();
@@ -263,5 +271,34 @@ description: test skill
     } finally {
       scanSpy.mockRestore();
     }
+  });
+
+  it("audits canonical auth profile SQLite store permissions", async () => {
+    const stateDir = await makeTmpDir("audit-auth-sqlite-perms");
+    const agentDir = path.join(stateDir, "agents", "main", "agent");
+    await fs.mkdir(agentDir, { recursive: true });
+    const databasePath = path.join(agentDir, "openclaw-agent.sqlite");
+    for (const targetPath of [databasePath, `${databasePath}-wal`, `${databasePath}-shm`]) {
+      await fs.writeFile(targetPath, "sqlite\n", "utf-8");
+      await fs.chmod(targetPath, 0o644);
+    }
+
+    const findings = await collectStateDeepFilesystemFindings({
+      cfg: {} as OpenClawConfig,
+      env: {},
+      stateDir,
+      platform: "linux",
+    });
+
+    const readableAuthTargets = findings
+      .filter((finding) => finding.checkId === "fs.auth_profiles.perms_readable")
+      .map((finding) => finding.detail);
+    expect(readableAuthTargets).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("openclaw-agent.sqlite"),
+        expect.stringContaining("openclaw-agent.sqlite-wal"),
+        expect.stringContaining("openclaw-agent.sqlite-shm"),
+      ]),
+    );
   });
 });

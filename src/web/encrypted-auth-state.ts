@@ -9,13 +9,9 @@ import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 import fsSync from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
-import type {
-  AuthenticationCreds,
-  AuthenticationState,
-  SignalDataTypeMap,
-} from "@whiskeysockets/baileys";
-import { proto } from "@whiskeysockets/baileys";
-import { initAuthCreds } from "@whiskeysockets/baileys";
+import type { AuthenticationCreds, AuthenticationState, SignalDataTypeMap } from "baileys";
+import { proto } from "baileys";
+import { initAuthCreds } from "baileys";
 
 // Encryption constants
 const ALGORITHM = "aes-256-gcm";

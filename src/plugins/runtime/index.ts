@@ -1,3 +1,4 @@
+// Plugin runtime entrypoint assembles runtime helpers available to activated plugins.
 import { getRuntimeConfig } from "../../config/config.js";
 import { resolveStateDir } from "../../config/paths.js";
 import {
@@ -21,12 +22,7 @@ import {
   listRuntimeVideoGenerationProviders,
 } from "../../video-generation/runtime.js";
 import { listWebSearchProviders, runWebSearch } from "../../web-search/runtime.js";
-import {
-  gatewaySubagentState,
-  setGatewayNodesRuntime,
-  setGatewaySubagentRuntime,
-  clearGatewaySubagentRuntime,
-} from "./gateway-bindings.js";
+import { gatewaySubagentState } from "./gateway-bindings.js";
 import { createRuntimeAgent } from "./runtime-agent.js";
 import { defineCachedValue } from "./runtime-cache.js";
 import { createRuntimeChannel } from "./runtime-channel.js";
@@ -73,6 +69,9 @@ function createRuntimeMediaUnderstandingFacade(): PluginRuntime["mediaUnderstand
     describeImageFile: bindMediaUnderstandingRuntime((runtime) => runtime.describeImageFile),
     describeImageFileWithModel: bindMediaUnderstandingRuntime(
       (runtime) => runtime.describeImageFileWithModel,
+    ),
+    extractStructuredWithModel: bindMediaUnderstandingRuntime(
+      (runtime) => runtime.extractStructuredWithModel,
     ),
     describeVideoFile: bindMediaUnderstandingRuntime((runtime) => runtime.describeVideoFile),
     transcribeAudioFile: bindMediaUnderstandingRuntime((runtime) => runtime.transcribeAudioFile),
@@ -254,6 +253,14 @@ export function createPluginRuntime(_options: CreatePluginRuntimeOptions = {}): 
       resolveStateDir,
       openKeyedStore: () => {
         throw new Error("openKeyedStore is only available through the plugin runtime proxy.");
+      },
+      openSyncKeyedStore: () => {
+        throw new Error("openSyncKeyedStore is only available through the plugin runtime proxy.");
+      },
+      openChannelIngressQueue: () => {
+        throw new Error(
+          "openChannelIngressQueue is only available through the plugin runtime proxy.",
+        );
       },
     },
     tasks,

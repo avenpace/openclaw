@@ -124,7 +124,6 @@ function extractBrowserPattern(observation: ToolObservation): ExtractedPattern |
   // Selector learning
   if (action === "click" || action === "type") {
     const selector = params.selector as string | undefined;
-    const _ref = params.ref as string | undefined; // Reserved for future use
     const elementType = params.elementType as string | undefined;
 
     if (selector && observation.success) {

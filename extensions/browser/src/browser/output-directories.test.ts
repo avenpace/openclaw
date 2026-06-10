@@ -1,3 +1,4 @@
+// Browser tests cover output directories plugin behavior.
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -11,6 +12,17 @@ async function withTempDir<T>(run: (tempDir: string) => Promise<T>): Promise<T> 
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });
   }
+}
+
+async function expectPathMissing(targetPath: string): Promise<void> {
+  let error: unknown;
+  try {
+    await fs.access(targetPath);
+  } catch (caught) {
+    error = caught;
+  }
+  expect(error).toBeInstanceOf(Error);
+  expect((error as NodeJS.ErrnoException).code).toBe("ENOENT");
 }
 
 describe("ensureOutputDirectory", () => {
@@ -37,7 +49,7 @@ describe("ensureOutputDirectory", () => {
         await expect(ensureOutputDirectory(path.join(symlinkDir, "nested"))).rejects.toThrow(
           /symlink|output directory/i,
         );
-        await expect(fs.access(path.join(outsideDir, "nested"))).rejects.toThrow();
+        await expectPathMissing(path.join(outsideDir, "nested"));
       });
     },
   );

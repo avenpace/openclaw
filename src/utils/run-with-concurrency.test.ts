@@ -1,3 +1,4 @@
+// Concurrency runner tests cover bounded parallel task execution.
 import { describe, expect, it, vi } from "vitest";
 import { runTasksWithConcurrency } from "./run-with-concurrency.js";
 
@@ -83,6 +84,7 @@ describe("runTasksWithConcurrency", () => {
 
   it("continues after failures and reports the first one", async () => {
     const firstErr = new Error("first");
+    const secondErr = new Error("second");
     const onTaskError = vi.fn();
     const tasks = [
       async () => {
@@ -90,7 +92,7 @@ describe("runTasksWithConcurrency", () => {
       },
       async () => 20,
       async () => {
-        throw new Error("second");
+        throw secondErr;
       },
       async () => 40,
     ];
@@ -107,6 +109,6 @@ describe("runTasksWithConcurrency", () => {
     expect(result.results[3]).toBe(40);
     expect(onTaskError).toHaveBeenCalledTimes(2);
     expect(onTaskError).toHaveBeenNthCalledWith(1, firstErr, 0);
-    expect(onTaskError).toHaveBeenNthCalledWith(2, expect.any(Error), 2);
+    expect(onTaskError).toHaveBeenNthCalledWith(2, secondErr, 2);
   });
 });

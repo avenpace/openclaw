@@ -1,3 +1,4 @@
+// Hook workspace tests cover workspace hook discovery and path handling.
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -132,7 +133,9 @@ describe("hooks workspace", () => {
     }
 
     const entries = loadHookEntriesFromDir({ dir: hooksRoot, source: "openclaw-workspace" });
-    expect(hookNames(entries)).not.toEqual(expect.arrayContaining(["hardlink-hook", "outside"]));
+    const names = hookNames(entries);
+    expect(names).not.toContain("hardlink-hook");
+    expect(names).not.toContain("outside");
   });
 
   it("ignores hooks with hardlinked handler aliases", () => {

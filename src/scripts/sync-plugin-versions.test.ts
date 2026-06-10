@@ -1,3 +1,4 @@
+// Plugin version sync tests cover script updates to plugin package versions.
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -140,6 +141,6 @@ describe("syncPluginVersions", () => {
 
     const checkSummary = syncPluginVersions(rootDir, { write: false });
 
-    expect(checkSummary.changelogged).toEqual([]);
+    expect(checkSummary.changelogged).toStrictEqual([]);
   });
 });

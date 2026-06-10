@@ -1,4 +1,4 @@
-import { Type } from "@sinclair/typebox";
+import { Type } from "typebox";
 import type { AnyAgentTool } from "./common.js";
 import { jsonResult, readStringParam } from "./common.js";
 
@@ -115,19 +115,31 @@ const DevicesJobStatusSchema = Type.Object({
 
 const DevicesUploadSchema = Type.Object({
   device: Type.String({ description: "Device name or ID to upload from" }),
-  filePath: Type.String({ description: "Full path to the file on the device (e.g., ~/Desktop/report.pdf)" }),
+  filePath: Type.String({
+    description: "Full path to the file on the device (e.g., ~/Desktop/report.pdf)",
+  }),
 });
 
 const DevicesSendFileSchema = Type.Object({
-  device: Type.Optional(Type.String({ description: "Device name or ID (uses default if not specified)" })),
-  filePath: Type.String({ description: "Full path to the file on the device (e.g., ~/Desktop/report.pdf)" }),
+  device: Type.Optional(
+    Type.String({ description: "Device name or ID (uses default if not specified)" }),
+  ),
+  filePath: Type.String({
+    description: "Full path to the file on the device (e.g., ~/Desktop/report.pdf)",
+  }),
   caption: Type.Optional(Type.String({ description: "Optional message to send with the file" })),
 });
 
 const DevicesFindAndSendSchema = Type.Object({
-  searchPattern: Type.String({ description: "Search pattern to find the file (e.g., 'cita', 'report', 'invoice2024')" }),
-  searchPath: Type.Optional(Type.String({ description: "Directory to search in (default: ~/Desktop)" })),
-  device: Type.Optional(Type.String({ description: "Device name or ID (uses default if not specified)" })),
+  searchPattern: Type.String({
+    description: "Search pattern to find the file (e.g., 'cita', 'report', 'invoice2024')",
+  }),
+  searchPath: Type.Optional(
+    Type.String({ description: "Directory to search in (default: ~/Desktop)" }),
+  ),
+  device: Type.Optional(
+    Type.String({ description: "Device name or ID (uses default if not specified)" }),
+  ),
   caption: Type.Optional(Type.String({ description: "Optional message to send with the file" })),
 });
 
@@ -138,7 +150,8 @@ export function createDevicesListTool(handler: DevicesHandler): AnyAgentTool {
   return {
     label: "List Devices",
     name: "devices_list",
-    description: "List all paired devices for the current user. Returns device names, platforms, and which device is set as default.",
+    description:
+      "List all paired devices for the current user. Returns device names, platforms, and which device is set as default.",
     parameters: DevicesListSchema,
     execute: async () => {
       try {
@@ -213,7 +226,8 @@ export function createDevicesJobStatusTool(handler: DevicesHandler): AnyAgentToo
   return {
     label: "Device Job Status",
     name: "devices_job_status",
-    description: "Check the status of a command that was sent to a device. Returns the current status and result if completed.",
+    description:
+      "Check the status of a command that was sent to a device. Returns the current status and result if completed.",
     parameters: DevicesJobStatusSchema,
     execute: async (_toolCallId, rawParams) => {
       const params = rawParams as Record<string, unknown>;

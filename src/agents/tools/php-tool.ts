@@ -21,7 +21,7 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { resolve, normalize, relative, isAbsolute } from "node:path";
-import { Type } from "@sinclair/typebox";
+import { Type } from "typebox";
 import type { AnyAgentTool } from "./common.js";
 import { jsonResult } from "./common.js";
 
@@ -325,7 +325,6 @@ export function createPhpTool(options: PhpToolOptions): AnyAgentTool {
 WORKSPACE: ${workspaceDir}
 TIMEOUT: ${maxTimeoutSec}s`,
     parameters: PhpExecSchema,
-    ownerOnly: false, // Agent can use for internal operations
     execute: async (_toolCallId, params) => {
       const script = (params as { script: string; args?: string[]; timeout?: number }).script;
       const args = (params as { script: string; args?: string[]; timeout?: number }).args ?? [];

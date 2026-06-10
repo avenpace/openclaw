@@ -1,3 +1,5 @@
+// Local backend fs bridge E2E tests run generated backend shell scripts against
+// a real temp workspace without Docker.
 import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
 import os from "node:os";
@@ -12,6 +14,8 @@ import type {
 async function runLocalShellCommand(
   params: SandboxBackendCommandParams,
 ): Promise<SandboxBackendCommandResult> {
+  // This backend shim executes the exact shell script the fs bridge emits, so
+  // failures prove the generated POSIX script rather than a mocked Docker call.
   return await new Promise<SandboxBackendCommandResult>((resolve, reject) => {
     const child = spawn(
       "sh",
@@ -116,9 +120,7 @@ describe("sandbox fs bridge local backend e2e", () => {
         await expect(
           fs.readFile(path.join(workspaceDir, "nested", "hello.txt"), "utf8"),
         ).resolves.toBe("from-backend");
-        expect(scripts).toEqual(
-          expect.arrayContaining([expect.stringContaining("operation = sys.argv[1]")]),
-        );
+        expect(scripts.some((script) => script.includes("operation = sys.argv[1]"))).toBe(true);
       } finally {
         await fs.rm(stateDir, { recursive: true, force: true });
       }

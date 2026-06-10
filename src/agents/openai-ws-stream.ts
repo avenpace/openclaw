@@ -1,12 +1,4 @@
 import { createHash, randomUUID } from "node:crypto";
-import type { StreamFn } from "@mariozechner/pi-agent-core";
-import type {
-  AssistantMessage,
-  AssistantMessageEvent,
-  AssistantMessageEventStream,
-  StopReason,
-} from "@mariozechner/pi-ai";
-import * as piAi from "@mariozechner/pi-ai";
 /**
  * OpenAI WebSocket StreamFn Integration
  *
@@ -30,6 +22,12 @@ import * as piAi from "@mariozechner/pi-ai";
  * @see src/agents/openai-ws-connection.ts for the connection manager
  */
 import { formatErrorMessage } from "../infra/errors.js";
+import { streamSimple } from "../llm/stream.js";
+import type { AssistantMessage, AssistantMessageEvent, StopReason } from "../llm/types.js";
+import {
+  AssistantMessageEventStream,
+  createAssistantMessageEventStream,
+} from "../llm/utils/event-stream.js";
 import type { ProviderRuntimeModel } from "../plugins/provider-runtime-model.types.js";
 import {
   resolveProviderTransportTurnStateWithPlugin,
@@ -40,6 +38,7 @@ import {
   encodeAssistantTextSignature,
   normalizeAssistantPhase,
 } from "../shared/chat-message-content.js";
+import { log } from "./embedded-agent-runner/logger.js";
 import { resolveOpenAIStrictToolSetting } from "./openai-strict-tool-setting.js";
 import {
   getOpenAIWebSocketErrorDetails,
@@ -53,17 +52,16 @@ import {
   convertMessagesToInputItems,
   convertResponseToInputItems,
   convertTools,
-  planTurnInput,
 } from "./openai-ws-message-conversion.js";
 import {
   buildOpenAIWebSocketResponseCreatePayload,
   planOpenAIWebSocketRequestPayload,
 } from "./openai-ws-request.js";
 import type { ResponseCreateEvent } from "./openai-ws-types.js";
-import { log } from "./pi-embedded-runner/logger.js";
 import { resolveProviderEndpoint } from "./provider-attribution.js";
 import { normalizeProviderId } from "./provider-id.js";
 import { createOpenClawTransportStreamFnForModel } from "./provider-transport-stream.js";
+import type { StreamFn } from "./runtime/index.js";
 import {
   buildAssistantMessageWithZeroUsage,
   buildStreamErrorAssistantMessage,
@@ -117,7 +115,7 @@ const wsRegistry = new Map<string, WsSession>();
 type OpenAIWsStreamDeps = {
   createManager: (options?: OpenAIWebSocketManagerOptions) => OpenAIWebSocketManager;
   createHttpFallbackStreamFn: (model: ProviderRuntimeModel) => StreamFn | undefined;
-  streamSimple: typeof piAi.streamSimple;
+  streamSimple: typeof streamSimple;
 };
 
 type AssistantMessageWithPhase = AssistantMessage & { phase?: OpenAIResponsesAssistantPhase };
@@ -127,7 +125,7 @@ const defaultOpenAIWsStreamDeps: OpenAIWsStreamDeps = {
   // WebSocket auto-mode HTTP fallback must keep the OpenClaw transport path so
   // degraded sessions do not leak cache-boundary markers or lose strict tools.
   createHttpFallbackStreamFn: (model) => createOpenClawTransportStreamFnForModel(model),
-  streamSimple: (...args) => piAi.streamSimple(...args),
+  streamSimple: (...args) => streamSimple(...args),
 };
 
 let openAIWsStreamDeps: OpenAIWsStreamDeps = defaultOpenAIWsStreamDeps;
@@ -207,8 +205,8 @@ class LocalAssistantMessageEventStream implements AssistantMessageEventStreamLik
 }
 
 function createEventStream(): AssistantMessageEventStream {
-  return typeof piAi.createAssistantMessageEventStream === "function"
-    ? piAi.createAssistantMessageEventStream()
+  return typeof createAssistantMessageEventStream === "function"
+    ? createAssistantMessageEventStream()
     : (new LocalAssistantMessageEventStream() as unknown as AssistantMessageEventStream);
 }
 
@@ -458,11 +456,7 @@ function usesNativeOpenAIRoute(provider: string, baseUrl?: string): boolean {
     return endpointClass === "default" || endpointClass === "azure-openai";
   }
   if (normalizedProvider === OPENAI_CODEX_PROVIDER_ID) {
-    return (
-      endpointClass === "default" ||
-      endpointClass === "openai-public" ||
-      endpointClass === "openai-codex"
-    );
+    return endpointClass === "default" || endpointClass === "openai-public";
   }
   return false;
 }
@@ -926,8 +920,12 @@ export function createOpenAIWebSocketStreamFn(
           metadata: turnState?.metadata,
         }) as Record<string, unknown>;
         if ((options as Record<string, unknown>)?.toolChoice !== undefined) {
-          (payload as Record<string, unknown>).tool_choice = (options as Record<string, unknown>).toolChoice;
-          log.info(`[ws-stream] tool_choice set to: ${JSON.stringify((options as Record<string, unknown>).toolChoice)}`);
+          (payload as Record<string, unknown>).tool_choice = (
+            options as Record<string, unknown>
+          ).toolChoice;
+          log.info(
+            `[ws-stream] tool_choice set to: ${JSON.stringify((options as Record<string, unknown>).toolChoice)}`,
+          );
         }
         const nextPayload = options?.onPayload
           ? await Promise.resolve(options.onPayload(payload, model))

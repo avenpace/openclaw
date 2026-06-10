@@ -1,21 +1,39 @@
-import { Type } from "@sinclair/typebox";
+import { Type } from "typebox";
 import type { AnyAgentTool } from "./common.js";
 import { jsonResult, readStringParam } from "./common.js";
 
 export type InstagramHandler = {
-  igSetup: (username: string, password: string, otpSecret?: string) => Promise<{ ok: boolean; message: string; username?: string }>;
+  igSetup: (
+    username: string,
+    password: string,
+    otpSecret?: string,
+  ) => Promise<{ ok: boolean; message: string; username?: string }>;
   igCheck: () => Promise<{ loggedIn: boolean; username?: string }>;
-  igPost: (caption: string, imageUrl?: string) => Promise<{ ok: boolean; postUrl?: string; message: string }>;
+  igPost: (
+    caption: string,
+    imageUrl?: string,
+  ) => Promise<{ ok: boolean; postUrl?: string; message: string }>;
   igReply: (postUrl: string, comment: string) => Promise<{ ok: boolean; message: string }>;
   igLike: (postUrl: string) => Promise<{ ok: boolean; message: string }>;
   igFollow: (username: string) => Promise<{ ok: boolean; message: string }>;
-  igProfile: (username?: string) => Promise<{ ok: boolean; followers?: number; following?: number; posts?: number; bio?: string; message?: string }>;
+  igProfile: (
+    username?: string,
+  ) => Promise<{
+    ok: boolean;
+    followers?: number;
+    following?: number;
+    posts?: number;
+    bio?: string;
+    message?: string;
+  }>;
 };
 
 const IgSetupSchema = Type.Object({
   username: Type.String({ description: "Instagram username" }),
   password: Type.String({ description: "Instagram password" }),
-  otpSecret: Type.Optional(Type.String({ description: "Optional OTP secret for two-factor authentication" })),
+  otpSecret: Type.Optional(
+    Type.String({ description: "Optional OTP secret for two-factor authentication" }),
+  ),
 });
 
 const IgCheckSchema = Type.Object({});
@@ -39,7 +57,11 @@ const IgFollowSchema = Type.Object({
 });
 
 const IgProfileSchema = Type.Object({
-  username: Type.Optional(Type.String({ description: "Instagram username to view profile for (defaults to logged-in user)" })),
+  username: Type.Optional(
+    Type.String({
+      description: "Instagram username to view profile for (defaults to logged-in user)",
+    }),
+  ),
 });
 
 export function createIgSetupTool(handler: InstagramHandler): AnyAgentTool {
@@ -71,8 +93,7 @@ export function createIgCheckTool(handler: InstagramHandler): AnyAgentTool {
     name: "ig_check",
     description: `Check current login status and username on Instagram.`,
     parameters: IgCheckSchema,
-    execute: async (_toolCallId, rawParams) => {
-      const params = rawParams as Record<string, unknown>;
+    execute: async (_toolCallId, _rawParams) => {
       try {
         const result = await handler.igCheck();
         return jsonResult(result);

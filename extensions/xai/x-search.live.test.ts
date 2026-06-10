@@ -1,3 +1,4 @@
+// Xai tests cover x search plugin behavior.
 import { isBillingErrorMessage } from "openclaw/plugin-sdk/test-env";
 import { describe, expect, it } from "vitest";
 import { createXSearchTool } from "./x-search.js";
@@ -55,7 +56,10 @@ describeLive("xai x_search live", () => {
       message?: string;
     };
 
-    const errorMessage = [details.error, details.message].filter(Boolean).join(" ");
+    const errorMessage =
+      details.error && details.message
+        ? `${details.error} ${details.message}`
+        : details.error || details.message || "";
     if (isBillingErrorMessage(errorMessage)) {
       console.warn(`[xai:x-search:live] skip: billing drift: ${errorMessage}`);
       return;

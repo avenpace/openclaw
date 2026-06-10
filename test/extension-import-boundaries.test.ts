@@ -1,3 +1,4 @@
+// Extension import boundary tests enforce extension/core import rules.
 import { describe, expect, it } from "vitest";
 import { main as extensionPluginSdkMain } from "../scripts/check-extension-plugin-sdk-boundary.mjs";
 import { main as sdkPackageMain } from "../scripts/check-sdk-package-extension-import-boundary.mjs";
@@ -60,7 +61,7 @@ describe("extension import boundary inventories", () => {
 
     expect(jsonOutput.exitCode).toBe(0);
     expect(jsonOutput.stderr).toBe("");
-    expect(jsonOutput.json).toEqual([]);
+    expect(jsonOutput.json).toStrictEqual([]);
   });
 });
 

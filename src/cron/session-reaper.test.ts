@@ -1,7 +1,12 @@
+// Cron session reaper tests cover cleanup of sessions created by scheduled runs.
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, it, expect, beforeEach } from "vitest";
+import {
+  readSessionStoreForTest,
+  writeSessionStoreForTest,
+} from "../config/sessions/test-helpers.js";
 import { isCronRunSessionKey } from "../sessions/session-key-utils.js";
 import type { Logger } from "./service/state.js";
 import { sweepCronRunSessions, resolveRetentionMs, resetReaperThrottle } from "./session-reaper.js";
@@ -45,6 +50,11 @@ describe("isCronRunSessionKey", () => {
     expect(isCronRunSessionKey("agent:debugger:cron:249ecf82:run:1102aabb")).toBe(true);
   });
 
+  it("matches cron run descendant session keys", () => {
+    expect(isCronRunSessionKey("agent:main:cron:abc-123:run:def-456:subagent:worker")).toBe(true);
+    expect(isCronRunSessionKey("agent:main:cron:abc-123:run:def-456:thread:reply")).toBe(true);
+  });
+
   it("does not match base cron session keys", () => {
     expect(isCronRunSessionKey("agent:main:cron:abc-123")).toBe(false);
   });
@@ -81,16 +91,24 @@ describe("sweepCronRunSessions", () => {
         sessionId: "old-run",
         updatedAt: now - 25 * 3_600_000, // 25h ago — expired
       },
+      "agent:main:cron:job1:run:old-run:subagent:worker": {
+        sessionId: "old-run-child",
+        updatedAt: now - 25 * 3_600_000, // expired cron-run descendant
+      },
       "agent:main:cron:job1:run:recent-run": {
         sessionId: "recent-run",
         updatedAt: now - 1 * 3_600_000, // 1h ago — not expired
+      },
+      "agent:main:cron:job1:run:recent-run:thread:reply": {
+        sessionId: "recent-run-thread",
+        updatedAt: now - 1 * 3_600_000, // active cron-run descendant
       },
       "agent:main:telegram:dm:123": {
         sessionId: "regular-session",
         updatedAt: now - 100 * 3_600_000, // old but not a cron run
       },
     };
-    fs.writeFileSync(storePath, JSON.stringify(store));
+    writeSessionStoreForTest(storePath, store);
 
     const result = await sweepCronRunSessions({
       sessionStorePath: storePath,
@@ -100,16 +118,26 @@ describe("sweepCronRunSessions", () => {
     });
 
     expect(result.swept).toBe(true);
-    expect(result.pruned).toBe(1);
+    expect(result.pruned).toBe(2);
 
-    const updated = JSON.parse(fs.readFileSync(storePath, "utf-8"));
-    expect(updated["agent:main:cron:job1"]).toMatchObject({ sessionId: "base-session" });
-    expect(updated["agent:main:cron:job1:run:old-run"]).toBeUndefined();
-    expect(updated["agent:main:cron:job1:run:recent-run"]).toMatchObject({
-      sessionId: "recent-run",
-    });
-    expect(updated["agent:main:telegram:dm:123"]).toMatchObject({
-      sessionId: "regular-session",
+    const updated = readSessionStoreForTest(storePath);
+    expect(updated).toEqual({
+      "agent:main:cron:job1": {
+        sessionId: "base-session",
+        updatedAt: now,
+      },
+      "agent:main:cron:job1:run:recent-run": {
+        sessionId: "recent-run",
+        updatedAt: now - 1 * 3_600_000,
+      },
+      "agent:main:cron:job1:run:recent-run:thread:reply": {
+        sessionId: "recent-run-thread",
+        updatedAt: now - 1 * 3_600_000,
+      },
+      "agent:main:telegram:dm:123": {
+        sessionId: "regular-session",
+        updatedAt: now - 100 * 3_600_000,
+      },
     });
   });
 
@@ -124,7 +152,7 @@ describe("sweepCronRunSessions", () => {
         updatedAt: now - 25 * 3_600_000,
       },
     };
-    fs.writeFileSync(storePath, JSON.stringify(store));
+    writeSessionStoreForTest(storePath, store);
 
     const result = await sweepCronRunSessions({
       sessionStorePath: storePath,
@@ -154,7 +182,7 @@ describe("sweepCronRunSessions", () => {
         updatedAt: now - 25 * 3_600_000,
       },
     };
-    fs.writeFileSync(storePath, JSON.stringify(store));
+    writeSessionStoreForTest(storePath, store);
 
     try {
       const result = await sweepCronRunSessions({
@@ -179,7 +207,7 @@ describe("sweepCronRunSessions", () => {
         updatedAt: now - 2 * 3_600_000, // 2h ago
       },
     };
-    fs.writeFileSync(storePath, JSON.stringify(store));
+    writeSessionStoreForTest(storePath, store);
 
     const result = await sweepCronRunSessions({
       cronConfig: { sessionRetention: "1h" },
@@ -200,7 +228,7 @@ describe("sweepCronRunSessions", () => {
         updatedAt: now - 100 * 3_600_000,
       },
     };
-    fs.writeFileSync(storePath, JSON.stringify(store));
+    writeSessionStoreForTest(storePath, store);
 
     const result = await sweepCronRunSessions({
       cronConfig: { sessionRetention: false },
@@ -216,7 +244,7 @@ describe("sweepCronRunSessions", () => {
 
   it("throttles sweeps without force", async () => {
     const now = Date.now();
-    fs.writeFileSync(storePath, JSON.stringify({}));
+    writeSessionStoreForTest(storePath, {});
 
     // First sweep runs
     const r1 = await sweepCronRunSessions({
@@ -238,8 +266,8 @@ describe("sweepCronRunSessions", () => {
   it("throttles per store path", async () => {
     const now = Date.now();
     const otherPath = path.join(tmpDir, "sessions-other.json");
-    fs.writeFileSync(storePath, JSON.stringify({}));
-    fs.writeFileSync(otherPath, JSON.stringify({}));
+    writeSessionStoreForTest(storePath, {});
+    writeSessionStoreForTest(otherPath, {});
 
     const r1 = await sweepCronRunSessions({
       sessionStorePath: storePath,

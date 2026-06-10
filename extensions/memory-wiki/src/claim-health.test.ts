@@ -1,3 +1,4 @@
+// Memory Wiki tests cover claim health plugin behavior.
 import { describe, expect, it } from "vitest";
 import { buildPageContradictionClusters } from "./claim-health.js";
 import type { WikiPageSummary } from "./markdown.js";
@@ -59,6 +60,6 @@ describe("buildPageContradictionClusters", () => {
 
     expect(clusters).toHaveLength(2);
     expect(clusters.map((cluster) => cluster.key).toSorted()).toEqual(["किताब", "कीताब"]);
-    expect(clusters.filter((cluster) => !cluster.entries)).toEqual([]);
+    expect(clusters.every((cluster) => cluster.entries)).toBe(true);
   });
 });

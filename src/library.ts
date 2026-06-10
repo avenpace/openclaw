@@ -1,9 +1,9 @@
+// Public library facade for consumers embedding OpenClaw reply runtime APIs.
 import { DEFAULT_MODEL, DEFAULT_PROVIDER } from "./agents/defaults.js";
+import { runEmbeddedAgent as runEmbeddedPiAgent } from "./agents/embedded-agent-runner/run.js";
 import { loadModelCatalog, type ModelCatalogEntry } from "./agents/model-catalog.js";
 import { normalizeProviderId, normalizeModelRef, type ModelRef } from "./agents/model-selection.js";
 import { ensureOpenClawModelsJson } from "./agents/models-config.js";
-import { runEmbeddedPiAgent } from "./agents/pi-embedded.js";
-import { buildWorkspaceSkillStatus } from "./agents/skills-status.js";
 import type { DevicesHandler } from "./agents/tools/devices-tool.js";
 import type { HermesMemoryHandler } from "./agents/tools/hermes-memory-tool.js";
 import type { HermesSkillsHandler } from "./agents/tools/hermes-skills-tool.js";
@@ -41,6 +41,7 @@ import type {
   runCommandWithTimeout as runCommandWithTimeoutRuntime,
   runExec as runExecRuntime,
 } from "./process/exec.js";
+import { buildWorkspaceSkillStatus } from "./skills/discovery/status.js";
 import {
   maybeApplyTtsToPayload,
   textToSpeech,

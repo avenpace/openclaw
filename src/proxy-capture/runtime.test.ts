@@ -1,3 +1,4 @@
+// Proxy capture runtime tests cover session creation and capture lifecycle.
 import { beforeEach, describe, expect, it } from "vitest";
 import type { DebugProxySettings } from "./env.js";
 import {
@@ -69,7 +70,9 @@ describe("debug proxy runtime", () => {
       headers: { "content-type": "application/json" },
       body: '{"input":"hello"}',
     });
-    await new Promise((resolve) => setImmediate(resolve));
+    await new Promise((resolve) => {
+      setImmediate(resolve);
+    });
     finalizeDebugProxyCapture(settings, deps);
 
     const sessionEvents = events.filter((event) => event.sessionId === "runtime-test-session");
@@ -102,11 +105,13 @@ describe("debug proxy runtime", () => {
       headers,
       body: "{}",
     });
-    await new Promise((resolve) => setImmediate(resolve));
+    await new Promise((resolve) => {
+      setImmediate(resolve);
+    });
     finalizeDebugProxyCapture(settings, deps);
 
     const request = events.find((event) => event.kind === "request");
-    expect(JSON.parse(String(request?.headersJson))).toMatchObject({
+    expect(JSON.parse(String(request?.headersJson))).toStrictEqual({
       "content-type": "application/json",
       "x-hidden": "yes",
     });
@@ -137,11 +142,13 @@ describe("debug proxy runtime", () => {
       settings,
       deps,
     );
-    await new Promise((resolve) => setImmediate(resolve));
+    await new Promise((resolve) => {
+      setImmediate(resolve);
+    });
     finalizeDebugProxyCapture(settings, deps);
 
     const request = events.find((event) => event.kind === "request");
-    expect(JSON.parse(String(request?.headersJson))).toMatchObject({
+    expect(JSON.parse(String(request?.headersJson))).toStrictEqual({
       Authorization: "[REDACTED]",
       Cookie: "[REDACTED]",
       "x-api-key": "[REDACTED]",
@@ -149,7 +156,7 @@ describe("debug proxy runtime", () => {
       "x-safe": "visible",
     });
     const response = events.find((event) => event.kind === "response");
-    expect(JSON.parse(String(response?.headersJson))).toMatchObject({
+    expect(JSON.parse(String(response?.headersJson))).toStrictEqual({
       "content-type": "application/json",
       "set-cookie": "[REDACTED]",
     });

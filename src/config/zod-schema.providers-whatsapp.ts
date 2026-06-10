@@ -1,6 +1,7 @@
+// Defines WhatsApp provider schema fragments for config parsing.
+import { normalizeStringEntries } from "@openclaw/normalization-core/string-normalization";
 import { z } from "zod";
 import { resolveAccountEntry } from "../routing/account-lookup.js";
-import { normalizeStringEntries } from "../shared/string-normalization.js";
 import { ToolPolicySchema } from "./zod-schema.agent-runtime.js";
 import {
   ChannelHealthMonitorSchema,
@@ -13,6 +14,7 @@ import {
   DmPolicySchema,
   GroupPolicySchema,
   MarkdownConfigSchema,
+  MentionPatternsPolicySchema,
   ReplyToModeSchema,
 } from "./zod-schema.core.js";
 
@@ -44,6 +46,13 @@ const WhatsAppAckReactionSchema = z
     emoji: z.string().optional(),
     direct: z.boolean().optional().default(true),
     group: z.enum(["always", "mentions", "never"]).optional().default("mentions"),
+  })
+  .strict()
+  .optional();
+
+const WhatsAppPluginHooksSchema = z
+  .object({
+    messageReceived: z.boolean().optional(),
   })
   .strict()
   .optional();
@@ -101,6 +110,7 @@ function buildWhatsAppCommonShape(params: { useDefaults: boolean }) {
     groupPolicy: params.useDefaults
       ? GroupPolicySchema.optional().default("allowlist")
       : GroupPolicySchema.optional(),
+    mentionPatterns: MentionPatternsPolicySchema.optional(),
     contextVisibility: ContextVisibilityModeSchema.optional(),
     historyLimit: z.number().int().min(0).optional(),
     dmHistoryLimit: z.number().int().min(0).optional(),
@@ -119,6 +129,7 @@ function buildWhatsAppCommonShape(params: { useDefaults: boolean }) {
     replyToMode: ReplyToModeSchema.optional(),
     heartbeat: ChannelHeartbeatVisibilitySchema,
     healthMonitor: ChannelHealthMonitorSchema,
+    pluginHooks: WhatsAppPluginHooksSchema,
   };
 }
 

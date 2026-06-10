@@ -1,3 +1,4 @@
+// Qqbot tests cover file utils plugin behavior.
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -103,7 +104,7 @@ describe("qqbot file-utils downloadFile", () => {
     await fs.promises.symlink(targetPath, linkPath);
 
     expect(checkFileSize(linkPath).ok).toBe(false);
-    await expect(readFileAsync(linkPath)).rejects.toThrow();
+    await expect(readFileAsync(linkPath)).rejects.toThrow(/symbolic link|symlink|regular file/i);
     await expect(fileExistsAsync(linkPath)).resolves.toBe(false);
   });
 });

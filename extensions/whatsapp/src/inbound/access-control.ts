@@ -1,14 +1,10 @@
+// Whatsapp plugin module implements access control behavior.
 import { createChannelPairingChallengeIssuer } from "openclaw/plugin-sdk/channel-pairing";
-import type { OpenClawConfig } from "openclaw/plugin-sdk/config-types";
+import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import { upsertChannelPairingRequest } from "openclaw/plugin-sdk/conversation-runtime";
 import { defaultRuntime } from "openclaw/plugin-sdk/runtime-env";
 import { warnMissingProviderGroupPolicyFallbackOnce } from "openclaw/plugin-sdk/runtime-group-policy";
-import {
-  expandAllowFromWithAccessGroups,
-  readStoreAllowFromForDmPolicy,
-  resolveDmGroupAccessWithLists,
-} from "openclaw/plugin-sdk/security-runtime";
-import { resolveWhatsAppInboundPolicy } from "../inbound-policy.js";
+import { resolveWhatsAppInboundPolicy, resolveWhatsAppIngressAccess } from "../inbound-policy.js";
 
 export type InboundAccessControlResult = {
   allowed: boolean;
@@ -60,16 +56,14 @@ export async function checkInboundAccessControl(params: {
   // Apply overrides if provided (platform-level control)
   const policy = {
     ...basePolicy,
-    ...(params.dmPolicyOverride ? { dmPolicy: params.dmPolicyOverride as typeof basePolicy.dmPolicy } : {}),
-    ...(params.groupPolicyOverride ? { groupPolicy: params.groupPolicyOverride as typeof basePolicy.groupPolicy } : {}),
+    ...(params.dmPolicyOverride
+      ? { dmPolicy: params.dmPolicyOverride as typeof basePolicy.dmPolicy }
+      : {}),
+    ...(params.groupPolicyOverride
+      ? { groupPolicy: params.groupPolicyOverride as typeof basePolicy.groupPolicy }
+      : {}),
     ...(params.groupAllowFromOverride ? { groupAllowFrom: params.groupAllowFromOverride } : {}),
   };
-  const storeAllowFrom = await readStoreAllowFromForDmPolicy({
-    provider: "whatsapp",
-    accountId: policy.account.accountId,
-    dmPolicy: policy.dmPolicy,
-    shouldRead: policy.shouldReadStorePairingApprovals,
-  });
   const pairingGraceMs =
     typeof params.pairingGraceMs === "number" && params.pairingGraceMs > 0
       ? params.pairingGraceMs
@@ -89,57 +83,19 @@ export async function checkInboundAccessControl(params: {
     accountId: policy.account.accountId,
     log: (message) => logWhatsAppVerbose(params.verbose, message),
   });
-  const accessGroupSenderId = params.group ? (params.senderE164 ?? params.from) : params.from;
-  const isAccessGroupSenderAllowed = (senderId: string, allowEntries: string[]) => {
-    return params.group
-      ? policy.isGroupSenderAllowed(allowEntries, senderId)
-      : policy.isDmSenderAllowed(allowEntries, senderId);
-  };
-  const [allowFrom, groupAllowFrom] = await Promise.all([
-    expandAllowFromWithAccessGroups({
-      cfg: params.cfg,
-      allowFrom: params.group ? policy.configuredAllowFrom : policy.dmAllowFrom,
-      channel: "whatsapp",
-      accountId: policy.account.accountId,
-      senderId: accessGroupSenderId,
-      isSenderAllowed: isAccessGroupSenderAllowed,
-    }),
-    expandAllowFromWithAccessGroups({
-      cfg: params.cfg,
-      allowFrom: policy.groupAllowFrom,
-      channel: "whatsapp",
-      accountId: policy.account.accountId,
-      senderId: accessGroupSenderId,
-      isSenderAllowed: isAccessGroupSenderAllowed,
-    }),
-  ]);
-  const dmStoreAllowFrom = params.group
-    ? []
-    : await expandAllowFromWithAccessGroups({
-        cfg: params.cfg,
-        allowFrom: storeAllowFrom,
-        channel: "whatsapp",
-        accountId: policy.account.accountId,
-        senderId: accessGroupSenderId,
-        isSenderAllowed: isAccessGroupSenderAllowed,
-      });
-  const access = resolveDmGroupAccessWithLists({
+  const access = await resolveWhatsAppIngressAccess({
+    cfg: params.cfg,
+    policy,
     isGroup: params.group,
-    dmPolicy: policy.dmPolicy,
-    groupPolicy: policy.groupPolicy,
-    allowFrom,
-    groupAllowFrom,
-    storeAllowFrom: dmStoreAllowFrom,
-    isSenderAllowed: (allowEntries) => {
-      return params.group
-        ? policy.isGroupSenderAllowed(allowEntries, params.senderE164)
-        : policy.isDmSenderAllowed(allowEntries, params.from);
-    },
+    conversationId: params.remoteJid,
+    senderId: params.group ? params.senderE164 : params.from,
+    dmSenderId: params.from,
   });
-  if (params.group && access.decision !== "allow") {
-    if (access.reason === "groupPolicy=disabled") {
+  const { senderAccess } = access;
+  if (params.group && senderAccess.decision !== "allow") {
+    if (senderAccess.reasonCode === "group_policy_disabled") {
       logWhatsAppVerbose(params.verbose, "Blocked group message (groupPolicy: disabled)");
-    } else if (access.reason === "groupPolicy=allowlist (empty allowlist)") {
+    } else if (senderAccess.reasonCode === "group_policy_empty_allowlist") {
       logWhatsAppVerbose(
         params.verbose,
         "Blocked group message (groupPolicy: allowlist, no groupAllowFrom)",
@@ -169,7 +125,7 @@ export async function checkInboundAccessControl(params: {
         resolvedAccountId: policy.account.accountId,
       };
     }
-    if (access.decision === "block" && access.reason === "dmPolicy=disabled") {
+    if (senderAccess.decision === "block" && senderAccess.reasonCode === "dm_policy_disabled") {
       logWhatsAppVerbose(params.verbose, "Blocked dm (dmPolicy: disabled)");
       return {
         allowed: false,
@@ -178,7 +134,7 @@ export async function checkInboundAccessControl(params: {
         resolvedAccountId: policy.account.accountId,
       };
     }
-    if (access.decision === "pairing" && !policy.isSamePhone(params.from)) {
+    if (senderAccess.decision === "pairing" && !policy.isSamePhone(params.from)) {
       const candidate = params.from;
       if (suppressPairingReply) {
         logWhatsAppVerbose(
@@ -223,7 +179,7 @@ export async function checkInboundAccessControl(params: {
         resolvedAccountId: policy.account.accountId,
       };
     }
-    if (access.decision !== "allow") {
+    if (senderAccess.decision !== "allow") {
       logWhatsAppVerbose(
         params.verbose,
         `Blocked unauthorized sender ${params.from} (dmPolicy=${policy.dmPolicy})`,
@@ -245,6 +201,7 @@ export async function checkInboundAccessControl(params: {
   };
 }
 
-export const __testing = {
+export const testing = {
   resolveWhatsAppInboundPolicy,
 };
+export { testing as __testing };

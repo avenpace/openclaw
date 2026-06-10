@@ -1,3 +1,4 @@
+/** Tests fast-path secret collection for channel contract API credentials. */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { loadPluginManifestRegistryMock } = vi.hoisted(() => ({
@@ -59,22 +60,17 @@ describe("channel contract api explicit fast path", () => {
       dirName: "discord",
       artifactBasename: "secret-contract-api.js",
     });
-    expect(api?.secretTargetRegistryEntries).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          id: "channels.discord.accounts.*.token",
-        }),
-      ]),
+    const tokenEntry = api?.secretTargetRegistryEntries?.find(
+      (entry) => entry.id === "channels.discord.accounts.*.token",
     );
+    expect(tokenEntry?.id).toBe("channels.discord.accounts.*.token");
     expect(loadPluginManifestRegistryMock).not.toHaveBeenCalled();
   });
 
   it("resolves bundled channel security contracts by explicit channel id without manifest scans", () => {
     const api = loadBundledChannelSecurityContractApi("whatsapp");
 
-    expect(api?.unsupportedSecretRefSurfacePatterns).toEqual(
-      expect.arrayContaining(["channels.whatsapp.creds.json"]),
-    );
+    expect(api?.unsupportedSecretRefSurfacePatterns).toContain("channels.whatsapp.creds.json");
     expect(api?.collectUnsupportedSecretRefConfigCandidates).toBeTypeOf("function");
     expect(loadBundledPluginPublicArtifactModuleSyncMock).toHaveBeenCalledWith({
       dirName: "whatsapp",

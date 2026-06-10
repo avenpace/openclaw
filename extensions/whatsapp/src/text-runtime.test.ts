@@ -1,3 +1,4 @@
+// Whatsapp tests cover text runtime plugin behavior.
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -63,7 +64,7 @@ describe("assertWebChannel", () => {
   });
 
   it("throws for invalid channel", () => {
-    expect(() => assertWebChannel("bad" as string)).toThrow();
+    expect(() => assertWebChannel("bad" as string)).toThrow("Web channel must be 'web'");
   });
 });
 

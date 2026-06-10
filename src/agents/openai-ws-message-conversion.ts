@@ -1,12 +1,12 @@
 import { randomUUID } from "node:crypto";
-import type { Context, Message, StopReason } from "@mariozechner/pi-ai";
-import type { AssistantMessage } from "@mariozechner/pi-ai";
+import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
+import type { Context, Message, StopReason } from "../llm/types.js";
+import type { AssistantMessage } from "../llm/types.js";
 import {
   encodeAssistantTextSignature,
   normalizeAssistantPhase,
   parseAssistantTextSignature,
 } from "../shared/chat-message-content.js";
-import { normalizeOptionalString } from "../shared/string-coerce.js";
 import {
   normalizeOpenAIStrictToolParameters,
   resolveOpenAIStrictToolFlagForInventory,

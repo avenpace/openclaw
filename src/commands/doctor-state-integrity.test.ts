@@ -1,3 +1,4 @@
+// Doctor state integrity tests cover state directory checks, migration, and repair diagnostics.
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -8,6 +9,10 @@ import {
   resolveStorePath,
   resolveSessionTranscriptsDirForAgent,
 } from "../config/sessions/paths.js";
+import {
+  readSessionStoreForTest,
+  writeSessionStoreForTest,
+} from "../config/sessions/test-helpers.js";
 import type { SessionEntry } from "../config/sessions/types.js";
 import {
   clearTuiLastSessionPointers,
@@ -33,6 +38,7 @@ type EnvSnapshot = {
   OPENCLAW_HOME?: string;
   OPENCLAW_STATE_DIR?: string;
   OPENCLAW_OAUTH_DIR?: string;
+  OPENCLAW_AGENT_DIR?: string;
 };
 
 function captureEnv(): EnvSnapshot {
@@ -41,6 +47,7 @@ function captureEnv(): EnvSnapshot {
     OPENCLAW_HOME: process.env.OPENCLAW_HOME,
     OPENCLAW_STATE_DIR: process.env.OPENCLAW_STATE_DIR,
     OPENCLAW_OAUTH_DIR: process.env.OPENCLAW_OAUTH_DIR,
+    OPENCLAW_AGENT_DIR: process.env.OPENCLAW_AGENT_DIR,
   };
 }
 
@@ -88,9 +95,24 @@ function createAgentDir(agentId: string, includeNestedAgentDir = true) {
   fs.mkdirSync(targetDir, { recursive: true });
 }
 
-const OAUTH_PROMPT_MATCHER = expect.objectContaining({
-  message: expect.stringContaining("Create OAuth dir at"),
-});
+type RuntimeRepairPrompt = {
+  initialValue?: boolean;
+  message?: string;
+  requiresInteractiveConfirmation?: boolean;
+};
+
+function repairPromptCalls(confirmRuntimeRepair: {
+  mock: { calls: unknown[][] };
+}): RuntimeRepairPrompt[] {
+  return confirmRuntimeRepair.mock.calls.map((call) => call[0] as RuntimeRepairPrompt);
+}
+
+function hasRepairPromptMessage(
+  confirmRuntimeRepair: { mock: { calls: unknown[][] } },
+  text: string,
+): boolean {
+  return repairPromptCalls(confirmRuntimeRepair).some((prompt) => prompt.message?.includes(text));
+}
 
 async function runStateIntegrity(cfg: OpenClawConfig) {
   setupSessionState(cfg, process.env, process.env.HOME ?? "");
@@ -105,7 +127,7 @@ function writeSessionStore(
 ) {
   setupSessionState(cfg, process.env, process.env.HOME ?? "");
   const storePath = resolveStorePath(cfg.session?.store, { agentId: "main" });
-  fs.writeFileSync(storePath, JSON.stringify(sessions, null, 2));
+  writeSessionStoreForTest(storePath, sessions);
 }
 
 async function runStateIntegrityText(cfg: OpenClawConfig): Promise<string> {
@@ -141,6 +163,7 @@ describe("doctor state integrity oauth dir checks", () => {
     process.env.OPENCLAW_HOME = tempHome;
     process.env.OPENCLAW_STATE_DIR = path.join(tempHome, ".openclaw");
     delete process.env.OPENCLAW_OAUTH_DIR;
+    delete process.env.OPENCLAW_AGENT_DIR;
     fs.mkdirSync(process.env.OPENCLAW_STATE_DIR, { recursive: true, mode: 0o700 });
     noteMock.mockClear();
   });
@@ -153,7 +176,7 @@ describe("doctor state integrity oauth dir checks", () => {
   it("does not prompt for oauth dir when no whatsapp/pairing config is active", async () => {
     const cfg: OpenClawConfig = {};
     const confirmRuntimeRepair = await runStateIntegrity(cfg);
-    expect(confirmRuntimeRepair).not.toHaveBeenCalledWith(OAUTH_PROMPT_MATCHER);
+    expect(hasRepairPromptMessage(confirmRuntimeRepair, "Create OAuth dir at")).toBe(false);
     const text = stateIntegrityText();
     expect(text).toContain("OAuth dir not present");
     expect(text).not.toContain("CRITICAL: OAuth dir missing");
@@ -166,7 +189,7 @@ describe("doctor state integrity oauth dir checks", () => {
       },
     };
     const confirmRuntimeRepair = await runStateIntegrity(cfg);
-    expect(confirmRuntimeRepair).not.toHaveBeenCalledWith(OAUTH_PROMPT_MATCHER);
+    expect(hasRepairPromptMessage(confirmRuntimeRepair, "Create OAuth dir at")).toBe(false);
     expect(stateIntegrityText()).toContain("OAuth dir not present");
     expect(stateIntegrityText()).not.toContain("CRITICAL: OAuth dir missing");
   });
@@ -180,14 +203,14 @@ describe("doctor state integrity oauth dir checks", () => {
       },
     };
     const confirmRuntimeRepair = await runStateIntegrity(cfg);
-    expect(confirmRuntimeRepair).toHaveBeenCalledWith(OAUTH_PROMPT_MATCHER);
+    expect(hasRepairPromptMessage(confirmRuntimeRepair, "Create OAuth dir at")).toBe(true);
   });
 
   it("prompts for oauth dir when OPENCLAW_OAUTH_DIR is explicitly configured", async () => {
     process.env.OPENCLAW_OAUTH_DIR = path.join(tempHome, ".oauth");
     const cfg: OpenClawConfig = {};
     const confirmRuntimeRepair = await runStateIntegrity(cfg);
-    expect(confirmRuntimeRepair).toHaveBeenCalledWith(OAUTH_PROMPT_MATCHER);
+    expect(hasRepairPromptMessage(confirmRuntimeRepair, "Create OAuth dir at")).toBe(true);
     expect(stateIntegrityText()).toContain("CRITICAL: OAuth dir missing");
   });
 
@@ -234,6 +257,39 @@ describe("doctor state integrity oauth dir checks", () => {
     expect(text).not.toContain("Examples:");
   });
 
+  it("does not warn when the live compatibility main agent dir is missing from agents.list", async () => {
+    createAgentDir("main");
+
+    const text = await runStateIntegrityText({
+      agents: {
+        list: [{ id: "jeremiah", default: true }],
+      },
+    });
+
+    expect(text).not.toContain("without a matching agents.list entry");
+    expect(text).not.toContain("Examples:");
+  });
+
+  it("does not warn when OPENCLAW_AGENT_DIR points at the live compatibility agent dir", async () => {
+    createAgentDir("legacy");
+    const legacyAgentDir = path.join(
+      process.env.OPENCLAW_STATE_DIR ?? "",
+      "agents",
+      "legacy",
+      "agent",
+    );
+    process.env.OPENCLAW_AGENT_DIR = legacyAgentDir;
+
+    const text = await runStateIntegrityText({
+      agents: {
+        list: [{ id: "main", default: true }],
+      },
+    });
+
+    expect(text).not.toContain("without a matching agents.list entry");
+    expect(text).not.toContain("Examples:");
+  });
+
   it("warns about tombstoned subagent restart recovery sessions", async () => {
     const cfg: OpenClawConfig = {};
     writeSessionStore(cfg, {
@@ -258,10 +314,8 @@ describe("doctor state integrity oauth dir checks", () => {
     expect(text).toContain("automatic restart recovery tombstoned");
     expect(text).toContain("agent:main:subagent:wedged-child");
     expect(text).toContain("openclaw tasks maintenance --apply");
-    expect(confirmRuntimeRepair).toHaveBeenCalledWith(
-      expect.objectContaining({
-        message: expect.stringContaining("Clear stale aborted recovery flags"),
-      }),
+    expect(hasRepairPromptMessage(confirmRuntimeRepair, "Clear stale aborted recovery flags")).toBe(
+      true,
     );
   });
 
@@ -289,10 +343,9 @@ describe("doctor state integrity oauth dir checks", () => {
     await noteStateIntegrity(cfg, { confirmRuntimeRepair, note: noteMock });
 
     const storePath = resolveStorePath(cfg.session?.store, { agentId: "main" });
-    const persisted = JSON.parse(fs.readFileSync(storePath, "utf8")) as Record<
-      string,
-      { abortedLastRun?: boolean; updatedAt?: number }
-    >;
+    const persisted = readSessionStoreForTest<{ abortedLastRun?: boolean; updatedAt?: number }>(
+      storePath,
+    );
     expect(persisted[sessionKey]?.abortedLastRun).toBe(false);
     expect(persisted[sessionKey]?.updatedAt).toBeGreaterThan(0);
     expect(doctorChangesText()).toContain("Cleared aborted restart-recovery flags");
@@ -372,12 +425,10 @@ describe("doctor state integrity oauth dir checks", () => {
       "These .jsonl files are no longer referenced by sessions.json",
     );
     expect(stateIntegrityText()).toContain("Examples: orphan-session.jsonl");
-    expect(confirmRuntimeRepair).toHaveBeenCalledWith(
-      expect.objectContaining({
-        message: expect.stringContaining("This only renames them to *.deleted.<timestamp>."),
-        requiresInteractiveConfirmation: true,
-      }),
+    const archivePrompt = repairPromptCalls(confirmRuntimeRepair).find((prompt) =>
+      prompt.message?.includes("This only renames them to *.deleted.<timestamp>."),
     );
+    expect(archivePrompt?.requiresInteractiveConfirmation).toBe(true);
     const files = fs.readdirSync(sessionsDir);
     const archivedOrphanTranscripts = files.filter((name) =>
       name.startsWith("orphan-session.jsonl.deleted."),
@@ -396,18 +447,16 @@ describe("doctor state integrity oauth dir checks", () => {
     );
     await noteStateIntegrity(cfg, { confirmRuntimeRepair, note: noteMock });
 
-    expect(confirmRuntimeRepair).toHaveBeenCalledWith(
-      expect.objectContaining({
-        initialValue: false,
-        requiresInteractiveConfirmation: true,
-      }),
+    const archivePrompt = repairPromptCalls(confirmRuntimeRepair).find(
+      (prompt) => prompt.requiresInteractiveConfirmation === true,
     );
+    expect(archivePrompt?.initialValue).toBe(false);
     const files = fs.readdirSync(sessionsDir);
     expect(files).toContain("orphan-session.jsonl");
     const archivedOrphanTranscripts = files.filter((name) =>
       name.startsWith("orphan-session.jsonl.deleted."),
     );
-    expect(archivedOrphanTranscripts).toEqual([]);
+    expect(archivedOrphanTranscripts).toStrictEqual([]);
   });
 
   it.skipIf(process.platform === "win32")(
@@ -446,8 +495,8 @@ describe("doctor state integrity oauth dir checks", () => {
         await noteStateIntegrity(cfg, { confirmRuntimeRepair, note: noteMock });
 
         expect(fs.existsSync(transcriptPath)).toBe(true);
-        expect(fs.readdirSync(sessionsDir)).not.toEqual(
-          expect.arrayContaining([expect.stringContaining(".deleted.")]),
+        expect(fs.readdirSync(sessionsDir).filter((name) => name.includes(".deleted."))).toEqual(
+          [],
         );
         expect(stateIntegrityText()).not.toContain("These .jsonl files are no longer referenced");
       } finally {
@@ -535,7 +584,7 @@ describe("doctor state integrity oauth dir checks", () => {
     await noteStateIntegrity(cfg, { confirmRuntimeRepair, note: noteMock });
 
     const storePath = resolveStorePath(cfg.session?.store, { agentId: "main" });
-    const store = JSON.parse(fs.readFileSync(storePath, "utf8")) as Record<string, SessionEntry>;
+    const store = readSessionStoreForTest(storePath);
     const recoveredKey = Object.keys(store).find((key) =>
       key.startsWith("agent:main:heartbeat-recovered-"),
     );
@@ -579,15 +628,11 @@ describe("doctor state integrity oauth dir checks", () => {
     await noteStateIntegrity(cfg, { confirmRuntimeRepair, note: noteMock });
 
     const storePath = resolveStorePath(cfg.session?.store, { agentId: "main" });
-    const store = JSON.parse(fs.readFileSync(storePath, "utf8")) as Record<string, SessionEntry>;
+    const store = readSessionStoreForTest(storePath);
     expect(store["agent:main:main"]?.sessionId).toBe("mixed-session");
-    expect(Object.keys(store)).not.toEqual(
-      expect.arrayContaining([expect.stringContaining("heartbeat-recovered")]),
-    );
-    expect(confirmRuntimeRepair).not.toHaveBeenCalledWith(
-      expect.objectContaining({
-        message: expect.stringContaining("Move heartbeat-owned main session"),
-      }),
+    expect(Object.keys(store).filter((key) => key.includes("heartbeat-recovered"))).toEqual([]);
+    expect(hasRepairPromptMessage(confirmRuntimeRepair, "Move heartbeat-owned main session")).toBe(
+      false,
     );
   });
 
@@ -607,9 +652,7 @@ describe("doctor state integrity oauth dir checks", () => {
       updatedAt: 1,
       heartbeatIsolatedBaseSessionKey: "agent:main:main",
     };
-    expect(resolveHeartbeatMainSessionRepairCandidate({ entry })).toMatchObject({
-      reason: "metadata",
-    });
+    expect(resolveHeartbeatMainSessionRepairCandidate({ entry })?.reason).toBe("metadata");
   });
 
   it("does not move synthetic heartbeat-owned sessions after recorded human interaction", () => {
@@ -705,9 +748,9 @@ describe("doctor state integrity oauth dir checks", () => {
         ].join("\n"),
       );
       const entry: SessionEntry = { sessionId: "session", updatedAt: 1 };
-      expect(resolveHeartbeatMainSessionRepairCandidate({ entry, transcriptPath })).toMatchObject({
-        reason: "transcript",
-      });
+      expect(resolveHeartbeatMainSessionRepairCandidate({ entry, transcriptPath })?.reason).toBe(
+        "transcript",
+      );
       entry.lastInteractionAt = 2;
       expect(resolveHeartbeatMainSessionRepairCandidate({ entry, transcriptPath })).toBeNull();
     } finally {

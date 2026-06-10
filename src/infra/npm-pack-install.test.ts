@@ -1,3 +1,4 @@
+// Covers npm package archive installation helpers.
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { packNpmSpecToArchive, withTempDir } from "./install-source-utils.js";
 import type { NpmIntegrityDriftPayload } from "./npm-integrity.js";
@@ -90,7 +91,15 @@ describe("installFromNpmSpecArchive", () => {
 
     expect(result).toEqual({ ok: false, error: "pack failed" });
     expect(installFromArchive).not.toHaveBeenCalled();
-    expect(withTempDir).toHaveBeenCalledWith("openclaw-test-", expect.any(Function));
+    const withTempDirMock = vi.mocked(withTempDir);
+    expect(withTempDirMock).toHaveBeenCalledTimes(1);
+    const tempDirCall = withTempDirMock.mock.calls[0];
+    if (tempDirCall === undefined) {
+      throw new Error("expected temp dir call");
+    }
+    const [tempDirPrefix, tempDirCallback] = tempDirCall;
+    expect(tempDirPrefix).toBe("openclaw-test-");
+    expect(tempDirCallback).toBeTypeOf("function");
   });
 
   it("rejects unsupported npm specs before packing", async () => {

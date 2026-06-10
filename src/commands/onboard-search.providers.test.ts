@@ -1,3 +1,4 @@
+// Onboard search provider tests cover provider discovery, credential reuse, and search setup choices.
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../config/config.js";
 import type { PluginWebSearchProviderEntry } from "../plugins/types.js";
@@ -190,9 +191,7 @@ describe("onboard-search provider resolution", () => {
       provider: "default",
       id: "CUSTOM_SEARCH_API_KEY",
     });
-    expect(notes.map((note) => note.message)).toEqual(
-      expect.arrayContaining([expect.stringContaining("CUSTOM_SEARCH_API_KEY")]),
-    );
+    expect(notes.map((note) => note.message).join("\n")).toContain("CUSTOM_SEARCH_API_KEY");
   });
 
   it("does not treat hard-disabled bundled providers as selectable credentials", () => {
@@ -251,9 +250,7 @@ describe("onboard-search provider resolution", () => {
 
     expect(result.tools?.web?.search?.provider).toBe("duckduckgo");
     expect(result.plugins?.entries?.duckduckgo?.enabled).toBe(true);
-    expect(notes).toEqual(
-      expect.arrayContaining([expect.stringContaining("works without an API key")]),
-    );
+    expect(notes.join("\n")).toContain("works without an API key");
   });
 
   it("uses the runtime onboarding search surface when no config is present", () => {

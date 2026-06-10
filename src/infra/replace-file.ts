@@ -1,17 +1,15 @@
+// Wraps fs-safe atomic replacement and move helpers for OpenClaw install flows.
 import "./fs-safe-defaults.js";
 import fs from "node:fs/promises";
 import path from "node:path";
 import {
   movePathWithCopyFallback as movePathWithCopyFallbackBase,
-  replaceDirectoryAtomic,
-  replaceFileAtomic,
-  replaceFileAtomicSync,
+  replaceFileAtomic as replaceFileAtomicBase,
   type MovePathWithCopyFallbackOptions as BaseMovePathWithCopyFallbackOptions,
 } from "@openclaw/fs-safe/atomic";
 
 export {
   replaceDirectoryAtomic,
-  replaceFileAtomic,
   replaceFileAtomicSync,
   type ReplaceDirectoryAtomicOptions,
   type ReplaceFileAtomicFileSystem,
@@ -21,10 +19,18 @@ export {
   type ReplaceFileAtomicSyncOptions,
 } from "@openclaw/fs-safe/atomic";
 
+/** Atomic file replacement primitive re-exported through the fs-safe defaults shim. */
+export const replaceFileAtomic = replaceFileAtomicBase;
+
+/** Options for moving paths while optionally rejecting hardlinked source files. */
 export type MovePathWithCopyFallbackOptions = BaseMovePathWithCopyFallbackOptions & {
   sourceHardlinks?: "allow" | "reject";
 };
 
+/**
+ * Moves a path using fs-safe's copy fallback, with an OpenClaw hardlink guard
+ * for install/update flows that must not preserve package-manager links.
+ */
 export async function movePathWithCopyFallback(
   options: MovePathWithCopyFallbackOptions,
 ): Promise<void> {

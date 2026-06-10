@@ -1,8 +1,11 @@
-import { monitorWebInbox } from "../inbound/monitor.js";
-import type { WebInboundMessage, WebListenerCloseReason } from "../inbound/types.js";
+import readline from "node:readline";
+import { monitorWebInbox } from "../../../extensions/whatsapp/src/inbound/monitor.js";
+import type {
+  WebInboundMessage,
+  WebListenerCloseReason,
+} from "../../../extensions/whatsapp/src/inbound/types.js";
 import { hasControlCommand } from "../../auto-reply/command-detection.js";
 import { loadConfig } from "../../config/config.js";
-import readline from "node:readline";
 
 type InitMessage = {
   type: "init";
@@ -58,6 +61,7 @@ async function handleInit(msg: InitMessage) {
       return !hasControlCommand(m.body, cfg);
     };
     listener = await monitorWebInbox({
+      cfg,
       verbose: msg.options.verbose,
       accountId: msg.options.accountId,
       authDir: msg.options.authDir,
@@ -71,11 +75,13 @@ async function handleInit(msg: InitMessage) {
       },
     });
 
-    listener.onClose.then((reason) => {
-      send({ type: "close", reason });
-    }).catch((err) => {
-      send({ type: "error", error: encodeError(err) });
-    });
+    listener.onClose
+      .then((reason) => {
+        send({ type: "close", reason });
+      })
+      .catch((err) => {
+        send({ type: "error", error: encodeError(err) });
+      });
 
     send({ type: "ready" });
   } catch (err) {

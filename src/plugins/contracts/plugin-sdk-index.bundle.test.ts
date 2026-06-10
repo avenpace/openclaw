@@ -1,3 +1,4 @@
+// Plugin SDK bundle index tests cover bundled SDK export inventory and packaging.
 import fs from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
@@ -101,7 +102,7 @@ describe("plugin-sdk bundled exports", () => {
         }),
       )
     ).filter((filePath): filePath is string => filePath !== null);
-    expect(filesWithBareMatrixSdkImports).toEqual([]);
+    expect(filesWithBareMatrixSdkImports).toStrictEqual([]);
 
     // Export list and package-specifier coverage already live in
     // plugin-sdk-package-contract-guardrails.test.ts and plugin-sdk-subpaths.test.ts. Keep this file

@@ -1,3 +1,4 @@
+// Irc tests cover protocol plugin behavior.
 import { describe, expect, it } from "vitest";
 import {
   parseIrcLine,
@@ -43,6 +44,6 @@ describe("irc protocol", () => {
       chunks
         .map((chunk, index) => ({ index, length: chunk.length }))
         .filter((chunk) => chunk.length > 120),
-    ).toEqual([]);
+    ).toStrictEqual([]);
   });
 });

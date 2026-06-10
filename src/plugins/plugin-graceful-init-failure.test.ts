@@ -1,3 +1,4 @@
+// Verifies graceful plugin init failure handling and reporting.
 import fs from "node:fs";
 import path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
@@ -6,6 +7,7 @@ import { cleanupTrackedTempDirs, makeTrackedTempDir } from "./test-helpers/fs-fi
 const fixtureTempDirs: string[] = [];
 const fixtureRoot = makeTrackedTempDir("openclaw-plugin-graceful", fixtureTempDirs);
 let tempDirIndex = 0;
+const { loadOpenClawPlugins, clearPluginLoaderCache } = await import("./loader.js");
 
 afterAll(() => {
   cleanupTrackedTempDirs(fixtureTempDirs);
@@ -48,7 +50,6 @@ function readPluginId(pluginPath: string): string {
 }
 
 async function loadPlugins(pluginPaths: string[], warnings?: string[]) {
-  const { loadOpenClawPlugins, clearPluginLoaderCache } = await import("./loader.js");
   clearPluginLoaderCache();
   const allow = pluginPaths.map((pluginPath) => readPluginId(pluginPath));
   return loadOpenClawPlugins({
@@ -60,12 +61,15 @@ async function loadPlugins(pluginPaths: string[], warnings?: string[]) {
         allow,
       },
     },
+    installRecords: {},
     logger: {
       info: () => {},
       debug: () => {},
       error: () => {},
       warn: (message: string) => warnings?.push(message),
     },
+    onlyPluginIds: allow,
+    workspaceDir: fixtureRoot,
   });
 }
 
@@ -89,7 +93,7 @@ function requireWarning(warnings: string[], text: string): string {
 }
 
 describe("graceful plugin initialization failure", () => {
-  it("does not crash when register throws", async () => {
+  it("marks plugin entry errored when register throws", async () => {
     const plugin = writePlugin({
       id: "throws-on-register",
       body: `module.exports = { id: "throws-on-register", register() { throw new Error("config schema mismatch"); } };`,
@@ -163,6 +167,7 @@ describe("graceful plugin initialization failure", () => {
     const summary = requireWarning(warnings, "failed to initialize");
     expect(summary).toContain("register: warn-register");
     expect(summary).toContain("validation: warn-validation");
+    expect(summary).toContain("openclaw plugins inspect <id> --runtime --json");
     expect(summary).toContain("openclaw plugins list");
   });
 });

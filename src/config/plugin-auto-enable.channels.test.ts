@@ -1,3 +1,4 @@
+// Covers channel-driven plugin auto-enable decisions.
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -186,7 +187,7 @@ describe("applyPluginAutoEnable channels", () => {
         plugins: { entries: { "apn-channel": { enabled: true } } },
       });
 
-      expect(result.changes).toEqual([]);
+      expect(result.changes).toStrictEqual([]);
     });
 
     it("respects explicit disable of the plugin by its plugin id", () => {
@@ -195,7 +196,7 @@ describe("applyPluginAutoEnable channels", () => {
       });
 
       expect(result.config.plugins?.entries?.["apn-channel"]?.enabled).toBe(false);
-      expect(result.changes).toEqual([]);
+      expect(result.changes).toStrictEqual([]);
     });
 
     it("prefers an external plugin that declares preferOver for a bundled channel", () => {
@@ -317,7 +318,7 @@ describe("applyPluginAutoEnable channels", () => {
 
       expect(result.config.plugins?.entries?.["unknown-chan"]).toBeUndefined();
       expect(result.config.plugins?.allow).toBeUndefined();
-      expect(result.changes).toEqual([]);
+      expect(result.changes).toStrictEqual([]);
     });
   });
 

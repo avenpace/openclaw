@@ -1,3 +1,6 @@
+/**
+ * Gateway health endpoint integration tests.
+ */
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { emitAgentEvent } from "../infra/agent-events.js";
@@ -167,7 +170,7 @@ describe("gateway server health/presence", () => {
     await localHarness.close();
     const evt = await shutdownP;
     const evtPayload = evt.payload as { reason?: unknown } | undefined;
-    expect(evtPayload?.reason).toEqual(expect.any(String));
+    expect(evtPayload?.reason).toBe("gateway stopping");
   });
 
   test(

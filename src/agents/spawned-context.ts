@@ -1,6 +1,11 @@
+/**
+ * Spawned run metadata helpers.
+ *
+ * Projects tool runtime context into persisted lineage, group routing, workspace, and inherited policy metadata.
+ */
+import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { normalizeAgentId, parseAgentSessionKey } from "../routing/session-key.js";
-import { normalizeOptionalString } from "../shared/string-coerce.js";
 import { resolveAgentWorkspaceDir } from "./agent-scope.js";
 
 export type SpawnedRunMetadata = {
@@ -25,6 +30,8 @@ export type SpawnedToolContext = {
   cwd?: string;
   // Platform: inherited skill count for exec gating
   installedSkillCount?: number;
+  inheritedToolAllowlist?: string[];
+  inheritedToolDenylist?: string[];
 };
 
 type NormalizedSpawnedRunMetadata = {
@@ -46,6 +53,7 @@ function normalizeOptionalNumber(value?: number | null): number | undefined {
   return value;
 }
 
+/** Normalize optional spawn metadata fields from persisted or tool-provided input. */
 export function normalizeSpawnedRunMetadata(
   value?: SpawnedRunMetadata | null,
 ): NormalizedSpawnedRunMetadata {
@@ -60,6 +68,7 @@ export function normalizeSpawnedRunMetadata(
   };
 }
 
+/** Project tool runtime context down to the persisted spawned-run metadata shape. */
 export function mapToolContextToSpawnedRunMetadata(
   value?: SpawnedToolContext | null,
 ): Pick<
@@ -76,6 +85,7 @@ export function mapToolContextToSpawnedRunMetadata(
   };
 }
 
+/** Resolve which workspace a spawned run should inherit. */
 export function resolveSpawnedWorkspaceInheritance(params: {
   config: OpenClawConfig;
   targetAgentId?: string;
@@ -95,6 +105,7 @@ export function resolveSpawnedWorkspaceInheritance(params: {
   return agentId ? resolveAgentWorkspaceDir(params.config, normalizeAgentId(agentId)) : undefined;
 }
 
+/** Return a spawned run's ingress workspace override only for child runs. */
 export function resolveIngressWorkspaceOverrideForSpawnedRun(
   metadata?: Pick<SpawnedRunMetadata, "spawnedBy" | "workspaceDir"> | null,
 ): string | undefined {

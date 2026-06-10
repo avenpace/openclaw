@@ -1,3 +1,4 @@
+// Verifies bundled plugin directory resolution.
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -302,6 +303,21 @@ describe("resolveBundledPluginsDir", () => {
     });
   });
 
+  it("uses source extensions in pnpm workspace mirrors without git metadata", () => {
+    const repoRoot = createOpenClawRoot({
+      prefix: "openclaw-bundled-dir-source-mirror-",
+      hasExtensions: true,
+      hasSrc: true,
+      hasPnpmWorkspace: true,
+    });
+    seedBundledPluginTree(repoRoot, "extensions", "memory-core");
+
+    expectResolvedBundledDirFromRoot({
+      repoRoot,
+      expectedRelativeDir: "extensions",
+    });
+  });
+
   it("keeps built bundled plugins for git-looking trees without pnpm workspace metadata", () => {
     const repoRoot = createOpenClawRoot({
       prefix: "openclaw-bundled-dir-git-no-pnpm-",
@@ -335,7 +351,8 @@ describe("resolveBundledPluginsDir", () => {
 
     expect(resolveSourceCheckoutDependencyDiagnostic()).toEqual({
       source: repoRoot,
-      message: expect.stringContaining("run `pnpm install`"),
+      message:
+        "OpenClaw source checkout detected without pnpm workspace dependencies; run `pnpm install` from the repo root so bundled plugins can load package-local dependencies.",
     });
 
     process.env.OPENCLAW_DISABLE_BUNDLED_PLUGINS = "1";
@@ -361,7 +378,7 @@ describe("resolveBundledPluginsDir", () => {
     const bundledDir = requireBundledDir(resolveBundledPluginsDir());
 
     expect(fs.existsSync(bundledDir)).toBe(true);
-    expect(fs.readdirSync(bundledDir)).toEqual([]);
+    expect(fs.readdirSync(bundledDir)).toStrictEqual([]);
   });
 
   it("separates tilde override cache entries by OPENCLAW_HOME", () => {

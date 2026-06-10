@@ -1,3 +1,4 @@
+// Covers agent event sequencing and run context cleanup.
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import {
   clearAgentRunContext,
@@ -28,6 +29,44 @@ describe("agent-events sequencing", () => {
     expect(getAgentRunContext("run-1")?.sessionKey).toBe("main");
     clearAgentRunContext("run-1");
     expect(getAgentRunContext("run-1")).toBeUndefined();
+  });
+
+  test("stamps the owning sessionId onto lifecycle events for reset-stale guarding (#88538)", () => {
+    registerAgentRunContext("run-1", { sessionKey: "main", sessionId: "old-session-id" });
+    const seen: Array<{ stream: string; sessionId?: string }> = [];
+    const stop = onAgentEvent((evt) => {
+      if (evt.runId === "run-1") {
+        seen.push({ stream: evt.stream, sessionId: evt.sessionId });
+      }
+    });
+
+    emitAgentEvent({ runId: "run-1", stream: "lifecycle", data: { phase: "error" } });
+    emitAgentEvent({ runId: "run-1", stream: "item", data: {} });
+
+    stop();
+
+    expect(seen.find((evt) => evt.stream === "lifecycle")?.sessionId).toBe("old-session-id");
+    // Only lifecycle events carry the sessionId; other streams stay unstamped.
+    expect(seen.find((evt) => evt.stream === "item")?.sessionId).toBeUndefined();
+  });
+
+  test("refreshes the stamped sessionId when run context is re-registered (#88538)", () => {
+    registerAgentRunContext("run-1", { sessionKey: "main", sessionId: "start-id" });
+    // Callers that already persisted a rotation can re-register the new owner.
+    registerAgentRunContext("run-1", { sessionId: "rotated-id" });
+    let stamped: string | undefined;
+    const stop = onAgentEvent((evt) => {
+      if (evt.runId === "run-1" && evt.stream === "lifecycle") {
+        stamped = evt.sessionId;
+      }
+    });
+
+    emitAgentEvent({ runId: "run-1", stream: "lifecycle", data: { phase: "end" } });
+
+    stop();
+    // Terminal event carries the rotated id, so persistence won't treat the
+    // run as stale against the row it rotated to.
+    expect(stamped).toBe("rotated-id");
   });
 
   test("maintains monotonic seq per runId", () => {
@@ -152,13 +191,12 @@ describe("agent-events sequencing", () => {
       lastActiveAt: 12_345,
     });
 
-    expect(getAgentRunContext("run-ctx")).toMatchObject({
-      sessionKey: "session-main",
-      verboseLevel: "full",
-      isHeartbeat: true,
-      isControlUiVisible: true,
-      lastActiveAt: 12_345,
-    });
+    const context = getAgentRunContext("run-ctx");
+    expect(context?.sessionKey).toBe("session-main");
+    expect(context?.verboseLevel).toBe("full");
+    expect(context?.isHeartbeat).toBe(true);
+    expect(context?.isControlUiVisible).toBe(true);
+    expect(context?.lastActiveAt).toBe(12_345);
   });
 
   test("falls back to registered sessionKey when event sessionKey is blank", () => {
@@ -189,13 +227,13 @@ describe("agent-events sequencing", () => {
       seen.push(evt.runId);
     });
 
-    expect(() =>
+    expect(
       emitAgentEvent({
         runId: "run-safe",
         stream: "assistant",
         data: { text: "hi" },
       }),
-    ).not.toThrow();
+    ).toBeUndefined();
 
     stopGood();
     stopBad();
@@ -232,7 +270,7 @@ describe("agent-events sequencing", () => {
 
     stop();
 
-    expect(second.getAgentRunContext("run-dup")).toMatchObject({ sessionKey: "session-dup" });
+    expect(second.getAgentRunContext("run-dup")?.sessionKey).toBe("session-dup");
     expect(seen).toEqual([
       { seq: 1, sessionKey: "session-dup" },
       { seq: 2, sessionKey: "session-dup" },
@@ -256,7 +294,7 @@ describe("agent-events sequencing", () => {
     stop.mockReturnValue(1_000);
     expect(sweepStaleRunContexts(500)).toBe(1);
     expect(getAgentRunContext("run-stale")).toBeUndefined();
-    expect(getAgentRunContext("run-active")).toMatchObject({ sessionKey: "session-active" });
+    expect(getAgentRunContext("run-active")?.sessionKey).toBe("session-active");
 
     const seen: Array<{ runId: string; seq: number }> = [];
     const unsubscribe = onAgentEvent((evt) => {
