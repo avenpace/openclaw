@@ -136,7 +136,7 @@ export async function createWaSocket(
     onQr?: (qr: string) => void;
     encryptionKey?: Buffer;
     codePairing?: boolean;
-  } = {},
+  } & WhatsAppSocketTimingOptions = {},
 ): Promise<ReturnType<typeof makeWASocket>> {
   const baseLogger = getChildLogger(
     { module: "baileys" },

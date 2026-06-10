@@ -59,6 +59,8 @@ export const WHATSAPP_GROUP_METADATA_CACHE_MAX_ENTRIES = 500;
 type WhatsAppGroupMetadataCacheEntry = {
   subject?: string;
   expires: number;
+  participants?: string[];
+  mentionParticipants?: WhatsAppOutboundMentionParticipant[];
 };
 export type WhatsAppGroupMetadataCache = Map<string, WhatsAppGroupMetadataCacheEntry>;
 type LocalGroupMetadataCacheEntry = WhatsAppGroupMetadataCacheEntry & {
@@ -138,6 +140,7 @@ type MonitorWebInboxOptions = {
   verbose: boolean;
   accountId: string;
   authDir: string;
+  groupMetadataCache?: WhatsAppGroupMetadataCache;
   onMessage: (msg: WebInboundMessage) => Promise<void>;
   mediaMaxMb?: number;
   /** Keep the global presence unavailable so self-chat sessions do not mute phone pushes. */
