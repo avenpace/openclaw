@@ -67,7 +67,7 @@ export async function processObservation(
 }> {
   const cfg = { ...DEFAULT_CONFIG, ...config };
 
-  log.debug("Processing observation:", observation.tool, observation.action);
+  log.debug(`Processing observation: ${observation.tool} ${observation.action}`);
 
   // Step 1: Extract pattern from observation
   const extracted = extractPattern(observation);
@@ -83,7 +83,7 @@ export async function processObservation(
   // Step 3: Determine update action
   const decision = determineUpdateAction(extracted, similar, observation, cfg);
 
-  log.debug("Update decision:", decision.action);
+  log.debug(`Update decision: ${decision.action}`);
 
   // Step 4: Execute the decision
   const pattern = await executeDecision(decision, extracted, observation, store);
@@ -258,7 +258,7 @@ async function checkAndPromote(pattern: BehavioralPattern, store: BehavioralStor
   );
 
   if (shouldPromote) {
-    log.info("Promoting pattern to global:", pattern.id);
+    log.info(`Promoting pattern to global: ${pattern.id}`);
     store.promoteToGlobal(pattern);
   }
 }

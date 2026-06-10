@@ -82,7 +82,8 @@ Memory is bounded (2,200 chars) - be concise. Entries are delimited by §.
 IMPORTANT: Only store factual, useful information. Avoid duplicates.
 Check if information already exists before adding.`,
     parameters: HermesMemoryUpdateSchema,
-    execute: async (_toolCallId, params) => {
+    execute: async (_toolCallId, rawParams) => {
+      const params = rawParams as Record<string, unknown>;
       try {
         const action = readStringParam(params, "action", { required: true }) as
           | "add"
@@ -134,7 +135,8 @@ export function createHermesMemoryReadTool(handler: HermesMemoryHandler): AnyAge
 Use before adding new information to avoid duplicates.
 Returns the raw content of the specified memory store.`,
     parameters: HermesMemoryReadSchema,
-    execute: async (_toolCallId, params) => {
+    execute: async (_toolCallId, rawParams) => {
+      const params = rawParams as Record<string, unknown>;
       try {
         const target = readStringParam(params, "target", { required: true }) as "memory" | "user";
         const content = await handler.getMemory(target);

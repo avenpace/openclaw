@@ -395,10 +395,7 @@ function detectImplicitProfileGrants(params: {
     `[policy] resolveImplicitProfileAlsoAllow: hasAgentFs=${hasAgentFs}, hasGlobalFs=${hasGlobalFs}, globalTools.fs=${JSON.stringify(params.globalTools?.fs)}`,
   );
   if (hasAgentFs || hasGlobalFs) {
-    implicit.add("read");
-    implicit.add("write");
-    implicit.add("edit");
-    console.log(`[policy] Added read/write/edit to implicit alsoAllow`);
+    entries.push({ section: "tools.fs", grants: ["read", "write", "edit"] });
   }
   if (entries.length === 0) {
     return undefined;

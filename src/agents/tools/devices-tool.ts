@@ -181,7 +181,8 @@ Common uses:
 
 IMPORTANT: After finding a file path, use devices_send_file to send it to the user.`,
     parameters: DevicesRunSchema,
-    execute: async (_toolCallId, params) => {
+    execute: async (_toolCallId, rawParams) => {
+      const params = rawParams as Record<string, unknown>;
       try {
         const device = readStringParam(params, "device", { required: true });
         const command = readStringParam(params, "command", { required: true });
@@ -214,7 +215,8 @@ export function createDevicesJobStatusTool(handler: DevicesHandler): AnyAgentToo
     name: "devices_job_status",
     description: "Check the status of a command that was sent to a device. Returns the current status and result if completed.",
     parameters: DevicesJobStatusSchema,
-    execute: async (_toolCallId, params) => {
+    execute: async (_toolCallId, rawParams) => {
+      const params = rawParams as Record<string, unknown>;
       try {
         const jobId = readStringParam(params, "jobId", { required: true });
         const result = await handler.getJobStatus(jobId);
@@ -256,7 +258,8 @@ Example: To send ~/Desktop/report.pdf via WhatsApp:
 1. Call devices_upload with filePath="~/Desktop/report.pdf"
 2. Call message with action="send", media="<returned path>", message="Here's the file"`,
     parameters: DevicesUploadSchema,
-    execute: async (_toolCallId, params) => {
+    execute: async (_toolCallId, rawParams) => {
+      const params = rawParams as Record<string, unknown>;
       try {
         const device = readStringParam(params, "device", { required: true });
         const filePath = readStringParam(params, "filePath", { required: true });
@@ -310,7 +313,8 @@ Examples:
 - "send me report.pdf" → devices_send_file(filePath="~/Desktop/report.pdf")
 - "send the cita file" → first find it with devices_run, then send with devices_send_file`,
     parameters: DevicesSendFileSchema,
-    execute: async (_toolCallId, params) => {
+    execute: async (_toolCallId, rawParams) => {
+      const params = rawParams as Record<string, unknown>;
       try {
         const device = readStringParam(params, "device"); // Optional - uses default if not provided
         const filePath = readStringParam(params, "filePath", { required: true });
@@ -369,7 +373,8 @@ Parameters:
 - searchPath: Where to search (default: ~/Desktop, can use ~/Documents, ~/, etc.)
 - caption: Optional message to send with the file`,
     parameters: DevicesFindAndSendSchema,
-    execute: async (_toolCallId, params) => {
+    execute: async (_toolCallId, rawParams) => {
+      const params = rawParams as Record<string, unknown>;
       try {
         const searchPattern = readStringParam(params, "searchPattern", { required: true });
         const searchPath = readStringParam(params, "searchPath");

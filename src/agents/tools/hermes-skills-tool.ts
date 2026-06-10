@@ -106,7 +106,8 @@ Use this for:
 
 Skills are automatically loaded when trigger keywords match.`,
     parameters: HermesSkillCreateSchema,
-    execute: async (_toolCallId, params) => {
+    execute: async (_toolCallId, rawParams) => {
+      const params = rawParams as Record<string, unknown>;
       try {
         const name = readStringParam(params, "name", { required: true });
         const content = readStringParam(params, "content", { required: true });
@@ -147,7 +148,8 @@ export function createHermesSkillEditTool(handler: HermesSkillsHandler): AnyAgen
 
 Use hermes_skill_get first to read current content, then modify and save.`,
     parameters: HermesSkillEditSchema,
-    execute: async (_toolCallId, params) => {
+    execute: async (_toolCallId, rawParams) => {
+      const params = rawParams as Record<string, unknown>;
       try {
         const name = readStringParam(params, "name", { required: true });
         const content = readStringParam(params, "content", { required: true });
@@ -173,7 +175,8 @@ export function createHermesSkillDeleteTool(handler: HermesSkillsHandler): AnyAg
 
 Use hermes_skill_list to see available skills first.`,
     parameters: HermesSkillDeleteSchema,
-    execute: async (_toolCallId, params) => {
+    execute: async (_toolCallId, rawParams) => {
+      const params = rawParams as Record<string, unknown>;
       try {
         const name = readStringParam(params, "name", { required: true });
         const result = await handler.deleteSkill({ name });
@@ -224,7 +227,8 @@ export function createHermesSkillGetTool(handler: HermesSkillsHandler): AnyAgent
 
 Use before editing to see current content.`,
     parameters: HermesSkillGetSchema,
-    execute: async (_toolCallId, params) => {
+    execute: async (_toolCallId, rawParams) => {
+      const params = rawParams as Record<string, unknown>;
       try {
         const name = readStringParam(params, "name", { required: true });
         const result = await handler.getSkill(name);

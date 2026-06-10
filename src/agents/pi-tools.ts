@@ -380,6 +380,10 @@ export function createOpenClawCodingTools(options?: {
   onYield?: (message: string) => Promise<void> | void;
   /** Handler for browser control via remote extension (e.g., Clawku). */
   browserHandler?: BrowserHandler;
+  /** Optional callback to record tool-preparation stage progress. */
+  recordToolPrepStage?: (stage: string) => void;
+  /** Optional observer invoked with tool-call outcomes. */
+  onToolOutcome?: ToolOutcomeObserver;
 }): AnyAgentTool[] {
   const execToolName = "exec";
   const sandbox = options?.sandbox?.enabled ? options.sandbox : undefined;

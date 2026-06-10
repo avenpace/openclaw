@@ -7,6 +7,7 @@ import type {
 } from "../../auto-reply/thinking.js";
 import { resolveUserTimezone, resolveUserTimeFormat, formatUserTime } from "../date-time.js";
 import { loadConfig } from "../../config/config.js";
+import { getRuntimeConfig } from "../../config/io.js";
 import {
   loadSessionStore,
   mergeSessionEntry,

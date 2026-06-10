@@ -348,7 +348,8 @@ Use this to:
 - Find a file by browsing folders
 - Check file details before reading or sharing`,
     parameters: CloudListFilesSchema,
-    execute: async (_toolCallId, params) => {
+    execute: async (_toolCallId, rawParams) => {
+      const params = rawParams as Record<string, unknown>;
       try {
         const folderId = readStringParam(params, "folderId");
         const limit = readNumberParam(params, "limit", { integer: true }) ?? 20;
@@ -395,7 +396,8 @@ export function createCloudListFoldersTool(handler: CloudStorageHandler): AnyAge
     name: "cloud_list_folders",
     description: "List folders in the user's cloud storage. Use to navigate the folder structure.",
     parameters: CloudListFoldersSchema,
-    execute: async (_toolCallId, params) => {
+    execute: async (_toolCallId, rawParams) => {
+      const params = rawParams as Record<string, unknown>;
       try {
         const parentId = readStringParam(params, "parentId");
         const result = await handler.listFolders(parentId === "root" ? null : parentId);
@@ -432,7 +434,8 @@ export function createCloudGetFileTool(handler: CloudStorageHandler): AnyAgentTo
     description:
       "Get detailed information about a specific file in cloud storage, including download URL.",
     parameters: CloudGetFileSchema,
-    execute: async (_toolCallId, params) => {
+    execute: async (_toolCallId, rawParams) => {
+      const params = rawParams as Record<string, unknown>;
       try {
         const fileId = readStringParam(params, "fileId", { required: true });
         const result = await handler.getFile(fileId);
@@ -473,7 +476,8 @@ Does NOT work with: binary files like images, PDFs, videos, archives.
 
 Use cloud_get_file first to check the file type if unsure.`,
     parameters: CloudReadFileSchema,
-    execute: async (_toolCallId, params) => {
+    execute: async (_toolCallId, rawParams) => {
+      const params = rawParams as Record<string, unknown>;
       try {
         const fileId = readStringParam(params, "fileId", { required: true });
         const result = await handler.readFileContent(fileId);
@@ -512,7 +516,8 @@ Use this to:
 
 The content is uploaded as a text file. Set isPublic=true to get a shareable URL.`,
     parameters: CloudUploadSchema,
-    execute: async (_toolCallId, params) => {
+    execute: async (_toolCallId, rawParams) => {
+      const params = rawParams as Record<string, unknown>;
       try {
         const filename = readStringParam(params, "filename", { required: true });
         const content = readStringParam(params, "content", { required: true, allowEmpty: true });
@@ -560,7 +565,8 @@ Use this to:
 
 The content must be base64-encoded. Set isPublic=true to get a shareable URL.`,
     parameters: CloudUploadBase64Schema,
-    execute: async (_toolCallId, params) => {
+    execute: async (_toolCallId, rawParams) => {
+      const params = rawParams as Record<string, unknown>;
       try {
         const filename = readStringParam(params, "filename", { required: true });
         const contentBase64 = readStringParam(params, "contentBase64", { required: true });
@@ -605,7 +611,8 @@ export function createCloudExtractTextTool(handler: CloudStorageHandler): AnyAge
 Works with: PDF, DOCX, XLSX, PPTX, TXT, MD, CSV, JSON.
 Use cloud_get_file first if unsure about file type.`,
     parameters: CloudExtractTextSchema,
-    execute: async (_toolCallId, params) => {
+    execute: async (_toolCallId, rawParams) => {
+      const params = rawParams as Record<string, unknown>;
       try {
         const fileId = readStringParam(params, "fileId", { required: true });
         const maxChars = readNumberParam(params, "maxChars", { integer: true }) ?? 50000;
@@ -646,7 +653,8 @@ Use this to:
 
 Provide content based on the document type.`,
     parameters: CloudCreateDocumentSchema,
-    execute: async (_toolCallId, params) => {
+    execute: async (_toolCallId, rawParams) => {
+      const params = rawParams as Record<string, unknown>;
       try {
         const type = readStringParam(params, "type", { required: true }) as
           | "docx"
@@ -700,7 +708,8 @@ export function createCloudDeleteFileTool(handler: CloudStorageHandler): AnyAgen
     name: "cloud_delete_file",
     description: "Delete a file from cloud storage. This action cannot be undone.",
     parameters: CloudDeleteFileSchema,
-    execute: async (_toolCallId, params) => {
+    execute: async (_toolCallId, rawParams) => {
+      const params = rawParams as Record<string, unknown>;
       try {
         const fileId = readStringParam(params, "fileId", { required: true });
         await handler.deleteFile(fileId);
@@ -732,7 +741,8 @@ Examples:
 - Move to folder: cloud_update_file(fileId="abc", folderId="folder-id")
 - Move to root: cloud_update_file(fileId="abc", folderId="root")`,
     parameters: CloudUpdateFileSchema,
-    execute: async (_toolCallId, params) => {
+    execute: async (_toolCallId, rawParams) => {
+      const params = rawParams as Record<string, unknown>;
       try {
         const fileId = readStringParam(params, "fileId", { required: true });
         const filename = readStringParam(params, "filename");
@@ -766,7 +776,8 @@ export function createCloudCreateFolderTool(handler: CloudStorageHandler): AnyAg
     name: "cloud_create_folder",
     description: "Create a new folder in cloud storage to organize files.",
     parameters: CloudCreateFolderSchema,
-    execute: async (_toolCallId, params) => {
+    execute: async (_toolCallId, rawParams) => {
+      const params = rawParams as Record<string, unknown>;
       try {
         const name = readStringParam(params, "name", { required: true });
         const parentId = readStringParam(params, "parentId");
@@ -796,7 +807,8 @@ export function createCloudDeleteFolderTool(handler: CloudStorageHandler): AnyAg
     name: "cloud_delete_folder",
     description: "Delete a folder and all files inside it. This action cannot be undone.",
     parameters: CloudDeleteFolderSchema,
-    execute: async (_toolCallId, params) => {
+    execute: async (_toolCallId, rawParams) => {
+      const params = rawParams as Record<string, unknown>;
       try {
         const folderId = readStringParam(params, "folderId", { required: true });
         await handler.deleteFolder(folderId);
@@ -824,7 +836,8 @@ export function createCloudShareFileTool(handler: CloudStorageHandler): AnyAgent
 
 The returned URL can be shared via messaging, email, etc.`,
     parameters: CloudShareFileSchema,
-    execute: async (_toolCallId, params) => {
+    execute: async (_toolCallId, rawParams) => {
+      const params = rawParams as Record<string, unknown>;
       try {
         const fileId = readStringParam(params, "fileId", { required: true });
 
@@ -870,7 +883,8 @@ Supported conversions:
 
 Use this when users want to convert files between formats (e.g., "convert this PDF to Word").`,
     parameters: CloudConvertDocumentSchema,
-    execute: async (_toolCallId, params) => {
+    execute: async (_toolCallId, rawParams) => {
+      const params = rawParams as Record<string, unknown>;
       try {
         const fileId = readStringParam(params, "fileId", { required: true });
         const targetType = readStringParam(params, "targetType", { required: true }) as
@@ -934,7 +948,8 @@ Example workflow:
 1. cloud_convert_document fileId="abc" targetType="docx"
 2. cloud_send_file fileId="<newFileId>" caption="Here's your converted document"`,
     parameters: CloudSendFileSchema,
-    execute: async (_toolCallId, params) => {
+    execute: async (_toolCallId, rawParams) => {
+      const params = rawParams as Record<string, unknown>;
       try {
         const fileId = readStringParam(params, "fileId", { required: true });
         const caption = readStringParam(params, "caption");

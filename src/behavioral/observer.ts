@@ -96,7 +96,7 @@ export class BehavioralObserver {
     const toolName = normalizeToolName(event.toolName);
 
     if (!this.shouldObserve(toolName)) {
-      log.debug("Skipping observation for tool:", toolName);
+      log.debug(`Skipping observation for tool: ${toolName}`);
       return;
     }
 
@@ -122,7 +122,7 @@ export class BehavioralObserver {
         log.debug(`Processed observation: tool=${toolName} action=${result.decision.action}`);
       }
     } catch (err) {
-      log.warn("Failed to process observation:", err);
+      log.warn("Failed to process observation", { error: err });
     }
   }
 
@@ -280,7 +280,7 @@ export class BehavioralObserver {
     try {
       await processObservation(observation, this.store, this.config.updateCycleConfig);
     } catch (err) {
-      log.warn("Failed to record observation:", err);
+      log.warn("Failed to record observation", { error: err });
     }
   }
 

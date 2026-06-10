@@ -8,10 +8,12 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import type { DatabaseSync } from "node:sqlite";
+import type { DatabaseSync, SQLInputValue } from "node:sqlite";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
-import { loadSqliteVecExtension } from "../../memory/sqlite-vec.js";
-import { requireNodeSqlite } from "../../memory/sqlite.js";
+import {
+  loadSqliteVecExtension,
+  requireNodeSqlite,
+} from "../../../packages/memory-host-sdk/src/engine-storage.js";
 import type {
   BehavioralPattern,
   BehavioralStoreConfig,
@@ -65,25 +67,25 @@ export class BehavioralStore {
     initBehavioralSchema(this.db);
 
     // Try to load vector extension
-    this.initVectorSupport();
+    void this.initVectorSupport();
 
     // Start periodic cleanup
     this.startCleanupTimer();
 
-    log.info("BehavioralStore initialized at", this.config.dbPath);
+    log.info(`BehavioralStore initialized at ${this.config.dbPath}`);
   }
 
-  private initVectorSupport(): void {
+  private async initVectorSupport(): Promise<void> {
     try {
-      const extensionPath = loadSqliteVecExtension(this.db);
-      if (extensionPath) {
+      const vecResult = await loadSqliteVecExtension({ db: this.db });
+      if (vecResult.ok) {
         this.vectorEnabled = initBehavioralVectorTable(this.db, this.config.embeddingDims);
         if (this.vectorEnabled) {
           log.info("Vector similarity search enabled");
         }
       }
     } catch (err) {
-      log.warn("Vector support not available:", err);
+      log.warn("Vector support not available", { error: err });
     }
   }
 
@@ -134,7 +136,7 @@ export class BehavioralStore {
       try {
         void handler(event);
       } catch (err) {
-        log.warn("Event handler error:", err);
+        log.warn("Event handler error", { error: err });
       }
     }
   }
@@ -203,7 +205,7 @@ export class BehavioralStore {
     }
 
     this.emitEvent({ type: "pattern_added", pattern });
-    log.debug("Added pattern:", pattern.id, pattern.description);
+    log.debug(`Added pattern: ${pattern.id} ${pattern.description}`);
 
     return pattern;
   }
@@ -337,7 +339,7 @@ export class BehavioralStore {
       }
 
       this.emitEvent({ type: "pattern_deleted", patternId, reason });
-      log.debug("Deleted pattern:", patternId, reason);
+      log.debug(`Deleted pattern: ${patternId} ${reason}`);
       return true;
     }
 
@@ -397,7 +399,7 @@ export class BehavioralStore {
       LIMIT ?
     `;
 
-    const rows = this.db.prepare(sql).all(...params) as BehavioralPatternRow[];
+    const rows = this.db.prepare(sql).all(...(params as SQLInputValue[])) as unknown as BehavioralPatternRow[];
     const patterns = rows.map((row) => this.rowToPattern(row));
 
     // Filter by context match
@@ -479,7 +481,7 @@ export class BehavioralStore {
         params = [embeddingStr, limit];
       }
 
-      const rows = this.db.prepare(sql).all(...params) as (BehavioralPatternRow & {
+      const rows = this.db.prepare(sql).all(...(params as SQLInputValue[])) as unknown as (BehavioralPatternRow & {
         distance: number;
       })[];
 
@@ -490,7 +492,7 @@ export class BehavioralStore {
         }))
         .filter((r) => r.similarity >= threshold);
     } catch (err) {
-      log.warn("Vector search failed:", err);
+      log.warn("Vector search failed", { error: err });
       return [];
     }
   }
@@ -621,7 +623,7 @@ export class BehavioralStore {
       .run(pattern.confidence, pattern.successCount, pattern.failureCount, globalPattern.id);
 
     this.emitEvent({ type: "pattern_promoted", pattern: globalPattern });
-    log.info("Promoted pattern to global:", globalPattern.id);
+    log.info(`Promoted pattern to global: ${globalPattern.id}`);
 
     return this.getPattern(globalPattern.id);
   }
@@ -640,7 +642,7 @@ export class BehavioralStore {
       `)
         .run(patternId, embeddingStr);
     } catch (err) {
-      log.warn("Failed to add pattern embedding:", err);
+      log.warn("Failed to add pattern embedding", { error: err });
     }
   }
 

@@ -915,7 +915,7 @@ export function createOpenAIWebSocketStreamFn(
         const fullTurnInput = {
           inputItems: convertMessagesToInputItems(context.messages, model),
         };
-        let fullPayload = buildOpenAIWebSocketResponseCreatePayload({
+        let payload = buildOpenAIWebSocketResponseCreatePayload({
           model,
           context,
           options: options as WsOptions | undefined,
@@ -937,7 +937,7 @@ export function createOpenAIWebSocketStreamFn(
           turnState?.metadata,
         );
         const plannedPayload = planOpenAIWebSocketRequestPayload({
-          fullPayload: fullPayload as ResponseCreateEvent,
+          fullPayload: payload as ResponseCreateEvent,
           previousRequestPayload: session.lastRequestPayload,
           previousResponseId: session.manager.previousResponseId,
           previousResponseInputItems: session.lastResponseInputItems,
@@ -1190,7 +1190,7 @@ export function createOpenAIWebSocketStreamFn(
                 emittedTextByPart.clear();
                 cleanup();
                 session.lastContextLength = capturedContextLength;
-                session.lastRequestPayload = fullPayload as ResponseCreateEvent;
+                session.lastRequestPayload = payload as ResponseCreateEvent;
                 session.lastResponseInputItems = convertResponseToInputItems(event.response, {
                   api: model.api,
                   provider: model.provider,

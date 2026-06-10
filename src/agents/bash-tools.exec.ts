@@ -1,5 +1,6 @@
 import path from "node:path";
 import type { AgentToolResult } from "@mariozechner/pi-agent-core";
+import { buildCommandPayloadCandidates } from "../infra/command-analysis/risks.js";
 import {
   EXTERNAL_CHANNEL_SAFE_BINS,
   WORKSPACE_RESTRICTED_BINS,

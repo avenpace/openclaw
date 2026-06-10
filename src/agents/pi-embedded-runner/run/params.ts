@@ -1,4 +1,5 @@
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
+import type { ToolProgressDetailMode } from "../../pi-embedded-subscribe.shared-types.js";
 import type { ImageContent } from "@mariozechner/pi-ai";
 import type { SourceReplyDeliveryMode } from "../../../auto-reply/get-reply-options.types.js";
 import type { ReplyPayload } from "../../../auto-reply/reply-payload.js";
@@ -25,6 +26,7 @@ import type { DevicesHandler } from "../../tools/devices-tool.js";
 import type { HermesMemoryHandler } from "../../tools/hermes-memory-tool.js";
 import type { HermesSkillsHandler } from "../../tools/hermes-skills-tool.js";
 import type { ImageResizeHandler } from "../../tools/image-resize-tool.js";
+import type { InstagramHandler } from "../../tools/instagram-tool.js";
 import type { SkillSnapshot } from "../../skills.js";
 import type { SilentReplyPromptMode } from "../../system-prompt.types.js";
 import type { PromptMode } from "../../system-prompt.types.js";
@@ -229,6 +231,8 @@ export type RunEmbeddedPiAgentParams = {
   hermesMemoryHandler?: HermesMemoryHandler;
   /** Handler for Hermes skills (autonomous skill creation and management). */
   hermesSkillsHandler?: HermesSkillsHandler;
+  /** Handler for Instagram management (login, post, reply, like, follow). */
+  instagramHandler?: InstagramHandler;
   /**
    * Treat a clean empty assistant stop as an intentional silent reply.
    * Only set when the caller's prompt policy already allows an exact NO_REPLY

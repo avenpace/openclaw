@@ -30,18 +30,18 @@ export function extractPattern(observation: ToolObservation): ExtractedPattern |
   const extractor = TOOL_EXTRACTORS[observation.tool];
 
   if (!extractor) {
-    log.debug("No extractor for tool:", observation.tool);
+    log.debug(`No extractor for tool: ${observation.tool}`);
     return null;
   }
 
   try {
     const pattern = extractor(observation);
     if (pattern) {
-      log.debug("Extracted pattern:", pattern.patternType, pattern.description);
+      log.debug(`Extracted pattern: ${pattern.patternType} ${pattern.description}`);
     }
     return pattern;
   } catch (err) {
-    log.warn("Pattern extraction failed:", err);
+    log.warn("Pattern extraction failed", { error: err });
     return null;
   }
 }

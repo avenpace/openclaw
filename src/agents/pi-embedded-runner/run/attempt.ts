@@ -126,6 +126,12 @@ import {
 } from "../../pi-tool-definition-adapter.js";
 import { createOpenClawCodingTools, resolveToolLoopDetectionConfig } from "../../pi-tools.js";
 import {
+  buildCurrentTurnPromptContextSuffix,
+  buildRuntimeContextSystemContext,
+  queueRuntimeContextForNextTurn,
+  resolveRuntimeContextPromptParts,
+} from "./runtime-context-prompt.js";
+import {
   resolveEffectiveToolPolicy,
   resolveGroupToolPolicy,
   resolveSubagentToolPolicyForSession,
@@ -346,6 +352,7 @@ import { createCloudStorageTools } from "../../tools/cloud-storage-tool.js";
 import { createDevicesTools } from "../../tools/devices-tool.js";
 import { createHermesMemoryTools } from "../../tools/hermes-memory-tool.js";
 import { createHermesSkillsTools } from "../../tools/hermes-skills-tool.js";
+import { createInstagramTools } from "../../tools/instagram-tool.js";
 import { getBuiltinImageResizeHandler } from "../../tools/image-resize-handler-builtin.js";
 import { createImageResizeTools } from "../../tools/image-resize-tool.js";
 import { createPhpTool, isPhpAvailable } from "../../tools/php-tool.js";
@@ -939,6 +946,12 @@ export async function runEmbeddedAttempt(
           // Enables autonomous skill creation and management
           if (params.hermesSkillsHandler) {
             allTools.push(...createHermesSkillsTools(params.hermesSkillsHandler));
+          }
+
+          // Add Instagram tools if handler is provided (platform-api injects this)
+          // Enables managing Instagram account via socmo-headless
+          if (params.instagramHandler) {
+            allTools.push(...createInstagramTools(params.instagramHandler));
           }
 
           // Add image resize tools - use provided handler or fall back to built-in Sharp handler

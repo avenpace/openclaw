@@ -21,12 +21,12 @@ export function initBehavioralSchema(db: DatabaseSync): void {
   // Check if schema already exists
   const existingVersion = getSchemaVersion(db);
   if (existingVersion === SCHEMA_VERSION) {
-    log.debug("Schema already at version", SCHEMA_VERSION);
+    log.debug(`Schema already at version ${SCHEMA_VERSION}`);
     return;
   }
 
   if (existingVersion > 0 && existingVersion < SCHEMA_VERSION) {
-    log.info("Migrating schema from version", existingVersion, "to", SCHEMA_VERSION);
+    log.info(`Migrating schema from version ${existingVersion} to ${SCHEMA_VERSION}`);
     migrateSchema(db, existingVersion);
     return;
   }
@@ -149,7 +149,7 @@ export function initBehavioralSchema(db: DatabaseSync): void {
     VALUES ('schema_version', '${SCHEMA_VERSION}');
   `);
 
-  log.info("Behavioral learning schema initialized at version", SCHEMA_VERSION);
+  log.info(`Behavioral learning schema initialized at version ${SCHEMA_VERSION}`);
 }
 
 /**
@@ -173,10 +173,10 @@ export function initBehavioralVectorTable(db: DatabaseSync, dims: number = 1536)
       );
     `);
 
-    log.info("Behavioral vector table initialized with", dims, "dimensions");
+    log.info(`Behavioral vector table initialized with ${dims} dimensions`);
     return true;
   } catch (err) {
-    log.warn("Failed to create vector table (sqlite-vec may not be loaded):", err);
+    log.warn("Failed to create vector table (sqlite-vec may not be loaded)", { error: err });
     return false;
   }
 }
@@ -219,9 +219,9 @@ export function cleanupOldObservations(db: DatabaseSync, maxAgeDays: number = 7)
   `)
     .run(maxAgeDays);
 
-  const deleted = result.changes;
+  const deleted = Number(result.changes);
   if (deleted > 0) {
-    log.info("Cleaned up", deleted, "old observations");
+    log.info(`Cleaned up ${deleted} old observations`);
   }
 
   return deleted;
@@ -248,9 +248,9 @@ export function decayPatternConfidence(
   `)
     .run(minConfidence, decayRate, minConfidence);
 
-  const updated = result.changes;
+  const updated = Number(result.changes);
   if (updated > 0) {
-    log.debug("Decayed confidence for", updated, "patterns");
+    log.debug(`Decayed confidence for ${updated} patterns`);
   }
 
   return updated;

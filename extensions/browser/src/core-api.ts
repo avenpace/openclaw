@@ -47,8 +47,6 @@ export {
   startBrowserControlServiceFromConfig,
   stopBrowserControlService,
   stopBrowserRuntime,
-  trackSessionBrowserTab,
-  untrackSessionBrowserTab,
 } from "./browser-runtime.js";
 export type {
   BrowserCreateProfileResult,
