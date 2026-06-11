@@ -124,12 +124,27 @@ function ensureCodexAppServerAuthProfileStore(params: {
   authProfileId?: string;
   config?: AuthProfileOrderConfig;
 }): ReturnType<typeof ensureAuthProfileStore> {
-  return ensureAuthProfileStore(params.agentDir, {
-    allowKeychainPrompt: false,
-    config: params.config,
-    externalCliProviderIds: CODEX_APP_SERVER_EXTERNAL_CLI_PROVIDER_IDS,
-    ...(params.authProfileId ? { externalCliProfileIds: [params.authProfileId] } : {}),
-  });
+  // Resolve the external-CLI codex credential from the PER-AGENT codex home so multi-tenant
+  // callers don't share one global ~/.codex. Safe because ensureAuthProfileStore is synchronous
+  // (no await), so the env mutation is atomic within Node's single thread.
+  const previousCodexHome = process.env.CODEX_HOME;
+  try {
+    if (params.agentDir) {
+      process.env.CODEX_HOME = resolveCodexAppServerHomeDir(params.agentDir);
+    }
+    return ensureAuthProfileStore(params.agentDir, {
+      allowKeychainPrompt: false,
+      config: params.config,
+      externalCliProviderIds: CODEX_APP_SERVER_EXTERNAL_CLI_PROVIDER_IDS,
+      ...(params.authProfileId ? { externalCliProfileIds: [params.authProfileId] } : {}),
+    });
+  } finally {
+    if (previousCodexHome === undefined) {
+      delete process.env.CODEX_HOME;
+    } else {
+      process.env.CODEX_HOME = previousCodexHome;
+    }
+  }
 }
 
 function resolveCodexAppServerAuthProfileStore(params: {

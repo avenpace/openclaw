@@ -2,6 +2,8 @@ import { normalizeLowercaseStringOrEmpty } from "@openclaw/normalization-core/st
 
 export function normalizeProviderId(provider: string): string {
   const normalized = normalizeLowercaseStringOrEmpty(provider);
+  // Upstream folded legacy openai-codex provider into openai.
+  if (normalized === "openai-codex") return "openai";
   if (normalized === "modelstudio" || normalized === "qwencloud") {
     return "qwen";
   }

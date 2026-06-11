@@ -1,3 +1,5 @@
+import { registerResolvedAgentDir } from "./agents/agent-dir-registry.js";
+import { saveAuthProfileStore } from "./agents/auth-profiles/store.js";
 // Public library facade for consumers embedding OpenClaw reply runtime APIs.
 import { DEFAULT_MODEL, DEFAULT_PROVIDER } from "./agents/defaults.js";
 import { runEmbeddedAgent as runEmbeddedPiAgent } from "./agents/embedded-agent-runner/run.js";
@@ -160,6 +162,8 @@ export {
   resolveSessionKey,
   resolveStorePath,
   runEmbeddedPiAgent,
+  registerResolvedAgentDir,
+  saveAuthProfileStore,
   saveSessionStore,
   sendMessageWhatsApp,
   setConfigOverride,

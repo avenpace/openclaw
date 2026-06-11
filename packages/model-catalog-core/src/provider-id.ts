@@ -4,7 +4,9 @@ export function normalizeLowercaseStringOrEmpty(value: unknown): string {
 }
 
 export function normalizeProviderId(provider: string): string {
-  return normalizeLowercaseStringOrEmpty(provider);
+  const normalized = normalizeLowercaseStringOrEmpty(provider);
+  // Upstream folded the legacy openai-codex provider into openai.
+  return normalized === "openai-codex" ? "openai" : normalized;
 }
 
 /** Normalize provider ID before manifest-owned auth alias lookup. */

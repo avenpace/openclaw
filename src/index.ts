@@ -50,6 +50,8 @@ export let runCommandWithTimeout: LibraryExports["runCommandWithTimeout"];
 export let runExec: LibraryExports["runExec"];
 export let runEmbeddedPiAgent: LibraryExports["runEmbeddedPiAgent"];
 export let loadOpenClawPlugins: LibraryExports["loadOpenClawPlugins"];
+export let registerResolvedAgentDir: LibraryExports["registerResolvedAgentDir"];
+export let saveAuthProfileStore: LibraryExports["saveAuthProfileStore"];
 export let saveSessionStore: LibraryExports["saveSessionStore"];
 export let sendMessageWhatsApp: LibraryExports["sendMessageWhatsApp"];
 export let setConfigOverride: LibraryExports["setConfigOverride"];
@@ -117,6 +119,8 @@ if (!isMain) {
     runExec,
     runEmbeddedPiAgent,
     loadOpenClawPlugins,
+    registerResolvedAgentDir,
+    saveAuthProfileStore,
     saveSessionStore,
     sendMessageWhatsApp,
     setConfigOverride,
