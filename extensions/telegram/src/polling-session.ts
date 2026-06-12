@@ -977,7 +977,15 @@ export class TelegramPollingSession {
       }
     };
     await drainOnce();
+    // When draining keeps failing (e.g. Telegram runtime not initialized), throttle to ~1/60 ticks
+    // so a dead session can't starve the event loop / flood logs. A successful drain resets
+    // consecutiveDrainFailures to 0, restoring full cadence (recovery-safe).
+    let drainTick = 0;
     const drainTimer = setInterval(() => {
+      drainTick += 1;
+      if (consecutiveDrainFailures > 5 && drainTick % 60 !== 0) {
+        return;
+      }
       void drainOnce();
     }, drainIntervalMs);
     drainTimer.unref?.();
