@@ -1,5 +1,6 @@
 // Whatsapp plugin module implements login qr runtime behavior.
 type StartWebLoginWithQr = typeof import("./src/login-qr.js").startWebLoginWithQr;
+type StartWebLoginWithCode = typeof import("./src/login-qr.js").startWebLoginWithCode;
 type WaitForWebLogin = typeof import("./src/login-qr.js").waitForWebLogin;
 
 let loginQrModulePromise: Promise<typeof import("./src/login-qr.js")> | null = null;
@@ -14,6 +15,13 @@ export async function startWebLoginWithQr(
 ): ReturnType<StartWebLoginWithQr> {
   const { startWebLoginWithQr: startWebLoginWithQrLocal } = await loadLoginQrModule();
   return await startWebLoginWithQrLocal(...args);
+}
+
+export async function startWebLoginWithCode(
+  ...args: Parameters<StartWebLoginWithCode>
+): ReturnType<StartWebLoginWithCode> {
+  const { startWebLoginWithCode: startWebLoginWithCodeLocal } = await loadLoginQrModule();
+  return await startWebLoginWithCodeLocal(...args);
 }
 
 export async function waitForWebLogin(

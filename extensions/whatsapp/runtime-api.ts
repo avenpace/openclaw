@@ -82,4 +82,4 @@ export {
   type CredsQueueWaitResult,
 } from "./src/session.js";
 export { setWhatsAppRuntime } from "./src/runtime.js";
-export { startWebLoginWithQr, waitForWebLogin } from "./login-qr-runtime.js";
+export { startWebLoginWithCode, startWebLoginWithQr, waitForWebLogin } from "./login-qr-runtime.js";

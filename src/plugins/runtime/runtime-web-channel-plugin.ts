@@ -109,6 +109,7 @@ type WebChannelHeavyRuntimeModule = {
   monitorWebChannel: (...args: unknown[]) => Promise<unknown>;
   monitorWebInbox: (...args: unknown[]) => Promise<unknown>;
   startWebLoginWithQr: (...args: unknown[]) => Promise<unknown>;
+  startWebLoginWithCode: (...args: unknown[]) => Promise<unknown>;
   waitForWaConnection: (sock: unknown, options: WebChannelConnectionWaitOptions) => Promise<void>;
   waitForWebLogin: (...args: unknown[]) => Promise<unknown>;
   extractMediaPlaceholder: (...args: unknown[]) => unknown;
@@ -383,6 +384,13 @@ export async function startWebLoginWithQr(
   ...args: Parameters<WebChannelHeavyRuntimeModule["startWebLoginWithQr"]>
 ): ReturnType<WebChannelHeavyRuntimeModule["startWebLoginWithQr"]> {
   return (await getHeavyExport("startWebLoginWithQr"))(...args);
+}
+
+/** Starts code pairing login through the heavy runtime API. */
+export async function startWebLoginWithCode(
+  ...args: Parameters<WebChannelHeavyRuntimeModule["startWebLoginWithCode"]>
+): ReturnType<WebChannelHeavyRuntimeModule["startWebLoginWithCode"]> {
+  return (await getHeavyExport("startWebLoginWithCode"))(...args);
 }
 
 /** Waits for web-channel socket connection through the heavy runtime API. */
