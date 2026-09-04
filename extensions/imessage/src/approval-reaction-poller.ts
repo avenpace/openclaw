@@ -2,8 +2,10 @@
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import {
   asDateTimestampMs,
+  asPositiveFiniteNumber,
   resolveExpiresAtMsFromDurationMs,
 } from "openclaw/plugin-sdk/number-runtime";
+import type { IMessageApprovalGatewayRuntime } from "./approval-gateway-types.js";
 import {
   extractIMessageApprovalPromptBinding,
   handleIMessageApprovalReaction,
@@ -21,10 +23,6 @@ const OBSERVED_APPROVAL_PROMPT_TARGET_TTL_MS = 5 * 60 * 1000;
 
 const accountIdsWithCompletedNoTargetDiscovery = new Set<string>();
 
-export function clearIMessageApprovalReactionPollerStateForTest(): void {
-  accountIdsWithCompletedNoTargetDiscovery.clear();
-}
-
 type ChatListEntry = {
   id?: number | null;
 };
@@ -41,7 +39,7 @@ type HistoryMessage = IMessagePayload & {
 };
 
 function normalizeChatId(value: unknown): number | null {
-  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : null;
+  return asPositiveFiniteNumber(value) ?? null;
 }
 
 function listTargetChatIds(
@@ -186,6 +184,7 @@ function bindObservedConversation(params: {
       conversation,
       messageId,
       approvalId: params.target.approvalId,
+      approvalKind: params.target.approvalKind,
       allowedDecisions: params.target.allowedDecisions,
       ttlMs,
     });
@@ -217,6 +216,7 @@ function bindObservedApprovalPrompt(params: {
     conversation,
     messageId,
     approvalId: binding.approvalId,
+    approvalKind: binding.approvalKind,
     allowedDecisions: binding.allowedDecisions,
     expiresAtMs,
   };
@@ -229,6 +229,7 @@ export async function pollPendingIMessageApprovalReactions(params: {
   cfg: OpenClawConfig;
   accountId: string;
   allowRecentChatDiscovery?: boolean;
+  gatewayRuntime?: IMessageApprovalGatewayRuntime;
   logVerboseMessage?: (message: string) => void;
 }): Promise<void> {
   const targets = listPendingIMessageApprovalReactionPollTargets({
@@ -293,6 +294,7 @@ export async function pollPendingIMessageApprovalReactions(params: {
           accountId: params.accountId,
           message: reactionPayload,
           bodyText: reactionPayload.text ?? "",
+          gatewayRuntime: params.gatewayRuntime,
           logVerboseMessage: params.logVerboseMessage,
         });
         if (handled.stopPolling) {

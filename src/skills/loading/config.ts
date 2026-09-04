@@ -5,12 +5,16 @@ import {
 } from "@openclaw/normalization-core/string-coerce";
 import { normalizeStringEntries } from "@openclaw/normalization-core/string-normalization";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
+import { hasConfiguredSecretInput } from "../../config/types.secrets.js";
 import type { SkillConfig } from "../../config/types.skills.js";
 import {
+  findActiveDegradedSecretOwner,
+  listActiveDegradedSecretOwners,
+} from "../../secrets/runtime-degraded-state.js";
+import {
+  evaluateRuntimeEligibility,
   hasBinary,
   isConfigPathTruthyWithDefaults,
-  resolveConfigPath,
-  resolveRuntimePlatform,
 } from "../../shared/config-eval.js";
 import type { SkillEligibilityContext, SkillEntry, SkillsInstallPreferences } from "../types.js";
 import { resolveSkillKey } from "./frontmatter.js";
@@ -30,7 +34,7 @@ function debugLog(skillKey: string, msg: string): void {
 }
 
 /** Platform helpers re-exported for skill loading callers and tests. */
-export { hasBinary, resolveConfigPath, resolveRuntimePlatform };
+export { hasBinary };
 
 export function resolveSkillsInstallPreferences(config?: OpenClawConfig): SkillsInstallPreferences {
   const raw = config?.skills?.install;
@@ -43,7 +47,10 @@ export function resolveSkillsInstallPreferences(config?: OpenClawConfig): Skills
   return { preferBrew, nodeManager };
 }
 
-export function isConfigPathTruthy(config: OpenClawConfig | undefined, pathStr: string): boolean {
+export function isSkillConfigPathTruthy(
+  config: OpenClawConfig | undefined,
+  pathStr: string,
+): boolean {
   return isConfigPathTruthyWithDefaults(config, pathStr, DEFAULT_CONFIG_VALUES);
 }
 
@@ -60,6 +67,34 @@ export function resolveSkillConfig(
     return undefined;
   }
   return entry;
+}
+
+/** Returns whether cold startup isolated this exact skill's configured secret. */
+export function isSkillSecretOwnerUnavailable(skillKey: string): boolean {
+  return Boolean(findActiveDegradedSecretOwner("capability", `skill:${skillKey}`));
+}
+
+/** Returns whether cold startup isolated any configured skill secret. */
+export function hasUnavailableSkillSecretOwners(): boolean {
+  return listActiveDegradedSecretOwners().some(
+    (owner) =>
+      owner.degradationState !== "stale" &&
+      owner.ownerKind === "capability" &&
+      owner.ownerId.startsWith("skill:"),
+  );
+}
+
+export function isSkillEnvRequirementSatisfied(params: {
+  envName: string;
+  skillConfig?: SkillConfig;
+  primaryEnv?: string;
+}): boolean {
+  const { envName, skillConfig, primaryEnv } = params;
+  return (
+    normalizeOptionalString(process.env[envName]) !== undefined ||
+    normalizeOptionalString(skillConfig?.env?.[envName]) !== undefined ||
+    (primaryEnv === envName && hasConfiguredSecretInput(skillConfig?.apiKey))
+  );
 }
 
 function normalizeAllowlist(input: unknown): ReadonlySet<string> | undefined {
@@ -100,12 +135,9 @@ export function shouldIncludeSkill(params: {
   bundledAllowlist: ReadonlySet<string> | undefined;
   eligibility?: SkillEligibilityContext;
 }): boolean {
-  const { entry, config, eligibility } = params;
+  const { entry, config, eligibility, bundledAllowlist } = params;
   const skillKey = resolveSkillKey(entry.skill, entry);
   const skillConfig = resolveSkillConfig(config, skillKey);
-  const allowBundled = normalizeAllowlist(config?.skills?.allowBundled);
-  const osList = entry.metadata?.os ?? [];
-  const remotePlatforms = eligibility?.remote?.platforms ?? [];
 
   debugLog(skillKey, `checking eligibility, source=${entry.skill.source}`);
 
@@ -113,80 +145,26 @@ export function shouldIncludeSkill(params: {
     debugLog(skillKey, "excluded: disabled in config");
     return false;
   }
-  if (!isBundledSkillAllowed(entry, allowBundled)) {
-    debugLog(skillKey, "excluded: not in bundled allowlist");
+  if (isSkillSecretOwnerUnavailable(skillKey)) {
     return false;
   }
-  if (
-    osList.length > 0 &&
-    !osList.includes(resolveRuntimePlatform()) &&
-    !remotePlatforms.some((platform) => osList.includes(platform))
-  ) {
-    debugLog(
-      skillKey,
-      `excluded: OS mismatch (requires ${osList.join(",")}, got ${resolveRuntimePlatform()})`,
-    );
+  if (!isBundledSkillAllowed(entry, bundledAllowlist)) {
     return false;
   }
-  if (entry.metadata?.always === true) {
-    debugLog(skillKey, "included: always=true");
-    return true;
-  }
-
-  const requiredBins = entry.metadata?.requires?.bins ?? [];
-  if (requiredBins.length > 0) {
-    for (const bin of requiredBins) {
-      if (hasBinary(bin)) {
-        continue;
-      }
-      if (eligibility?.remote?.hasBin?.(bin)) {
-        continue;
-      }
-      debugLog(skillKey, `excluded: missing binary '${bin}'`);
-      return false;
-    }
-  }
-  const requiredAnyBins = entry.metadata?.requires?.anyBins ?? [];
-  if (requiredAnyBins.length > 0) {
-    const anyFound =
-      requiredAnyBins.some((bin) => hasBinary(bin)) ||
-      eligibility?.remote?.hasAnyBin?.(requiredAnyBins);
-    if (!anyFound) {
-      debugLog(
-        skillKey,
-        `excluded: missing any of required binaries [${requiredAnyBins.join(",")}]`,
-      );
-      return false;
-    }
-  }
-
-  const requiredEnv = entry.metadata?.requires?.env ?? [];
-  if (requiredEnv.length > 0) {
-    for (const envName of requiredEnv) {
-      if (process.env[envName]) {
-        continue;
-      }
-      if (skillConfig?.env?.[envName]) {
-        continue;
-      }
-      if (skillConfig?.apiKey && entry.metadata?.primaryEnv === envName) {
-        continue;
-      }
-      debugLog(skillKey, `excluded: missing env var '${envName}'`);
-      return false;
-    }
-  }
-
-  const requiredConfig = entry.metadata?.requires?.config ?? [];
-  if (requiredConfig.length > 0) {
-    for (const configPath of requiredConfig) {
-      if (!isConfigPathTruthy(config, configPath)) {
-        debugLog(skillKey, `excluded: config path '${configPath}' not truthy`);
-        return false;
-      }
-    }
-  }
-
-  debugLog(skillKey, "included: all checks passed");
-  return true;
+  return evaluateRuntimeEligibility({
+    os: entry.metadata?.os,
+    remotePlatforms: eligibility?.remote?.platforms,
+    always: entry.metadata?.always,
+    requires: entry.metadata?.requires,
+    hasBin: hasBinary,
+    hasRemoteBin: eligibility?.remote?.hasBin,
+    hasAnyRemoteBin: eligibility?.remote?.hasAnyBin,
+    hasEnv: (envName) =>
+      isSkillEnvRequirementSatisfied({
+        envName,
+        skillConfig,
+        primaryEnv: entry.metadata?.primaryEnv,
+      }),
+    isConfigPathTruthy: (configPath) => isSkillConfigPathTruthy(config, configPath),
+  });
 }

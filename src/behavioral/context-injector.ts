@@ -133,7 +133,7 @@ export class ContextInjector {
     // Detect likely domain from URLs in prompt
     const urlMatch = prompt.match(/https?:\/\/([^\s/]+)/);
     if (urlMatch) {
-      const hostname = urlMatch[1];
+      const hostname = urlMatch[1] ?? "";
       const parts = hostname.split(".");
       if (parts.length >= 2) {
         context.domain = parts.slice(-2).join(".");

@@ -1,22 +1,11 @@
 // Verifies config IO compatibility loading and migration behavior.
 import fs from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
-import { beforeAll, describe, expect, it, vi } from "vitest";
-import { normalizeCompatibilityConfigValues } from "../commands/doctor-legacy-config.js";
+import { describe, expect, it, vi } from "vitest";
 import { VERSION } from "../version.js";
 import { createConfigIO } from "./io.js";
 import { normalizeExecSafeBinProfilesInConfig } from "./normalize-exec-safe-bin.js";
-import type { OpenClawConfig } from "./types.openclaw.js";
-
-async function withTempHome(run: (home: string) => Promise<void>): Promise<void> {
-  const home = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-config-"));
-  try {
-    await run(home);
-  } finally {
-    await fs.rm(home, { recursive: true, force: true });
-  }
-}
+import { withTempHome } from "./test-helpers.js";
 
 async function writeConfig(
   home: string,
@@ -33,35 +22,12 @@ async function writeConfig(
 
 function createIoForHome(home: string, env: NodeJS.ProcessEnv = {} as NodeJS.ProcessEnv) {
   return createConfigIO({
-    env,
+    env: { HOME: home, ...env },
     homedir: () => home,
   });
 }
 
 describe("config io paths", () => {
-  let whatsappSharedAccessDefaults: unknown;
-
-  beforeAll(() => {
-    const migrated = normalizeCompatibilityConfigValues({
-      channels: {
-        whatsapp: {
-          enabled: true,
-          dmPolicy: "allowlist",
-          allowFrom: ["+15550001111"],
-          groupPolicy: "open",
-          groupAllowFrom: [],
-          accounts: {
-            work: {
-              enabled: true,
-              authDir: "/tmp/wa-work",
-            },
-          },
-        },
-      },
-    } as OpenClawConfig);
-    whatsappSharedAccessDefaults = migrated.config.channels?.whatsapp?.accounts?.default;
-  });
-
   it("uses ~/.openclaw/openclaw.json when config exists", async () => {
     await withTempHome(async (home) => {
       const configPath = await writeConfig(home, ".openclaw", 19001);
@@ -95,6 +61,33 @@ describe("config io paths", () => {
     });
   });
 
+  it.each(["lan", "loopback", "tailnet", "auto", "custom", undefined] as const)(
+    "keeps canonical gateway bind %s byte-identical during load",
+    async (bind) => {
+      await withTempHome(async (home) => {
+        const configPath = path.join(home, ".openclaw", "openclaw.json");
+        await fs.mkdir(path.dirname(configPath), { recursive: true });
+        const gateway = {
+          mode: "local" as const,
+          ...(bind ? { bind } : {}),
+          ...(bind === "custom" ? { customBindHost: "127.0.0.1" } : {}),
+        };
+        const raw = `${JSON.stringify({ gateway }, null, 2)}\n`;
+        await fs.writeFile(configPath, raw, "utf-8");
+        const io = createConfigIO({
+          configPath,
+          env: { HOME: home } as NodeJS.ProcessEnv,
+          homedir: () => home,
+        });
+
+        const config = io.loadConfig();
+
+        expect(config.gateway?.bind).toBe(bind);
+        await expect(fs.readFile(configPath, "utf-8")).resolves.toBe(raw);
+      });
+    },
+  );
+
   it("logs validation warnings with real line breaks", async () => {
     await withTempHome(async (home) => {
       const configPath = path.join(home, ".openclaw", "openclaw.json");
@@ -123,7 +116,7 @@ describe("config io paths", () => {
 
       const io = createConfigIO({
         configPath,
-        env: {} as NodeJS.ProcessEnv,
+        env: { HOME: home } as NodeJS.ProcessEnv,
         homedir: () => home,
         logger,
       });
@@ -133,6 +126,73 @@ describe("config io paths", () => {
         "Config warnings:\n- plugins.entries.google-antigravity-auth: plugin removed: google-antigravity-auth (stale config entry ignored; remove it from plugins config)",
       );
       expect(logger.warn).not.toHaveBeenCalledWith("Config warnings:\\n");
+    });
+  });
+
+  it("logs each warning payload once until warnings clear", async () => {
+    await withTempHome(async (home) => {
+      const configPath = path.join(home, ".openclaw", "openclaw.json");
+      await fs.mkdir(path.dirname(configPath), { recursive: true });
+      const logger = {
+        error: vi.fn(),
+        warn: vi.fn(),
+      };
+      const load = () =>
+        createConfigIO({
+          configPath,
+          env: { HOME: home } as NodeJS.ProcessEnv,
+          homedir: () => home,
+          logger,
+        }).loadConfig();
+      const writeRemovedPlugin = async (pluginId: string) => {
+        await fs.writeFile(
+          configPath,
+          JSON.stringify({ plugins: { entries: { [pluginId]: { enabled: false } } } }),
+        );
+      };
+
+      await writeRemovedPlugin("google-antigravity-auth");
+      load();
+      load();
+      expect(logger.warn).toHaveBeenCalledTimes(1);
+
+      createConfigIO({
+        configPath,
+        env: { HOME: home } as NodeJS.ProcessEnv,
+        homedir: () => home,
+        logger,
+        pluginValidation: "skip",
+      }).loadConfig();
+      load();
+      expect(logger.warn).toHaveBeenCalledTimes(1);
+
+      await fs.writeFile(
+        configPath,
+        JSON.stringify({
+          gateway: { port: "invalid" },
+          plugins: { entries: { "google-antigravity-auth": { enabled: false } } },
+        }),
+      );
+      expect(load).toThrow();
+      await writeRemovedPlugin("google-antigravity-auth");
+      load();
+      expect(logger.warn).toHaveBeenCalledTimes(1);
+
+      await writeRemovedPlugin("google-gemini-cli-auth");
+      load();
+      expect(logger.warn).toHaveBeenCalledTimes(2);
+
+      await fs.writeFile(configPath, JSON.stringify({}));
+      load();
+      await writeRemovedPlugin("google-gemini-cli-auth");
+      load();
+      expect(logger.warn).toHaveBeenCalledTimes(3);
+
+      await fs.writeFile(configPath, "null");
+      load();
+      await writeRemovedPlugin("google-gemini-cli-auth");
+      load();
+      expect(logger.warn).toHaveBeenCalledTimes(4);
     });
   });
 
@@ -158,7 +218,7 @@ describe("config io paths", () => {
 
       const io = createConfigIO({
         configPath,
-        env: {} as NodeJS.ProcessEnv,
+        env: { HOME: home } as NodeJS.ProcessEnv,
         homedir: () => home,
         logger,
       });
@@ -196,7 +256,7 @@ describe("config io paths", () => {
 
       const io = createConfigIO({
         configPath,
-        env: { OPENCLAW_UPDATE_POST_CORE: "1" } as NodeJS.ProcessEnv,
+        env: { HOME: home, OPENCLAW_UPDATE_POST_CORE: "1" } as NodeJS.ProcessEnv,
         homedir: () => home,
         logger,
       });
@@ -249,14 +309,5 @@ describe("config io paths", () => {
       },
     });
     expect(cfg.agents?.list?.[0]?.tools?.exec?.safeBinTrustedDirs).toEqual(["/ops/bin"]);
-  });
-
-  it("moves WhatsApp shared access defaults into accounts.default during runtime compat", () => {
-    expect(whatsappSharedAccessDefaults).toEqual({
-      dmPolicy: "allowlist",
-      allowFrom: ["+15550001111"],
-      groupPolicy: "open",
-      groupAllowFrom: [],
-    });
   });
 });

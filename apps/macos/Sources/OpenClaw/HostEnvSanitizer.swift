@@ -6,7 +6,7 @@ struct HostEnvOverrideDiagnostics: Equatable {
 }
 
 enum HostEnvSanitizer {
-    /// Generated from src/infra/host-env-security-policy.json via scripts/generate-host-env-security-policy-swift.mjs.
+    /// Generated from src/infra/host-env-security-policy.json via scripts/generate-host-env-security-policy-swift.mts.
     /// Parity is validated by src/infra/host-env-security.policy-parity.test.ts.
     private static let blockedInheritedKeys = HostEnvSecurityPolicy.blockedInheritedKeys
     private static let blockedInheritedPrefixes = HostEnvSecurityPolicy.blockedInheritedPrefixes
@@ -27,6 +27,8 @@ enum HostEnvSanitizer {
     private static let gitAllowProtocolKey = "GIT_ALLOW_PROTOCOL"
     private static let gitProtocolFromUserKey = "GIT_PROTOCOL_FROM_USER"
     private static let gitProtocolFromUserDisabledValue = "0"
+    private static let cargoTargetExecutableOverridePattern =
+        #"^CARGO_TARGET_[A-Z0-9_]+_(LINKER|RUNNER)$"#
     private static let gitDefaultAlwaysAllowedProtocols: Set<String> = [
         "git",
         "http",
@@ -46,6 +48,12 @@ enum HostEnvSanitizer {
 
     private static func isBlockedOverride(_ upperKey: String) -> Bool {
         if self.blockedOverrideKeys.contains(upperKey) { return true }
+        if upperKey.range(
+            of: self.cargoTargetExecutableOverridePattern,
+            options: .regularExpression) != nil
+        {
+            return true
+        }
         return self.blockedOverridePrefixes.contains(where: { upperKey.hasPrefix($0) })
     }
 

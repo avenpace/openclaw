@@ -1,3 +1,4 @@
+import { parseStrictPositiveInteger } from "@openclaw/normalization-core/number-coercion";
 // Command risk detection follows nested carriers, shell wrappers, and inline
 // interpreter eval paths used by approval policy and command explanations.
 import { uniqueStrings } from "@openclaw/normalization-core/string-normalization";
@@ -12,24 +13,24 @@ import {
 import { unwrapKnownDispatchWrapperInvocation } from "../dispatch-wrapper-resolution.js";
 import type { ExecCommandSegment } from "../exec-approvals-analysis.js";
 import { normalizeExecutableToken } from "../exec-wrapper-resolution.js";
-import { parseStrictPositiveInteger } from "../parse-finite-number.js";
 import { POSIX_INLINE_COMMAND_FLAGS, resolveInlineCommandMatch } from "../shell-inline-command.js";
 import {
   extractShellWrapperInlineCommand,
   isShellWrapperExecutable,
+  POSIX_PARSEABLE_SHELL_WRAPPERS,
 } from "../shell-wrapper-resolution.js";
 import { detectInterpreterInlineEvalArgv, type InterpreterInlineEvalHit } from "./inline-eval.js";
 
 /** Shared command carrier constants used by approval policy and command explanation. */
-export { COMMAND_CARRIER_EXECUTABLES, resolveCarrierCommandArgv, SOURCE_EXECUTABLES };
+export { SOURCE_EXECUTABLES };
 
 /** Command and flag pair that can carry nested command text. */
-export type CommandCarrierHit = {
+type CommandCarrierHit = {
   command: string;
   flag?: string;
 };
 
-export type CarriedShellBuiltinHit = { kind: "eval" } | { kind: "source"; command: string };
+type CarriedShellBuiltinHit = { kind: "eval" } | { kind: "source"; command: string };
 
 // Recurse through env, carriers, and shell wrappers while guarding argv cycles.
 function commandArgvKey(argv: readonly string[]): string {
@@ -182,7 +183,7 @@ function detectShellPositionalCarrierInlineEvalArgvInternal(
   if (!isShellWrapperExecutable(executable)) {
     return null;
   }
-  if (!["ash", "bash", "dash", "fish", "ksh", "sh", "zsh"].includes(executable)) {
+  if (!POSIX_PARSEABLE_SHELL_WRAPPERS.has(executable)) {
     return null;
   }
   const key = commandArgvKey(executableArgv);
@@ -296,6 +297,10 @@ export function detectCommandCarrierArgv(argv: string[]): CommandCarrierHit[] {
   if (normalizedExecutable === "xargs") {
     hits.push({ command: normalizedExecutable });
   }
+  const dispatchWrapper = unwrapKnownDispatchWrapperInvocation(argv);
+  if (dispatchWrapper.kind === "blocked") {
+    hits.push({ command: normalizedExecutable });
+  }
   const splitStringFlag = detectEnvSplitStringFlag(argv);
   if (splitStringFlag) {
     hits.push({ command: normalizedExecutable, flag: splitStringFlag });
@@ -303,7 +308,7 @@ export function detectCommandCarrierArgv(argv: string[]): CommandCarrierHit[] {
   return hits;
 }
 
-export function detectEnvSplitStringFlag(argv: string[]): string | null {
+function detectEnvSplitStringFlag(argv: string[]): string | null {
   if (normalizeExecutableToken(argv[0] ?? "") !== "env") {
     return null;
   }

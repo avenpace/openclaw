@@ -2,39 +2,44 @@
 // detecting stale channel runtime state against live gateway snapshots.
 import { ErrorCodes, errorShape } from "../../../packages/gateway-protocol/src/index.js";
 import type { ChannelAccountSnapshot } from "../../channels/plugins/types.public.js";
-import type { ChannelHealthSummary, HealthSummary } from "../../commands/health.types.js";
-import { getStatusSummary } from "../../commands/status.js";
 import { listContextEngineQuarantines } from "../../context-engine/registry.js";
-import { getGatewayModelPricingHealth } from "../model-pricing-cache-state.js";
+import { getStatusSummary } from "../../status/summary.js";
+import type { GatewayHotReloadStatus } from "../config-reload-status.types.js";
+import { buildDeliveryQueueHealthSummary } from "../health/delivery-queue.js";
+import type { ChannelHealthSummary, HealthSummary } from "../health/types.js";
 import type { ChannelRuntimeSnapshot } from "../server-channel-runtime.types.js";
 import { HEALTH_REFRESH_INTERVAL_MS } from "../server-constants.js";
 import { formatError } from "../server-utils.js";
 import { formatForLog } from "../ws-log.js";
-import type { GatewayRequestHandlers } from "./types.js";
+import type { GatewayRequestContext, GatewayRequestHandlers } from "./types.js";
 
 const ADMIN_SCOPE = "operator.admin";
+const requestRefreshStartedAt = new WeakMap<
+  GatewayRequestContext["refreshHealthSnapshot"],
+  number
+>();
 
-function cachedAccountForRuntimeSnapshot(params: {
-  cachedChannel: ChannelHealthSummary | undefined;
-  accountId: string | undefined;
-}): ChannelHealthSummary | undefined {
-  const accountId = params.accountId;
-  if (accountId && params.cachedChannel?.accounts?.[accountId]) {
-    return params.cachedChannel.accounts[accountId];
+function shouldScheduleRequestRefresh(
+  refresh: GatewayRequestContext["refreshHealthSnapshot"],
+  now: number,
+): boolean {
+  const startedAt = requestRefreshStartedAt.get(refresh);
+  if (startedAt !== undefined && now - startedAt < HEALTH_REFRESH_INTERVAL_MS) {
+    return false;
   }
-  return undefined;
+  // Scope the throttle to the Gateway refresh owner so independent servers do
+  // not suppress each other while request bursts share one cadence.
+  requestRefreshStartedAt.set(refresh, now);
+  return true;
 }
 
 function cachedLifecycleDiffersFromRuntime(params: {
   cachedAccount: ChannelHealthSummary | undefined;
   runtimeSnapshot: ChannelAccountSnapshot;
 }): boolean {
-  for (const key of ["running", "connected"] as const) {
+  for (const key of ["running", "connected", "lifecycle"] as const) {
     const runtimeValue = params.runtimeSnapshot[key];
-    if (typeof runtimeValue !== "boolean") {
-      continue;
-    }
-    if (params.cachedAccount?.[key] !== runtimeValue) {
+    if (runtimeValue !== undefined && params.cachedAccount?.[key] !== runtimeValue) {
       return true;
     }
   }
@@ -66,16 +71,19 @@ function cachedHealthDiffersFromRuntime(
       continue;
     }
     const cachedChannel = cached.channels[channelId];
+    const cachedAccounts = cachedChannel?.accounts;
+    if (
+      Object.keys(cachedAccounts ?? {}).some((accountId) => !Object.hasOwn(accounts, accountId))
+    ) {
+      return true;
+    }
     for (const [accountId, runtimeSnapshot] of Object.entries(accounts)) {
       if (!runtimeSnapshot) {
         continue;
       }
       if (
         cachedLifecycleDiffersFromRuntime({
-          cachedAccount: cachedAccountForRuntimeSnapshot({
-            cachedChannel,
-            accountId,
-          }),
+          cachedAccount: cachedAccounts?.[accountId],
           runtimeSnapshot,
         })
       ) {
@@ -91,8 +99,17 @@ function cachedHealthDiffersFromRuntime(
 function mergeCachedHealthRuntimeState(params: {
   cached: HealthSummary;
   eventLoop?: HealthSummary["eventLoop"];
+  configReloadHotReloadStatus?: GatewayHotReloadStatus;
 }): HealthSummary {
-  const { contextEngines: _cachedContextEngines, ...cached } = params.cached;
+  const {
+    contextEngines: _cachedContextEngines,
+    deliveryQueues: _cachedDeliveryQueues,
+    ...cached
+  } = params.cached;
+  // Dead-letter counts are cheap SQLite reads; recompute them like context
+  // engines so a delivery that failed after the cache was filled is not hidden
+  // for a refresh interval.
+  const deliveryQueues = buildDeliveryQueueHealthSummary();
   const quarantinedContextEngines: NonNullable<HealthSummary["contextEngines"]>["quarantined"] = [];
   for (const entry of listContextEngineQuarantines()) {
     const summary: NonNullable<HealthSummary["contextEngines"]>["quarantined"][number] = {
@@ -112,9 +129,10 @@ function mergeCachedHealthRuntimeState(params: {
     ...(quarantinedContextEngines.length > 0
       ? { contextEngines: { quarantined: quarantinedContextEngines } }
       : {}),
-    modelPricing: getGatewayModelPricingHealth({
-      enabled: params.cached.modelPricing?.state !== "disabled",
-    }),
+    ...(deliveryQueues ? { deliveryQueues } : {}),
+    ...(params.configReloadHotReloadStatus
+      ? { configReload: { hotReloadStatus: params.configReloadHotReloadStatus } }
+      : {}),
   };
 }
 
@@ -149,15 +167,16 @@ export const healthHandlers: GatewayRequestHandlers = {
         mergeCachedHealthRuntimeState({
           cached,
           eventLoop: context.getEventLoopHealth?.(),
+          configReloadHotReloadStatus: context.getConfigReloaderHotReloadStatus?.(),
         }),
         undefined,
         { cached: true },
       );
-      // Serve the fresh-enough cache immediately but still refresh in the
-      // background so the next caller sees updated expensive probe data.
-      void refreshHealthSnapshot({ probe: false, includeSensitive }).catch((err: unknown) =>
-        logHealth.error(`background health refresh failed: ${formatError(err)}`),
-      );
+      if (shouldScheduleRequestRefresh(refreshHealthSnapshot, now)) {
+        void refreshHealthSnapshot({ probe: false, includeSensitive }).catch((err: unknown) =>
+          logHealth.error(`background health refresh failed: ${formatError(err)}`),
+        );
+      }
       return;
     }
     try {
@@ -169,9 +188,11 @@ export const healthHandlers: GatewayRequestHandlers = {
   },
   status: async ({ respond, client, params, context }) => {
     const scopes = Array.isArray(client?.connect?.scopes) ? client.connect.scopes : [];
+    const hostDesktopStatus = await context.hostDesktopService?.status();
     const status = await getStatusSummary({
       includeSensitive: scopes.includes(ADMIN_SCOPE),
       includeChannelSummary: params.includeChannelSummary !== false,
+      ...(hostDesktopStatus ? { hostDesktopStatus } : {}),
     });
     if (context.getEventLoopHealth) {
       status.eventLoop = context.getEventLoopHealth();

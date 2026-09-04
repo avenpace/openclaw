@@ -5,6 +5,8 @@
  */
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import type { PluginMetadataSnapshot } from "../plugins/plugin-metadata-snapshot.js";
+import type { ProviderCatalogOutcome } from "../plugins/provider-catalog.types.js";
+import type { PreparedProviderStaticCatalog } from "../plugins/provider-discovery.js";
 import { isRecord } from "../utils.js";
 import {
   mergeProviders,
@@ -28,20 +30,25 @@ import {
 type ModelsConfig = NonNullable<OpenClawConfig["models"]>;
 
 /** Dependency hook for resolving implicit model providers while planning models.json. */
-export type ResolveImplicitProvidersForModelsJson = (params: {
+type ResolveImplicitProvidersForModelsJson = (params: {
   agentDir: string;
   config: OpenClawConfig;
+  discoveryAuthConfig?: OpenClawConfig;
   env: NodeJS.ProcessEnv;
   workspaceDir?: string;
   explicitProviders: Record<string, ProviderConfig>;
   pluginMetadataSnapshot?: Pick<PluginMetadataSnapshot, "index" | "manifestRegistry" | "owners">;
+  preparedStaticProviderCatalog?: PreparedProviderStaticCatalog;
   providerDiscoveryProviderIds?: readonly string[];
   providerDiscoveryTimeoutMs?: number;
   providerDiscoveryEntriesOnly?: boolean;
 }) => Promise<Record<string, ProviderConfig>>;
 
-/** Planned models.json write/noop/skip result plus plugin catalog sidecar writes. */
-export type ModelsJsonPlan =
+/**
+ * Planned models.json result. When present, pluginCatalogWrites is the complete
+ * replacement set; omission means the plan is non-authoritative for plugin catalogs.
+ */
+type ModelsJsonPlan =
   | {
       action: "skip";
       pluginCatalogWrites?: Record<string, string>;
@@ -92,32 +99,48 @@ function buildPluginCatalogWrites(
 }
 
 /** Resolves providers for models.json with injectable implicit-provider discovery. */
-export async function resolveProvidersForModelsJsonWithDeps(
+async function resolveProvidersForModelsJsonWithDeps(
   params: {
     cfg: OpenClawConfig;
+    discoveryAuthConfig?: OpenClawConfig;
     agentDir: string;
     env: NodeJS.ProcessEnv;
     workspaceDir?: string;
     pluginMetadataSnapshot?: Pick<PluginMetadataSnapshot, "index" | "manifestRegistry" | "owners">;
+    preparedStaticProviderCatalog?: PreparedProviderStaticCatalog;
     providerDiscoveryProviderIds?: readonly string[];
     providerDiscoveryTimeoutMs?: number;
     providerDiscoveryEntriesOnly?: boolean;
+    onProviderCatalogOutcome?: (outcome: ProviderCatalogOutcome) => void;
   },
   deps?: {
     resolveImplicitProviders?: ResolveImplicitProvidersForModelsJson;
   },
 ): Promise<Record<string, ProviderConfig>> {
-  const { cfg, agentDir, env } = params;
-  const explicitProviders = cfg.models?.providers ?? {};
+  const { agentDir, env } = params;
+  const explicitProviders = stripBlankProviderBaseUrls(params.cfg.models?.providers ?? {});
+  const cfg = params.cfg.models?.providers
+    ? { ...params.cfg, models: { ...params.cfg.models, providers: explicitProviders } }
+    : params.cfg;
+  // When models.mode is "replace" the user opts out of provider discovery, so
+  // skip the (potentially slow) implicit-provider resolver entirely and return
+  // only the explicit providers. See openclaw#66957.
+  if (cfg.models?.mode === "replace") {
+    return mergeProviders({ implicit: {}, explicit: explicitProviders });
+  }
   const resolveImplicitProvidersImpl = deps?.resolveImplicitProviders ?? resolveImplicitProviders;
   const implicitProviders = await resolveImplicitProvidersImpl({
     agentDir,
     config: cfg,
+    ...(params.discoveryAuthConfig ? { discoveryAuthConfig: params.discoveryAuthConfig } : {}),
     env,
     ...(params.workspaceDir ? { workspaceDir: params.workspaceDir } : {}),
     explicitProviders,
     ...(params.pluginMetadataSnapshot
       ? { pluginMetadataSnapshot: params.pluginMetadataSnapshot }
+      : {}),
+    ...(params.preparedStaticProviderCatalog
+      ? { preparedStaticProviderCatalog: params.preparedStaticProviderCatalog }
       : {}),
     ...(params.providerDiscoveryProviderIds
       ? { providerDiscoveryProviderIds: params.providerDiscoveryProviderIds }
@@ -126,11 +149,31 @@ export async function resolveProvidersForModelsJsonWithDeps(
       ? { providerDiscoveryTimeoutMs: params.providerDiscoveryTimeoutMs }
       : {}),
     ...(params.providerDiscoveryEntriesOnly === true ? { providerDiscoveryEntriesOnly: true } : {}),
+    ...(params.onProviderCatalogOutcome
+      ? { onProviderCatalogOutcome: params.onProviderCatalogOutcome }
+      : {}),
   });
   return mergeProviders({
     implicit: implicitProviders,
     explicit: explicitProviders,
   });
+}
+
+function stripBlankProviderBaseUrls(
+  providers: Record<string, ProviderConfig>,
+): Record<string, ProviderConfig> {
+  let mutated = false;
+  const next: Record<string, ProviderConfig> = {};
+  for (const [key, provider] of Object.entries(providers)) {
+    if (typeof provider?.baseUrl === "string" && provider.baseUrl.trim() === "") {
+      const { baseUrl: _blank, ...rest } = provider;
+      next[key] = rest as ProviderConfig;
+      mutated = true;
+      continue;
+    }
+    next[key] = provider;
+  }
+  return mutated ? next : providers;
 }
 
 function resolveProvidersForMode(params: {
@@ -174,19 +217,25 @@ function filterWritableProviders(
 }
 
 /** Plans root and plugin-owned model catalog writes with injectable provider discovery. */
-export async function planOpenClawModelsJsonWithDeps(
+async function planOpenClawModelsJsonWithDeps(
   params: {
     cfg: OpenClawConfig;
+    discoveryAuthConfig?: OpenClawConfig;
     sourceConfigForSecrets?: OpenClawConfig;
     agentDir: string;
     env: NodeJS.ProcessEnv;
     workspaceDir?: string;
     existingRaw: string;
     existingParsed: unknown;
-    pluginMetadataSnapshot?: Pick<PluginMetadataSnapshot, "index" | "manifestRegistry" | "owners">;
+    pluginMetadataSnapshot?: Pick<
+      PluginMetadataSnapshot,
+      "index" | "manifestRegistry" | "owners" | "pluginIds"
+    >;
+    preparedStaticProviderCatalog?: PreparedProviderStaticCatalog;
     providerDiscoveryProviderIds?: readonly string[];
     providerDiscoveryTimeoutMs?: number;
     providerDiscoveryEntriesOnly?: boolean;
+    onProviderCatalogOutcome?: (outcome: ProviderCatalogOutcome) => void;
   },
   deps?: {
     resolveImplicitProviders?: ResolveImplicitProvidersForModelsJson;
@@ -196,11 +245,15 @@ export async function planOpenClawModelsJsonWithDeps(
   const providers = await resolveProvidersForModelsJsonWithDeps(
     {
       cfg,
+      ...(params.discoveryAuthConfig ? { discoveryAuthConfig: params.discoveryAuthConfig } : {}),
       agentDir,
       env,
       ...(params.workspaceDir ? { workspaceDir: params.workspaceDir } : {}),
       ...(params.pluginMetadataSnapshot
         ? { pluginMetadataSnapshot: params.pluginMetadataSnapshot }
+        : {}),
+      ...(params.preparedStaticProviderCatalog
+        ? { preparedStaticProviderCatalog: params.preparedStaticProviderCatalog }
         : {}),
       ...(params.providerDiscoveryProviderIds
         ? { providerDiscoveryProviderIds: params.providerDiscoveryProviderIds }
@@ -210,6 +263,9 @@ export async function planOpenClawModelsJsonWithDeps(
         : {}),
       ...(params.providerDiscoveryEntriesOnly === true
         ? { providerDiscoveryEntriesOnly: true }
+        : {}),
+      ...(params.onProviderCatalogOutcome
+        ? { onProviderCatalogOutcome: params.onProviderCatalogOutcome }
         : {}),
     },
     deps,
@@ -229,6 +285,10 @@ export async function planOpenClawModelsJsonWithDeps(
   const mode = cfg.models?.mode ?? "merge";
   const secretRefManagedProviders = new Set<string>();
   const manifestPlugins = params.pluginMetadataSnapshot?.manifestRegistry.plugins;
+  const providerPolicyManifestRegistry =
+    params.pluginMetadataSnapshot?.pluginIds === undefined
+      ? params.pluginMetadataSnapshot?.manifestRegistry
+      : undefined;
   const normalizedProviders =
     normalizeProviders({
       providers,
@@ -239,6 +299,9 @@ export async function planOpenClawModelsJsonWithDeps(
       sourceSecretDefaults: params.sourceConfigForSecrets?.secrets?.defaults,
       secretRefManagedProviders,
       manifestPlugins,
+      ...(providerPolicyManifestRegistry
+        ? { manifestRegistry: providerPolicyManifestRegistry }
+        : {}),
     }) ?? providers;
   const mergedProviders = resolveProvidersForMode({
     mode,
@@ -289,4 +352,11 @@ export async function planOpenClawModelsJson(
   params: Parameters<typeof planOpenClawModelsJsonWithDeps>[0],
 ): Promise<ModelsJsonPlan> {
   return planOpenClawModelsJsonWithDeps(params);
+}
+
+if (process.env.VITEST || process.env.NODE_ENV === "test") {
+  (globalThis as Record<PropertyKey, unknown>)[Symbol.for("openclaw.modelsConfigPlanTestApi")] = {
+    planOpenClawModelsJsonWithDeps,
+    resolveProvidersForModelsJsonWithDeps,
+  };
 }

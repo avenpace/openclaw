@@ -2,7 +2,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { isRecord as isObjectRecord } from "@openclaw/normalization-core/record-coerce";
-import { runCommandWithTimeout } from "../process/exec.js";
+import { runCommandWithTimeout, type SpawnResult } from "../process/exec.js";
 import { pathExists } from "./fs-safe.js";
 import { assertCanonicalPathWithinBase } from "./install-safe-path.js";
 import { tryReadJson, writeJson } from "./json-files.js";
@@ -53,6 +53,20 @@ async function sanitizeManifestForNpmInstall(targetDir: string): Promise<void> {
     manifest.devDependencies = Object.fromEntries(filteredEntries);
   }
   await writeJson(manifestPath, manifest, { trailingNewline: true });
+}
+
+function formatNpmDependencyInstallFailure(result: SpawnResult): string {
+  const detail = result.stderr.trim() || result.stdout.trim();
+  if (detail) {
+    return detail;
+  }
+  if (result.code !== null) {
+    return `exit code ${result.code} (no output from npm)`;
+  }
+  if (result.signal) {
+    return `signal ${result.signal} (no output from npm)`;
+  }
+  return `termination ${result.termination} (no output from npm)`;
 }
 
 async function hideProjectNpmConfigForInstall(targetDir: string): Promise<HiddenProjectConfigFile> {
@@ -149,6 +163,53 @@ async function resolveInstallPublishTarget(params: {
   };
 }
 
+type PackageDirInstallTransaction = {
+  commit(): Promise<void>;
+  rollback(): Promise<void>;
+};
+
+const PACKAGE_DIR_INSTALL_TRANSACTION = Symbol.for("openclaw.packageDirInstallTransaction");
+const PACKAGE_DIR_INSTALL_TRANSACTION_REQUEST = Symbol.for(
+  "openclaw.packageDirInstallTransactionRequest",
+);
+
+export function requestDeferredPackageDirInstall<T extends object>(params: T): T {
+  Object.defineProperty(params, PACKAGE_DIR_INSTALL_TRANSACTION_REQUEST, {
+    configurable: false,
+    enumerable: true,
+    value: true,
+  });
+  return params;
+}
+
+function isPackageDirInstallCommitDeferred(params: object): boolean {
+  return (
+    (params as { [PACKAGE_DIR_INSTALL_TRANSACTION_REQUEST]?: true })[
+      PACKAGE_DIR_INSTALL_TRANSACTION_REQUEST
+    ] === true
+  );
+}
+
+function attachPackageDirInstallTransaction<T extends object>(
+  result: T,
+  transaction: PackageDirInstallTransaction,
+): T {
+  Object.defineProperty(result, PACKAGE_DIR_INSTALL_TRANSACTION, {
+    configurable: false,
+    enumerable: true,
+    value: transaction,
+  });
+  return result;
+}
+
+export function resolvePackageDirInstallTransaction(
+  result: object,
+): PackageDirInstallTransaction | undefined {
+  return (result as { [PACKAGE_DIR_INSTALL_TRANSACTION]?: PackageDirInstallTransaction })[
+    PACKAGE_DIR_INSTALL_TRANSACTION
+  ];
+}
+
 /**
  * Publishes a package directory into an install target via a staged copy.
  * Update mode backs up the existing target, runs optional validation hooks,
@@ -169,6 +230,7 @@ export async function installPackageDir(params: {
     installedDir: string,
   ) => Promise<{ ok: true } | { ok: false; error: string; code?: string }>;
 }): Promise<{ ok: true } | { ok: false; error: string; code?: string }> {
+  const deferCommit = isPackageDirInstallCommitDeferred(params);
   params.logger?.info?.(`Installing to ${params.targetDir}…`);
   const installBaseDir = path.dirname(params.targetDir);
   let initialInstallBaseRealPath: string;
@@ -281,7 +343,7 @@ export async function installPackageDir(params: {
         }
       })();
       if (npmRes.code !== 0) {
-        return await fail(`npm install failed: ${npmRes.stderr.trim() || npmRes.stdout.trim()}`);
+        return await fail(`npm install failed: ${formatNpmDependencyInstallFailure(npmRes)}`);
       }
     } catch (error) {
       return await fail(`npm install failed: ${String(error)}`, error);
@@ -350,14 +412,46 @@ export async function installPackageDir(params: {
       backupDir = null;
     }
   }
-  if (backupDir) {
+  const retainedBackupDir = backupDir;
+  if (backupDir && !deferCommit) {
     await fs.rm(backupDir, { recursive: true, force: true }).catch(() => undefined);
   }
   if (stageDir) {
     await cleanupInstallTempDir(stageDir);
   }
 
-  return { ok: true };
+  if (!deferCommit) {
+    return { ok: true };
+  }
+  let settled = false;
+  return attachPackageDirInstallTransaction(
+    { ok: true },
+    {
+      async commit() {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        if (retainedBackupDir) {
+          await fs.rm(retainedBackupDir, { recursive: true, force: true }).catch(() => undefined);
+        }
+      },
+      async rollback() {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        await fs.rm(canonicalTargetDir, { recursive: true, force: true });
+        if (retainedBackupDir) {
+          await movePathWithCopyFallback({
+            from: retainedBackupDir,
+            sourceHardlinks,
+            to: canonicalTargetDir,
+          });
+        }
+      },
+    },
+  );
 }
 
 /**
@@ -374,7 +468,10 @@ export async function installPackageDirWithManifestDeps(params: {
   depsLogMessage: string;
   manifestDependencies?: Record<string, unknown>;
   afterCopy?: (installedDir: string) => void | Promise<void>;
-}): Promise<{ ok: true } | { ok: false; error: string }> {
+  afterInstall?: (
+    installedDir: string,
+  ) => Promise<{ ok: true } | { ok: false; error: string; code?: string }>;
+}): Promise<{ ok: true } | { ok: false; error: string; code?: string }> {
   const hasDeps = Object.keys(params.manifestDependencies ?? {}).length > 0;
   return installPackageDir({
     ...params,

@@ -1,6 +1,6 @@
 // Generated file. Do not edit directly.
 // Source: src/infra/host-env-security-policy.json
-// Regenerate: node scripts/generate-host-env-security-policy-swift.mjs --write
+// Regenerate: node --import tsx scripts/generate-host-env-security-policy-swift.mts --write
 
 import Foundation
 
@@ -37,7 +37,9 @@ enum HostEnvSecurityPolicy {
         "BZR_PLUGIN_PATH",
         "BZR_SSH",
         "CARGO_BUILD_RUSTC",
+        "CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER",
         "CARGO_BUILD_RUSTC_WRAPPER",
+        "CARGO_BUILD_RUSTDOC",
         "CARGO_HOME",
         "CATALINA_OPTS",
         "CC",
@@ -49,14 +51,18 @@ enum HostEnvSecurityPolicy {
         "CMAKE_C_COMPILER",
         "CMAKE_TOOLCHAIN_FILE",
         "COMPOSER_HOME",
+        "CONDA_DEFAULT_ENV",
+        "CONDA_PREFIX",
         "CONFIG_SHELL",
         "CONFIG_SITE",
         "CORECLR_PROFILER",
         "CORECLR_PROFILER_PATH",
         "CPATH",
         "CPLUS_INCLUDE_PATH",
+        "CPP",
         "CURL_HOME",
         "CXX",
+        "CXXCPP",
         "C_INCLUDE_PATH",
         "DATABASE_URL",
         "DENO_DIR",
@@ -113,6 +119,8 @@ enum HostEnvSecurityPolicy {
         "GVIMINIT",
         "HELM_HOME",
         "HELM_PLUGINS",
+        "HGEDITOR",
+        "HGMERGE",
         "HGRCPATH",
         "HOSTALIASES",
         "IFS",
@@ -132,6 +140,7 @@ enum HostEnvSecurityPolicy {
         "LUA_INIT_5_3",
         "LUA_INIT_5_4",
         "LUA_PATH",
+        "MAKE",
         "MAKEFLAGS",
         "MAVEN_OPTS",
         "MFLAGS",
@@ -172,7 +181,10 @@ enum HostEnvSecurityPolicy {
         "RUBYLIB",
         "RUBYOPT",
         "RUBYSHELL",
+        "RUSTC",
+        "RUSTC_WORKSPACE_WRAPPER",
         "RUSTC_WRAPPER",
+        "RUSTDOC",
         "RUSTFLAGS",
         "R_ENVIRON",
         "R_ENVIRON_USER",
@@ -202,13 +214,13 @@ enum HostEnvSecurityPolicy {
         "VISUAL",
         "WGETRC",
         "YARN_RC_FILENAME",
-        "_JAVA_OPTIONS"
+        "_JAVA_OPTIONS",
     ]
 
     static let blockedInheritedPrefixes: [String] = [
         "BASH_FUNC_",
         "DYLD_",
-        "LD_"
+        "LD_",
     ]
 
     static let blockedKeys: Set<String> = [
@@ -220,7 +232,9 @@ enum HostEnvSecurityPolicy {
         "BZR_PLUGIN_PATH",
         "BZR_SSH",
         "CARGO_BUILD_RUSTC",
+        "CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER",
         "CARGO_BUILD_RUSTC_WRAPPER",
+        "CARGO_BUILD_RUSTDOC",
         "CATALINA_OPTS",
         "CC",
         "CMAKE_CXX_COMPILER",
@@ -229,7 +243,9 @@ enum HostEnvSecurityPolicy {
         "CONFIG_SHELL",
         "CONFIG_SITE",
         "CORECLR_PROFILER",
+        "CPP",
         "CXX",
+        "CXXCPP",
         "DOTNET_ADDITIONAL_DEPS",
         "DOTNET_STARTUP_HOOKS",
         "ELIXIR_ERL_OPTIONS",
@@ -263,6 +279,8 @@ enum HostEnvSecurityPolicy {
         "GRADLE_OPTS",
         "GVIMINIT",
         "HELM_PLUGINS",
+        "HGEDITOR",
+        "HGMERGE",
         "HGRCPATH",
         "HOSTALIASES",
         "IFS",
@@ -276,6 +294,7 @@ enum HostEnvSecurityPolicy {
         "LUA_INIT_5_2",
         "LUA_INIT_5_3",
         "LUA_INIT_5_4",
+        "MAKE",
         "MAKEFLAGS",
         "MAVEN_OPTS",
         "MFLAGS",
@@ -296,7 +315,10 @@ enum HostEnvSecurityPolicy {
         "RUBYLIB",
         "RUBYOPT",
         "RUBYSHELL",
+        "RUSTC",
+        "RUSTC_WORKSPACE_WRAPPER",
         "RUSTC_WRAPPER",
+        "RUSTDOC",
         "R_ENVIRON",
         "R_ENVIRON_USER",
         "R_PROFILE",
@@ -311,7 +333,7 @@ enum HostEnvSecurityPolicy {
         "TCLLIBPATH",
         "VAGRANT_VAGRANTFILE",
         "VIMINIT",
-        "_JAVA_OPTIONS"
+        "_JAVA_OPTIONS",
     ]
 
     static let blockedOverrideKeys: Set<String> = [
@@ -350,6 +372,8 @@ enum HostEnvSecurityPolicy {
         "CGO_LDFLAGS",
         "CLASSPATH",
         "COMPOSER_HOME",
+        "CONDA_DEFAULT_ENV",
+        "CONDA_PREFIX",
         "CORECLR_PROFILER_PATH",
         "CPATH",
         "CPLUS_INCLUDE_PATH",
@@ -468,19 +492,19 @@ enum HostEnvSecurityPolicy {
         "XDG_RUNTIME_DIR",
         "XDG_STATE_HOME",
         "YARN_RC_FILENAME",
-        "ZDOTDIR"
+        "ZDOTDIR",
     ]
 
     static let blockedOverridePrefixes: [String] = [
         "CARGO_REGISTRIES_",
         "GIT_CONFIG_",
         "NPM_CONFIG_",
-        "TF_VAR_"
+        "TF_VAR_",
     ]
 
     static let blockedPrefixes: [String] = [
         "BASH_FUNC_",
         "DYLD_",
-        "LD_"
+        "LD_",
     ]
 }

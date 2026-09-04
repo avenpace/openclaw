@@ -8,15 +8,17 @@ import os from "node:os";
 import path from "node:path";
 import type { ImageResizeHandler, ImageResizeResult } from "./image-resize-tool.js";
 
-// Dynamic import of sharp to handle cases where it's not installed
-let sharpModule: typeof import("sharp") | null = null;
+// Dynamic import of sharp to handle cases where it's not installed.
+// Type as the callable default export (the module namespace itself is not callable).
+type SharpFactory = (typeof import("sharp"))["default"];
+let sharpModule: SharpFactory | null = null;
 
-async function getSharp() {
+async function getSharp(): Promise<SharpFactory> {
   if (sharpModule) {
     return sharpModule;
   }
   try {
-    sharpModule = (await import("sharp")).default as unknown as typeof import("sharp");
+    sharpModule = (await import("sharp")).default;
     return sharpModule;
   } catch {
     throw new Error("Sharp is not installed. Run: pnpm add sharp");
@@ -57,7 +59,9 @@ async function loadImageBuffer(
   }
   if (sourceType === "base64") {
     // Handle data URI format
-    const base64Data = imageSource.includes(",") ? imageSource.split(",")[1] : imageSource;
+    const base64Data = imageSource.includes(",")
+      ? (imageSource.split(",")[1] ?? imageSource)
+      : imageSource;
     return Buffer.from(base64Data, "base64");
   }
   // fileId - treat as path for now (could be extended for cloud storage)

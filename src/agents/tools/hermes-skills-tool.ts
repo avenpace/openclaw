@@ -1,6 +1,6 @@
 import { Type } from "typebox";
 import type { AnyAgentTool } from "./common.js";
-import { jsonResult, readStringParam } from "./common.js";
+import { jsonResult, readToolStringParam } from "./common.js";
 
 /**
  * Skill operation result
@@ -109,9 +109,9 @@ Skills are automatically loaded when trigger keywords match.`,
     execute: async (_toolCallId, rawParams) => {
       const params = rawParams as Record<string, unknown>;
       try {
-        const name = readStringParam(params, "name", { required: true });
-        const content = readStringParam(params, "content", { required: true });
-        const category = readStringParam(params, "category");
+        const name = readToolStringParam(params, "name", { required: true });
+        const content = readToolStringParam(params, "content", { required: true });
+        const category = readToolStringParam(params, "category");
 
         // Validate skill name format
         if (!/^[a-z][a-z0-9-]*$/.test(name)) {
@@ -151,8 +151,8 @@ Use hermes_skill_get first to read current content, then modify and save.`,
     execute: async (_toolCallId, rawParams) => {
       const params = rawParams as Record<string, unknown>;
       try {
-        const name = readStringParam(params, "name", { required: true });
-        const content = readStringParam(params, "content", { required: true });
+        const name = readToolStringParam(params, "name", { required: true });
+        const content = readToolStringParam(params, "content", { required: true });
 
         const result = await handler.editSkill({ name, content });
         return jsonResult(result);
@@ -178,7 +178,7 @@ Use hermes_skill_list to see available skills first.`,
     execute: async (_toolCallId, rawParams) => {
       const params = rawParams as Record<string, unknown>;
       try {
-        const name = readStringParam(params, "name", { required: true });
+        const name = readToolStringParam(params, "name", { required: true });
         const result = await handler.deleteSkill({ name });
         return jsonResult(result);
       } catch (err) {
@@ -230,7 +230,7 @@ Use before editing to see current content.`,
     execute: async (_toolCallId, rawParams) => {
       const params = rawParams as Record<string, unknown>;
       try {
-        const name = readStringParam(params, "name", { required: true });
+        const name = readToolStringParam(params, "name", { required: true });
         const result = await handler.getSkill(name);
 
         if (result.error) {

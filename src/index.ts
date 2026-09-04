@@ -4,6 +4,7 @@
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { formatCliFailureLines } from "./cli/failure-output.js";
+import { runCliWithExitFinalization } from "./cli/one-shot-exit.js";
 import { formatUncaughtError } from "./infra/errors.js";
 import { runFatalErrorHooks } from "./infra/fatal-error-hooks.js";
 import { isMainModule } from "./infra/is-main.js";
@@ -14,7 +15,12 @@ import {
 } from "./infra/unhandled-rejections.js";
 
 type LegacyCliDeps = {
-  runCli: (argv: string[]) => Promise<void>;
+  runCli: (
+    argv: string[],
+    options?: {
+      retainConsoleRoutingUntilProcessExit?: boolean;
+    },
+  ) => Promise<void>;
 };
 
 type LibraryExports = typeof import("./library.js");
@@ -34,6 +40,7 @@ export let ensurePortAvailable: LibraryExports["ensurePortAvailable"];
 export let getReplyFromConfig: LibraryExports["getReplyFromConfig"];
 export let handlePortError: LibraryExports["handlePortError"];
 export let loadConfig: LibraryExports["loadConfig"];
+/** @deprecated Use SQLite-backed session APIs. Scheduled for removal after 2026-10-12. */
 export let loadSessionStore: LibraryExports["loadSessionStore"];
 export let monitorWebChannel: LibraryExports["monitorWebChannel"];
 export let monitorWebInbox: LibraryExports["monitorWebInbox"];
@@ -52,6 +59,7 @@ export let runEmbeddedPiAgent: LibraryExports["runEmbeddedPiAgent"];
 export let loadOpenClawPlugins: LibraryExports["loadOpenClawPlugins"];
 export let registerResolvedAgentDir: LibraryExports["registerResolvedAgentDir"];
 export let saveAuthProfileStore: LibraryExports["saveAuthProfileStore"];
+/** @deprecated Use SQLite-backed session APIs. Scheduled for removal after 2026-10-12. */
 export let saveSessionStore: LibraryExports["saveSessionStore"];
 export let sendMessageWhatsApp: LibraryExports["sendMessageWhatsApp"];
 export let setConfigOverride: LibraryExports["setConfigOverride"];
@@ -79,9 +87,12 @@ async function loadLegacyCliDeps(): Promise<LegacyCliDeps> {
 export async function runLegacyCliEntry(
   argv: string[] = process.argv,
   deps?: LegacyCliDeps,
+  options?: {
+    retainConsoleRoutingUntilProcessExit?: boolean;
+  },
 ): Promise<void> {
   const { runCli } = deps ?? (await loadLegacyCliDeps());
-  await runCli(argv);
+  await runCli(argv, options);
 }
 
 const isMain = isMainModule({
@@ -149,10 +160,10 @@ export type { DevicesHandler } from "./agents/tools/devices-tool.js";
 export type { HermesMemoryHandler } from "./agents/tools/hermes-memory-tool.js";
 export type { HermesSkillsHandler } from "./agents/tools/hermes-skills-tool.js";
 export type { ModelRef } from "./agents/model-selection.js";
-export type { TtsResult } from "./tts/tts.js";
+export type { TtsResult } from "./tts/tts-runtime-types.js";
 
 if (isMain) {
-  const { restoreTerminalState } = await import("../packages/terminal-core/src/restore.js");
+  const { restoreRuntimeTerminalState } = await import("./runtime.js");
 
   // Global error handlers to prevent silent crashes from unhandled rejections/exceptions.
   // These log the error and exit gracefully instead of crashing without trace.
@@ -179,22 +190,29 @@ if (isMain) {
     for (const message of runFatalErrorHooks({ reason: "uncaught_exception", error })) {
       console.error("[openclaw]", message);
     }
-    restoreTerminalState("uncaught exception", { resumeStdinIfPaused: false });
+    restoreRuntimeTerminalState("uncaught exception", { resumeStdinIfPaused: false });
     process.exit(1);
   });
 
-  void runLegacyCliEntry(process.argv).catch((err: unknown) => {
-    for (const line of formatCliFailureLines({
-      title: "The CLI command failed.",
-      error: err,
-      argv: process.argv,
-    })) {
-      console.error(line);
-    }
-    for (const message of runFatalErrorHooks({ reason: "legacy_cli_failure", error: err })) {
-      console.error("[openclaw]", message);
-    }
-    restoreTerminalState("legacy cli failure", { resumeStdinIfPaused: false });
-    process.exit(1);
+  void runCliWithExitFinalization({
+    run: async () =>
+      await runLegacyCliEntry(process.argv, undefined, {
+        // Finalizers and process-exit hooks can still emit diagnostics after runCli settles.
+        retainConsoleRoutingUntilProcessExit: true,
+      }),
+    onError: (err) => {
+      for (const line of formatCliFailureLines({
+        title: "The CLI command failed.",
+        error: err,
+        argv: process.argv,
+      })) {
+        console.error(line);
+      }
+      for (const message of runFatalErrorHooks({ reason: "legacy_cli_failure", error: err })) {
+        console.error("[openclaw]", message);
+      }
+      restoreRuntimeTerminalState("legacy cli failure", { resumeStdinIfPaused: false });
+      process.exitCode = 1;
+    },
   });
 }

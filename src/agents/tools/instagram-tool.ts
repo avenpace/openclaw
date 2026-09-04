@@ -1,6 +1,6 @@
 import { Type } from "typebox";
 import type { AnyAgentTool } from "./common.js";
-import { jsonResult, readStringParam } from "./common.js";
+import { jsonResult, readToolStringParam } from "./common.js";
 
 export type InstagramHandler = {
   igSetup: (
@@ -73,9 +73,9 @@ export function createIgSetupTool(handler: InstagramHandler): AnyAgentTool {
     execute: async (_toolCallId, rawParams) => {
       const params = rawParams as Record<string, unknown>;
       try {
-        const username = readStringParam(params, "username", { required: true });
-        const password = readStringParam(params, "password", { required: true });
-        const otpSecret = readStringParam(params, "otpSecret", { required: false });
+        const username = readToolStringParam(params, "username", { required: true });
+        const password = readToolStringParam(params, "password", { required: true });
+        const otpSecret = readToolStringParam(params, "otpSecret", { required: false });
 
         const result = await handler.igSetup(username, password, otpSecret);
         return jsonResult(result);
@@ -114,8 +114,8 @@ export function createIgPostTool(handler: InstagramHandler): AnyAgentTool {
     execute: async (_toolCallId, rawParams) => {
       const params = rawParams as Record<string, unknown>;
       try {
-        const caption = readStringParam(params, "caption", { required: true });
-        const imageUrl = readStringParam(params, "imageUrl", { required: false });
+        const caption = readToolStringParam(params, "caption", { required: true });
+        const imageUrl = readToolStringParam(params, "imageUrl", { required: false });
 
         const result = await handler.igPost(caption, imageUrl);
         return jsonResult(result);
@@ -136,8 +136,8 @@ export function createIgReplyTool(handler: InstagramHandler): AnyAgentTool {
     execute: async (_toolCallId, rawParams) => {
       const params = rawParams as Record<string, unknown>;
       try {
-        const postUrl = readStringParam(params, "postUrl", { required: true });
-        const comment = readStringParam(params, "comment", { required: true });
+        const postUrl = readToolStringParam(params, "postUrl", { required: true });
+        const comment = readToolStringParam(params, "comment", { required: true });
 
         const result = await handler.igReply(postUrl, comment);
         return jsonResult(result);
@@ -158,7 +158,7 @@ export function createIgLikeTool(handler: InstagramHandler): AnyAgentTool {
     execute: async (_toolCallId, rawParams) => {
       const params = rawParams as Record<string, unknown>;
       try {
-        const postUrl = readStringParam(params, "postUrl", { required: true });
+        const postUrl = readToolStringParam(params, "postUrl", { required: true });
 
         const result = await handler.igLike(postUrl);
         return jsonResult(result);
@@ -179,7 +179,7 @@ export function createIgFollowTool(handler: InstagramHandler): AnyAgentTool {
     execute: async (_toolCallId, rawParams) => {
       const params = rawParams as Record<string, unknown>;
       try {
-        const username = readStringParam(params, "username", { required: true });
+        const username = readToolStringParam(params, "username", { required: true });
 
         const result = await handler.igFollow(username);
         return jsonResult(result);
@@ -200,7 +200,7 @@ export function createIgProfileTool(handler: InstagramHandler): AnyAgentTool {
     execute: async (_toolCallId, rawParams) => {
       const params = rawParams as Record<string, unknown>;
       try {
-        const username = readStringParam(params, "username", { required: false });
+        const username = readToolStringParam(params, "username", { required: false });
 
         const result = await handler.igProfile(username);
         return jsonResult(result);

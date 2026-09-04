@@ -1,27 +1,28 @@
 // Gateway agent integration tests cover channel routing, session context,
 // WebSocket requests, agent event delivery, and provider/runtime error handling.
-import fs from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 import { WebSocket } from "ws";
+import { cleanupTempDirs, makeTempDir } from "../../test/helpers/temp-dir.js";
 import { AcpRuntimeError } from "../acp/runtime/errors.js";
-import type { ChannelPlugin } from "../channels/plugins/types.js";
-import { emitAgentEvent, registerAgentRunContext } from "../infra/agent-events.js";
+import type { ChannelPlugin } from "../channels/plugins/types.public.js";
+import { loadSessionEntry } from "../config/sessions/session-accessor.js";
+import { emitAgentEvent } from "../infra/agent-events.js";
+import { registerAgentRunContext } from "../infra/agent-run-registry.js";
 import {
   createChannelTestPluginBase,
   createDirectOutboundTestAdapter,
 } from "../test-utils/channel-plugins.js";
+import { normalizeSessionDeliveryState } from "../utils/delivery-context.shared.js";
 import { readAgentCommandCall } from "./agent-command.test-helpers.js";
 import { setRegistry } from "./server.agent.gateway-server-agent.mocks.js";
 import { createRegistry } from "./server.e2e-registry-helpers.js";
 import {
-  agentCommand,
+  agentCommandMock,
   connectOk,
   connectWebchatClient,
   installGatewayTestHooks,
   onceMessage,
-  readSessionStore,
   rpcReq,
   startConnectedServerWithClient,
   startServerWithClient,
@@ -141,8 +142,9 @@ async function writeMainSessionEntry(params: {
       main: {
         sessionId: params.sessionId,
         updatedAt: Date.now(),
-        lastChannel: params.lastChannel,
-        lastTo: params.lastTo,
+        delivery: normalizeSessionDeliveryState({
+          context: { channel: params.lastChannel, to: params.lastTo },
+        }),
       },
     },
   });
@@ -175,14 +177,20 @@ async function sendAgentWsRequestAndWaitFinal(
   return await finalP;
 }
 
+const gwSessionTempDirs: string[] = [];
+
 async function useTempSessionStorePath() {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-gw-"));
+  const dir = makeTempDir(gwSessionTempDirs, "openclaw-gw-");
   testState.sessionStorePath = path.join(dir, "sessions.json");
 }
 
+afterAll(() => {
+  cleanupTempDirs(gwSessionTempDirs);
+});
+
 describe("gateway server agent", () => {
   beforeEach(() => {
-    vi.mocked(agentCommand).mockClear();
+    vi.mocked(agentCommandMock).mockClear();
     testState.allowFrom = undefined;
     setRegistry(defaultRegistry);
   });
@@ -268,8 +276,17 @@ describe("gateway server agent", () => {
     if (!sessionStorePath) {
       throw new Error("expected session store path");
     }
-    const stored = readSessionStore(sessionStorePath);
-    expect(stored["agent:main:main"]?.cliSessionBindings).toEqual({
+    const stored = loadSessionEntry({
+      sessionKey: "agent:main:main",
+      storePath: sessionStorePath,
+    }) as
+      | {
+          cliSessionBindings?: Record<string, unknown>;
+          cliSessionIds?: Record<string, string>;
+          claudeCliSessionId?: string;
+        }
+      | undefined;
+    expect(stored?.cliSessionBindings).toEqual({
       "claude-cli": {
         sessionId: "cli-session-123",
         authProfileId: "anthropic:work",
@@ -277,10 +294,10 @@ describe("gateway server agent", () => {
         mcpResumeHash: "mcp-resume-hash",
       },
     });
-    expect(stored["agent:main:main"]?.cliSessionIds).toEqual({
+    expect(stored?.cliSessionIds).toEqual({
       "claude-cli": "cli-session-123",
     });
-    expect(stored["agent:main:main"]?.claudeCliSessionId).toBe("cli-session-123");
+    expect(stored?.claudeCliSessionId).toBe("cli-session-123");
   });
 
   test("agent accepts built-in channel alias (imsg)", async () => {
@@ -355,51 +372,7 @@ describe("gateway server agent", () => {
     expect(res.error?.code).toBe("INVALID_REQUEST");
   });
 
-  test("agent errors when deliver=true and last channel is webchat", async () => {
-    testState.allowFrom = ["+1555"];
-    await writeMainSessionEntry({
-      sessionId: "sess-main-webchat",
-      lastChannel: "webchat",
-      lastTo: "+1555",
-    });
-    const res = await rpcReq(ws, "agent", {
-      message: "hi",
-      sessionKey: "main",
-      channel: "last",
-      deliver: true,
-      bestEffortDeliver: false,
-      idempotencyKey: "idem-agent-webchat",
-    });
-    expect(res.ok).toBe(false);
-    expect(res.error?.code).toBe("INVALID_REQUEST");
-    expect(res.error?.message).toMatch(/Channel is required|runtime not initialized/);
-    expect(vi.mocked(agentCommand)).not.toHaveBeenCalled();
-  });
-
-  test("agent downgrades to session-only delivery when best-effort is enabled and last channel is webchat", async () => {
-    testState.allowFrom = ["+1555"];
-    await writeMainSessionEntry({
-      sessionId: "sess-main-webchat-best-effort",
-      lastChannel: "webchat",
-      lastTo: "+1555",
-    });
-    const res = await rpcReq(ws, "agent", {
-      message: "hi",
-      sessionKey: "main",
-      channel: "last",
-      deliver: true,
-      bestEffortDeliver: true,
-      idempotencyKey: "idem-agent-webchat-best-effort",
-    });
-    expect(res.ok).toBe(true);
-    await expectAgentRoutingCall({
-      channel: "webchat",
-      deliver: false,
-      runId: "idem-agent-webchat-best-effort",
-    });
-  });
-
-  test("agent downgrades to session-only when multiple channels are configured but no external target resolves", async () => {
+  test("agent preserves requested delivery when no external target resolves", async () => {
     const registry = createRegistry([
       {
         pluginId: "discord",
@@ -426,30 +399,8 @@ describe("gateway server agent", () => {
     expect(res.ok).toBe(true);
     await expectAgentRoutingCall({
       channel: "webchat",
-      deliver: false,
+      deliver: true,
       runId: "idem-agent-multi-configured-best-effort",
-    });
-  });
-
-  test("agent uses webchat for internal runs when last provider is webchat", async () => {
-    await writeMainSessionEntry({
-      sessionId: "sess-main-webchat-internal",
-      lastChannel: "webchat",
-      lastTo: "+1555",
-    });
-    const res = await rpcReq(ws, "agent", {
-      message: "hi",
-      sessionKey: "main",
-      channel: "last",
-      deliver: false,
-      idempotencyKey: "idem-agent-webchat-internal",
-    });
-    expect(res.ok).toBe(true);
-
-    await expectAgentRoutingCall({
-      channel: "webchat",
-      deliver: false,
-      runId: "idem-agent-webchat-internal",
     });
   });
 
@@ -481,18 +432,26 @@ describe("gateway server agent", () => {
       expect(directReset.ok).toBe(false);
       expect(directReset.error?.message).toContain("missing scope: operator.admin");
 
-      vi.mocked(agentCommand).mockClear();
+      vi.mocked(agentCommandMock).mockClear();
       const viaAgent = await rpcReq(writeWs, "agent", {
         message: "/reset",
         sessionKey: "main",
         idempotencyKey: "idem-agent-write-reset",
       });
       expect(viaAgent.ok).toBe(false);
-      expect(viaAgent.error?.message).toContain("missing scope: operator.admin");
+      expect(viaAgent.error).toMatchObject({
+        code: "FORBIDDEN",
+        message: "missing scope: operator.admin",
+        details: {
+          code: "MISSING_SCOPE",
+          missingScope: "operator.admin",
+          requiredScopes: ["operator.admin"],
+        },
+      });
 
-      const store = readSessionStore(storePath);
-      expect(store["agent:main:main"]?.sessionId).toBe("sess-main-before-write-reset");
-      expect(vi.mocked(agentCommand)).not.toHaveBeenCalled();
+      const stored = loadSessionEntry({ sessionKey: "agent:main:main", storePath });
+      expect(stored?.sessionId).toBe("sess-main-before-write-reset");
+      expect(vi.mocked(agentCommandMock)).not.toHaveBeenCalled();
 
       writeWs.close();
     });
@@ -528,7 +487,7 @@ describe("gateway server agent", () => {
 
   test("agent final response surfaces redacted ACP runtime cause details", async () => {
     const token = "sk-abcdefghijklmnopqrstuvwxyz123456";
-    vi.mocked(agentCommand).mockRejectedValueOnce(
+    vi.mocked(agentCommandMock).mockRejectedValueOnce(
       new AcpRuntimeError("ACP_TURN_FAILED", "Internal error", {
         cause: new Error(`upstream rejected token=${token}`),
       }),

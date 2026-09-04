@@ -1,5 +1,5 @@
 export {
-  resolveProviderPluginChoice,
-  runProviderModelSelectedHook,
+  resolveProviderPluginChoiceCore as resolveProviderPluginChoice,
+  runProviderModelSelectedHookCore as runProviderModelSelectedHook,
 } from "../plugins/provider-wizard.js";
-export { resolvePluginProviders } from "../plugins/providers.runtime.js";
+export { resolvePluginProvidersCore as resolvePluginProviders } from "../plugins/providers.runtime.js";

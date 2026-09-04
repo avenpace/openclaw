@@ -1,6 +1,6 @@
 import { Type } from "typebox";
 import type { AnyAgentTool } from "./common.js";
-import { jsonResult, readStringParam } from "./common.js";
+import { jsonResult, readToolStringParam } from "./common.js";
 
 /**
  * Device information returned by the handler
@@ -197,8 +197,8 @@ IMPORTANT: After finding a file path, use devices_send_file to send it to the us
     execute: async (_toolCallId, rawParams) => {
       const params = rawParams as Record<string, unknown>;
       try {
-        const device = readStringParam(params, "device", { required: true });
-        const command = readStringParam(params, "command", { required: true });
+        const device = readToolStringParam(params, "device", { required: true });
+        const command = readToolStringParam(params, "command", { required: true });
 
         const result = await handler.runCommand({
           deviceName: device,
@@ -232,7 +232,7 @@ export function createDevicesJobStatusTool(handler: DevicesHandler): AnyAgentToo
     execute: async (_toolCallId, rawParams) => {
       const params = rawParams as Record<string, unknown>;
       try {
-        const jobId = readStringParam(params, "jobId", { required: true });
+        const jobId = readToolStringParam(params, "jobId", { required: true });
         const result = await handler.getJobStatus(jobId);
 
         if (!result.job) {
@@ -275,8 +275,8 @@ Example: To send ~/Desktop/report.pdf via WhatsApp:
     execute: async (_toolCallId, rawParams) => {
       const params = rawParams as Record<string, unknown>;
       try {
-        const device = readStringParam(params, "device", { required: true });
-        const filePath = readStringParam(params, "filePath", { required: true });
+        const device = readToolStringParam(params, "device", { required: true });
+        const filePath = readToolStringParam(params, "filePath", { required: true });
 
         const result = await handler.uploadFile({
           deviceName: device,
@@ -330,9 +330,9 @@ Examples:
     execute: async (_toolCallId, rawParams) => {
       const params = rawParams as Record<string, unknown>;
       try {
-        const device = readStringParam(params, "device"); // Optional - uses default if not provided
-        const filePath = readStringParam(params, "filePath", { required: true });
-        const caption = readStringParam(params, "caption");
+        const device = readToolStringParam(params, "device"); // Optional - uses default if not provided
+        const filePath = readToolStringParam(params, "filePath", { required: true });
+        const caption = readToolStringParam(params, "caption");
 
         const result = await handler.sendFile!({
           deviceName: device || undefined,
@@ -390,10 +390,10 @@ Parameters:
     execute: async (_toolCallId, rawParams) => {
       const params = rawParams as Record<string, unknown>;
       try {
-        const searchPattern = readStringParam(params, "searchPattern", { required: true });
-        const searchPath = readStringParam(params, "searchPath");
-        const device = readStringParam(params, "device");
-        const caption = readStringParam(params, "caption");
+        const searchPattern = readToolStringParam(params, "searchPattern", { required: true });
+        const searchPath = readToolStringParam(params, "searchPath");
+        const device = readToolStringParam(params, "device");
+        const caption = readToolStringParam(params, "caption");
 
         const result = await handler.findAndSendFile!({
           deviceName: device || undefined,

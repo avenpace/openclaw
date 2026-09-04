@@ -1,3 +1,4 @@
+import { truncateUtf16Safe } from "@openclaw/normalization-core/utf16-slice";
 /**
  * Tool policy audit logging helpers.
  * Emits bounded, sanitized logs when allow/deny policy filters remove tools or
@@ -6,7 +7,7 @@
 import { createSubsystemLogger } from "../logging/subsystem.js";
 import type { SandboxConfig } from "./sandbox/types.js";
 import { isToolAllowedByPolicyName } from "./tool-policy-match.js";
-import { normalizeToolList, normalizeToolName, type ToolPolicyLike } from "./tool-policy.js";
+import { normalizeToolList, normalizeToolPolicyName, type ToolPolicyLike } from "./tool-policy.js";
 
 // Emits bounded audit logs when tool allow/deny policies remove or block tools.
 // Sanitizing here keeps logs single-line and safe for arbitrary tool names.
@@ -117,8 +118,9 @@ function boundedToolNames(names: readonly string[]): {
   };
 }
 
-function sanitizeAuditField(value: string): string {
-  const sanitized = Array.from(value.trim(), (char) => {
+/** Escapes control characters as visible sequences for single-line audit/log output. */
+export function escapeControlCharsVisible(value: string): string {
+  return Array.from(value, (char) => {
     if (char === "\n") {
       return "\\n";
     }
@@ -134,13 +136,17 @@ function sanitizeAuditField(value: string): string {
     }
     return char;
   }).join("");
+}
+
+function sanitizeAuditField(value: string): string {
+  const sanitized = escapeControlCharsVisible(value.trim());
   if (!sanitized) {
     return "(unknown)";
   }
   if (sanitized.length <= MAX_AUDIT_FIELD_LENGTH) {
     return sanitized;
   }
-  return `${sanitized.slice(0, MAX_AUDIT_FIELD_LENGTH)}...`;
+  return `${truncateUtf16Safe(sanitized, MAX_AUDIT_FIELD_LENGTH)}...`;
 }
 
 function matchedPolicyRules(params: {
@@ -219,7 +225,7 @@ export function auditSandboxToolPolicyBlock(params: {
   policy?: ToolPolicyLike;
   mode: SandboxConfig["mode"];
 }): void {
-  const normalizedToolName = normalizeToolName(params.toolName);
+  const normalizedToolName = normalizeToolPolicyName(params.toolName);
   if (!normalizedToolName) {
     return;
   }

@@ -395,7 +395,7 @@ async function executePythonSandboxed(
         let cleanError = stderr;
         const match = cleanError.match(/File "<string>", line (\d+)/);
         if (match) {
-          const reportedLine = parseInt(match[1], 10);
+          const reportedLine = parseInt(match[1] ?? "0", 10);
           const wrapperLines = sandboxCode.split("\n").length;
           const actualLine = reportedLine - wrapperLines;
           if (actualLine > 0) {

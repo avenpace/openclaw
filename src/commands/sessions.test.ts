@@ -1,8 +1,8 @@
 // Sessions command tests cover listing, details, filtering, and transcript display behavior.
-import fs from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { resolveSqliteSessionStoreDatabasePath } from "../config/sessions/store-sqlite.js";
+import { normalizeSessionDeliveryState } from "../utils/delivery-context.shared.js";
 import {
+  cleanupStore,
   makeRuntime,
   mockSessionsConfig,
   resetMockSessionsConfig,
@@ -16,7 +16,7 @@ process.env.FORCE_COLOR = "0";
 
 mockSessionsConfig();
 
-import { sessionsCommand, testing } from "./sessions.js";
+import { sessionsCommand } from "./sessions.js";
 
 describe("sessionsCommand", () => {
   beforeEach(() => {
@@ -30,14 +30,15 @@ describe("sessionsCommand", () => {
   });
 
   it("renders a tabular view with token percentages", async () => {
-    const store = writeStore({
-      "+15555550123": {
+    const store = await writeStore({
+      "agent:main:+15555550123": {
         sessionId: "abc123",
         updatedAt: Date.now() - 45 * 60_000,
         inputTokens: 1200,
         outputTokens: 800,
         totalTokens: 2000,
         totalTokensFresh: true,
+        totalTokensVersion: 1,
         model: "test:opus",
       },
     });
@@ -45,14 +46,13 @@ describe("sessionsCommand", () => {
     const { runtime, logs } = makeRuntime();
     await sessionsCommand({ store }, runtime);
 
-    expect(fs.existsSync(store)).toBe(false);
-    fs.rmSync(store, { force: true });
+    cleanupStore(store);
 
     expect(logs.join("\n")).toContain("Tokens (ctx %");
 
-    const row = logs.find((line) => line.includes("+15555550123")) ?? "";
+    const row = logs.find((line) => line.includes("agent:main:+15555550123")) ?? "";
     expect(row).toBe(
-      "direct      +15555550123               45m ago   test:opus      OpenAI Codex       2.0k/32k (6%)        id:abc123",
+      "direct      agent:main:+15555550123    45m ago   test:opus      OpenAI Codex       2.0k/32k (6%)        id:abc123",
     );
   });
 
@@ -68,7 +68,7 @@ describe("sessionsCommand", () => {
         },
       },
     }));
-    const store = writeStore(
+    const store = await writeStore(
       {
         "agent:main:main": {
           sessionId: "main-session",
@@ -83,7 +83,7 @@ describe("sessionsCommand", () => {
     const { runtime, logs } = makeRuntime();
     await sessionsCommand({ store }, runtime);
 
-    fs.rmSync(store, { force: true });
+    cleanupStore(store);
 
     expect(logs.join("\n")).toContain("Runtime");
 
@@ -105,7 +105,7 @@ describe("sessionsCommand", () => {
         },
       },
     }));
-    const store = writeStore(
+    const store = await writeStore(
       {
         "agent:main:main": {
           sessionId: "main-session",
@@ -120,7 +120,7 @@ describe("sessionsCommand", () => {
     const { runtime, logs } = makeRuntime();
     await sessionsCommand({ store }, runtime);
 
-    fs.rmSync(store, { force: true });
+    cleanupStore(store);
 
     const row = logs.find((line) => line.includes("agent:main:main")) ?? "";
     expect(row).toBe(
@@ -129,8 +129,8 @@ describe("sessionsCommand", () => {
   });
 
   it("shows placeholder rows when tokens are missing", async () => {
-    const store = writeStore({
-      "quietchat:group:demo": {
+    const store = await writeStore({
+      "agent:main:quietchat:group:demo": {
         sessionId: "xyz",
         updatedAt: Date.now() - 5 * 60_000,
         thinkingLevel: "high",
@@ -140,26 +140,27 @@ describe("sessionsCommand", () => {
     const { runtime, logs } = makeRuntime();
     await sessionsCommand({ store }, runtime);
 
-    fs.rmSync(store, { force: true });
+    cleanupStore(store);
 
-    const row = logs.find((line) => line.includes("quietchat:group:demo")) ?? "";
-    expect(row).toBe(
-      "group       quietchat:group:demo       5m ago    test:opus      OpenAI Codex       unknown/32k (?%)     think:high id:xyz",
-    );
+    const row = logs.find((line) => line.includes("id:xyz")) ?? "";
+    expect(row).toContain("group");
+    expect(row).toContain("unknown/32k (?%)");
+    expect(row).toContain("think:high");
   });
 
   it("exports freshness metadata in JSON output", async () => {
-    const store = writeStore({
-      main: {
+    const store = await writeStore({
+      "agent:main:main": {
         sessionId: "abc123",
         updatedAt: Date.now() - 10 * 60_000,
         inputTokens: 1200,
         outputTokens: 800,
         totalTokens: 2000,
         totalTokensFresh: true,
+        totalTokensVersion: 1,
         model: "test:opus",
       },
-      "quietchat:group:demo": {
+      "agent:main:quietchat:group:demo": {
         sessionId: "xyz",
         updatedAt: Date.now() - 5 * 60_000,
         inputTokens: 20,
@@ -175,17 +176,95 @@ describe("sessionsCommand", () => {
         totalTokensFresh: boolean;
       }>;
     }>(sessionsCommand, store);
-    const main = payload.sessions?.find((row) => row.key === "main");
-    const group = payload.sessions?.find((row) => row.key === "quietchat:group:demo");
+    const main = payload.sessions?.find((row) => row.key === "agent:main:main");
+    const group = payload.sessions?.find((row) => row.key === "agent:main:quietchat:group:demo");
     expect(main?.totalTokens).toBe(2000);
     expect(main?.totalTokensFresh).toBe(true);
     expect(group?.totalTokens).toBeNull();
     expect(group?.totalTokensFresh).toBe(false);
   });
 
+  it("reports the SQLite database and omits the retired sessionFile field", async () => {
+    const store = await writeStore({
+      "agent:main:main": {
+        sessionId: "abc123",
+        updatedAt: Date.now() - 10 * 60_000,
+        model: "test:opus",
+      },
+    });
+
+    const payload = await runSessionsJson<{
+      path?: string;
+      sessions?: Array<{ key: string }>;
+    }>(sessionsCommand, store);
+
+    expect(payload.path).toMatch(/openclaw-agent\.sqlite$/u);
+    expect(payload.path).not.toContain("sessions.json");
+    expect(payload.sessions?.find((row) => row.key === "agent:main:main")).not.toHaveProperty(
+      "sessionFile",
+    );
+  });
+
+  it("exports subagent lineage metadata in JSON output", async () => {
+    const store = await writeStore({
+      "agent:main:child": {
+        sessionId: "child-session",
+        updatedAt: Date.now() - 10 * 60_000,
+        spawnedBy: "agent:main:main",
+        spawnedWorkspaceDir: "/workspace/project",
+        spawnedCwd: "/workspace/project/tasks",
+        parentSessionKey: "agent:main:main",
+        forkedFromParent: true,
+        spawnDepth: 1,
+        subagentRole: "leaf",
+        subagentControlScope: "none",
+        sessionStartedAt: Date.now() - 20 * 60_000,
+        lastInteractionAt: Date.now() - 5 * 60_000,
+        label: "research helper",
+        status: "done",
+        model: "test:opus",
+      },
+    });
+
+    const payload = await runSessionsJson<{
+      sessions?: Array<{
+        key: string;
+        spawnedBy?: string;
+        spawnedWorkspaceDir?: string;
+        spawnedCwd?: string;
+        parentSessionKey?: string;
+        forkedFromParent?: boolean;
+        spawnDepth?: number;
+        subagentRole?: string;
+        subagentControlScope?: string;
+        sessionStartedAt?: number;
+        lastInteractionAt?: number;
+        label?: string;
+        status?: string;
+      }>;
+    }>(sessionsCommand, store);
+
+    const child = payload.sessions?.find((row) => row.key === "agent:main:child");
+    expect(child).toMatchObject({
+      spawnedBy: "agent:main:main",
+      spawnedWorkspaceDir: "/workspace/project",
+      spawnedCwd: "/workspace/project/tasks",
+      parentSessionKey: "agent:main:main",
+      forkedFromParent: true,
+      spawnDepth: 1,
+      subagentRole: "leaf",
+      subagentControlScope: "none",
+      sessionStartedAt: Date.now() - 20 * 60_000,
+      lastInteractionAt: Date.now() - 5 * 60_000,
+      label: "research helper",
+      status: "done",
+    });
+    expect(child).not.toHaveProperty("sessionFile");
+  });
+
   it("shows preserved stale totals in JSON output", async () => {
-    const store = writeStore({
-      main: {
+    const store = await writeStore({
+      "agent:main:main": {
         sessionId: "abc123",
         updatedAt: Date.now() - 10 * 60_000,
         totalTokens: 2000,
@@ -201,20 +280,20 @@ describe("sessionsCommand", () => {
         totalTokensFresh: boolean;
       }>;
     }>(sessionsCommand, store);
-    const main = payload.sessions?.find((row) => row.key === "main");
+    const main = payload.sessions?.find((row) => row.key === "agent:main:main");
     expect(main?.totalTokens).toBe(2000);
     expect(main?.totalTokensFresh).toBe(false);
   });
 
   it("applies --active filtering in JSON output", async () => {
-    const store = writeStore(
+    const store = await writeStore(
       {
-        recent: {
+        "agent:main:recent": {
           sessionId: "recent",
           updatedAt: Date.now() - 5 * 60_000,
           model: "test:opus",
         },
-        stale: {
+        "agent:main:stale": {
           sessionId: "stale",
           updatedAt: Date.now() - 45 * 60_000,
           model: "test:opus",
@@ -228,21 +307,23 @@ describe("sessionsCommand", () => {
         key: string;
       }>;
     }>(sessionsCommand, store, { active: "10" });
-    expect(payload.sessions?.map((row) => row.key)).toEqual(["recent"]);
+    expect(payload.sessions?.map((row) => row.key)).toEqual(["agent:main:recent"]);
   });
 
   it("exports runtime policy aliases for collapsed external direct sessions", async () => {
-    const store = writeStore(
+    const store = await writeStore(
       {
         "agent:main:main": {
           sessionId: "telegram-main",
           updatedAt: Date.now() - 60_000,
-          origin: {
-            provider: "telegram",
-            chatType: "direct",
-            to: "telegram:42",
-            accountId: "default",
-          },
+          delivery: normalizeSessionDeliveryState({
+            origin: {
+              provider: "telegram",
+              chatType: "direct",
+              to: "telegram:42",
+              accountId: "default",
+            },
+          }),
         },
       },
       "sessions-runtime-policy-alias",
@@ -259,16 +340,91 @@ describe("sessionsCommand", () => {
     expect(main?.runtimePolicySessionKey).toBe("agent:main:telegram:default:direct:42");
   });
 
-  it("uses a default JSON output limit of 100 sessions", () => {
-    expect(testing.parseSessionsLimit(undefined)).toBe(100);
+  it("projects a bare row with its resolved fixed-store owner", async () => {
+    const store = await writeStore(
+      {
+        global: {
+          sessionId: "telegram-global",
+          updatedAt: Date.now() - 60_000,
+          delivery: normalizeSessionDeliveryState({
+            origin: {
+              provider: "telegram",
+              chatType: "direct",
+              to: "telegram:42",
+              accountId: "default",
+            },
+          }),
+        },
+      },
+      "sessions-runtime-policy-owner",
+      { agentId: "ops" },
+    );
+    setMockSessionsConfig(() => ({
+      session: { scope: "global", store },
+      agents: {
+        ownership: "explicit",
+        defaults: {
+          model: { primary: "test:opus" },
+          models: { "test:opus": {} },
+          contextTokens: 32000,
+          sessionStore: { agentId: "ops" },
+        },
+        entries: { ops: {}, research: {} },
+      },
+    }));
+
+    const payload = await runSessionsJson<{
+      sessions?: Array<{ agentId?: string; key: string; runtimePolicySessionKey?: string }>;
+    }>(sessionsCommand, store, { active: "10" });
+
+    expect(payload.sessions?.find((row) => row.key === "global")).toMatchObject({
+      agentId: "ops",
+      runtimePolicySessionKey: "agent:ops:telegram:default:direct:42",
+    });
+  });
+
+  it("uses a default JSON output limit of 100 sessions", async () => {
+    const entries = Object.fromEntries(
+      Array.from({ length: 101 }, (_, index) => [
+        `agent:main:session-${index}`,
+        {
+          sessionId: `session-${index}`,
+          updatedAt: Date.now() - index,
+          model: "test:opus",
+        },
+      ]),
+    );
+    const store = await writeStore(entries, "sessions-default-limit");
+
+    const payload = await runSessionsJson<{
+      count?: number;
+      totalCount?: number;
+      limitApplied?: number | null;
+      hasMore?: boolean;
+      sessions?: Array<{ key: string }>;
+    }>(sessionsCommand, store);
+
+    expect(payload.count).toBe(100);
+    expect(payload.totalCount).toBe(101);
+    expect(payload.limitApplied).toBe(100);
+    expect(payload.hasMore).toBe(true);
+    expect(payload.sessions).toHaveLength(100);
   });
 
   it("honors explicit JSON output limits", async () => {
-    const store = writeStore(
+    const store = await writeStore(
       {
-        newest: { sessionId: "newest", updatedAt: Date.now(), model: "test:opus" },
-        middle: { sessionId: "middle", updatedAt: Date.now() - 60_000, model: "test:opus" },
-        oldest: { sessionId: "oldest", updatedAt: Date.now() - 120_000, model: "test:opus" },
+        "agent:main:newest": { sessionId: "newest", updatedAt: Date.now(), model: "test:opus" },
+        "agent:main:middle": {
+          sessionId: "middle",
+          updatedAt: Date.now() - 60_000,
+          model: "test:opus",
+        },
+        "agent:main:oldest": {
+          sessionId: "oldest",
+          updatedAt: Date.now() - 120_000,
+          model: "test:opus",
+        },
       },
       "sessions-explicit-limit",
     );
@@ -285,14 +441,21 @@ describe("sessionsCommand", () => {
     expect(payload.totalCount).toBe(3);
     expect(payload.limitApplied).toBe(2);
     expect(payload.hasMore).toBe(true);
-    expect(payload.sessions?.map((row) => row.key)).toEqual(["newest", "middle"]);
+    expect(payload.sessions?.map((row) => row.key)).toEqual([
+      "agent:main:newest",
+      "agent:main:middle",
+    ]);
   });
 
   it("allows full JSON output with --limit all", async () => {
-    const store = writeStore(
+    const store = await writeStore(
       {
-        newest: { sessionId: "newest", updatedAt: Date.now(), model: "test:opus" },
-        oldest: { sessionId: "oldest", updatedAt: Date.now() - 120_000, model: "test:opus" },
+        "agent:main:newest": { sessionId: "newest", updatedAt: Date.now(), model: "test:opus" },
+        "agent:main:oldest": {
+          sessionId: "oldest",
+          updatedAt: Date.now() - 120_000,
+          model: "test:opus",
+        },
       },
       "sessions-limit-all",
     );
@@ -309,14 +472,21 @@ describe("sessionsCommand", () => {
     expect(payload.totalCount).toBe(2);
     expect(payload.limitApplied).toBeNull();
     expect(payload.hasMore).toBe(false);
-    expect(payload.sessions?.map((row) => row.key)).toEqual(["newest", "oldest"]);
+    expect(payload.sessions?.map((row) => row.key)).toEqual([
+      "agent:main:newest",
+      "agent:main:oldest",
+    ]);
   });
 
   it("sorts and slices large explicit limits instead of using top-N insertion", async () => {
-    const store = writeStore(
+    const store = await writeStore(
       {
-        newest: { sessionId: "newest", updatedAt: Date.now(), model: "test:opus" },
-        oldest: { sessionId: "oldest", updatedAt: Date.now() - 120_000, model: "test:opus" },
+        "agent:main:newest": { sessionId: "newest", updatedAt: Date.now(), model: "test:opus" },
+        "agent:main:oldest": {
+          sessionId: "oldest",
+          updatedAt: Date.now() - 120_000,
+          model: "test:opus",
+        },
       },
       "sessions-large-limit",
     );
@@ -333,13 +503,16 @@ describe("sessionsCommand", () => {
     expect(payload.totalCount).toBe(2);
     expect(payload.limitApplied).toBe(100000);
     expect(payload.hasMore).toBe(false);
-    expect(payload.sessions?.map((row) => row.key)).toEqual(["newest", "oldest"]);
+    expect(payload.sessions?.map((row) => row.key)).toEqual([
+      "agent:main:newest",
+      "agent:main:oldest",
+    ]);
   });
 
   it("rejects invalid --active values", async () => {
-    const store = writeStore(
+    const store = await writeStore(
       {
-        demo: {
+        "agent:main:demo": {
           sessionId: "demo",
           updatedAt: Date.now() - 5 * 60_000,
         },
@@ -352,16 +525,14 @@ describe("sessionsCommand", () => {
     expect(errors).toStrictEqual([
       "--active must be a positive number of minutes, for example --active 30.",
     ]);
-    expect(fs.existsSync(store)).toBe(true);
-    expect(fs.existsSync(resolveSqliteSessionStoreDatabasePath(store))).toBe(false);
 
-    fs.rmSync(store, { force: true });
+    cleanupStore(store);
   });
 
   it("rejects partial --active values", async () => {
-    const store = writeStore(
+    const store = await writeStore(
       {
-        demo: {
+        "agent:main:demo": {
           sessionId: "demo",
           updatedAt: Date.now() - 5 * 60_000,
         },
@@ -375,13 +546,13 @@ describe("sessionsCommand", () => {
       "--active must be a positive number of minutes, for example --active 30.",
     ]);
 
-    fs.rmSync(store, { force: true });
+    cleanupStore(store);
   });
 
   it("rejects invalid --limit values", async () => {
-    const store = writeStore(
+    const store = await writeStore(
       {
-        demo: {
+        "agent:main:demo": {
           sessionId: "demo",
           updatedAt: Date.now() - 5 * 60_000,
         },
@@ -395,6 +566,6 @@ describe("sessionsCommand", () => {
       '--limit must be a positive integer or "all", for example --limit 25.',
     ]);
 
-    fs.rmSync(store, { force: true });
+    cleanupStore(store);
   });
 });

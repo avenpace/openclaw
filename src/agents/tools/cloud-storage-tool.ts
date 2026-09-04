@@ -1,6 +1,6 @@
 import { Type } from "typebox";
 import type { AnyAgentTool } from "./common.js";
-import { jsonResult, readStringParam, readNumberParam } from "./common.js";
+import { jsonResult, readToolStringParam, readNumberParam } from "./common.js";
 
 /**
  * Cloud file information
@@ -351,7 +351,7 @@ Use this to:
     execute: async (_toolCallId, rawParams) => {
       const params = rawParams as Record<string, unknown>;
       try {
-        const folderId = readStringParam(params, "folderId");
+        const folderId = readToolStringParam(params, "folderId");
         const limit = readNumberParam(params, "limit", { integer: true }) ?? 20;
 
         const result = await handler.listFiles({
@@ -399,7 +399,7 @@ export function createCloudListFoldersTool(handler: CloudStorageHandler): AnyAge
     execute: async (_toolCallId, rawParams) => {
       const params = rawParams as Record<string, unknown>;
       try {
-        const parentId = readStringParam(params, "parentId");
+        const parentId = readToolStringParam(params, "parentId");
         const result = await handler.listFolders(parentId === "root" ? null : parentId);
 
         if (result.folders.length === 0) {
@@ -437,7 +437,7 @@ export function createCloudGetFileTool(handler: CloudStorageHandler): AnyAgentTo
     execute: async (_toolCallId, rawParams) => {
       const params = rawParams as Record<string, unknown>;
       try {
-        const fileId = readStringParam(params, "fileId", { required: true });
+        const fileId = readToolStringParam(params, "fileId", { required: true });
         const result = await handler.getFile(fileId);
 
         if (!result) {
@@ -479,7 +479,7 @@ Use cloud_get_file first to check the file type if unsure.`,
     execute: async (_toolCallId, rawParams) => {
       const params = rawParams as Record<string, unknown>;
       try {
-        const fileId = readStringParam(params, "fileId", { required: true });
+        const fileId = readToolStringParam(params, "fileId", { required: true });
         const result = await handler.readFileContent(fileId);
 
         if (!result) {
@@ -519,10 +519,10 @@ The content is uploaded as a text file. Set isPublic=true to get a shareable URL
     execute: async (_toolCallId, rawParams) => {
       const params = rawParams as Record<string, unknown>;
       try {
-        const filename = readStringParam(params, "filename", { required: true });
-        const content = readStringParam(params, "content", { required: true, allowEmpty: true });
-        const mimeType = readStringParam(params, "mimeType");
-        const folderId = readStringParam(params, "folderId");
+        const filename = readToolStringParam(params, "filename", { required: true });
+        const content = readToolStringParam(params, "content", { required: true, allowEmpty: true });
+        const mimeType = readToolStringParam(params, "mimeType");
+        const folderId = readToolStringParam(params, "folderId");
         const isPublic = params.isPublic === true;
 
         const result = await handler.uploadContent({
@@ -568,10 +568,10 @@ The content must be base64-encoded. Set isPublic=true to get a shareable URL.`,
     execute: async (_toolCallId, rawParams) => {
       const params = rawParams as Record<string, unknown>;
       try {
-        const filename = readStringParam(params, "filename", { required: true });
-        const contentBase64 = readStringParam(params, "contentBase64", { required: true });
-        const mimeType = readStringParam(params, "mimeType");
-        const folderId = readStringParam(params, "folderId");
+        const filename = readToolStringParam(params, "filename", { required: true });
+        const contentBase64 = readToolStringParam(params, "contentBase64", { required: true });
+        const mimeType = readToolStringParam(params, "mimeType");
+        const folderId = readToolStringParam(params, "folderId");
         const isPublic = params.isPublic === true;
 
         const result = await handler.uploadBase64({
@@ -614,7 +614,7 @@ Use cloud_get_file first if unsure about file type.`,
     execute: async (_toolCallId, rawParams) => {
       const params = rawParams as Record<string, unknown>;
       try {
-        const fileId = readStringParam(params, "fileId", { required: true });
+        const fileId = readToolStringParam(params, "fileId", { required: true });
         const maxChars = readNumberParam(params, "maxChars", { integer: true }) ?? 50000;
 
         const result = await handler.extractText({ fileId, maxChars });
@@ -656,16 +656,16 @@ Provide content based on the document type.`,
     execute: async (_toolCallId, rawParams) => {
       const params = rawParams as Record<string, unknown>;
       try {
-        const type = readStringParam(params, "type", { required: true }) as
+        const type = readToolStringParam(params, "type", { required: true }) as
           | "docx"
           | "xlsx"
           | "pptx"
           | "pdf";
-        const filename = readStringParam(params, "filename");
-        const title = readStringParam(params, "title");
-        const content = readStringParam(params, "content", { allowEmpty: true });
-        const csv = readStringParam(params, "csv", { allowEmpty: true });
-        const folderId = readStringParam(params, "folderId");
+        const filename = readToolStringParam(params, "filename");
+        const title = readToolStringParam(params, "title");
+        const content = readToolStringParam(params, "content", { allowEmpty: true });
+        const csv = readToolStringParam(params, "csv", { allowEmpty: true });
+        const folderId = readToolStringParam(params, "folderId");
         const isPublic = params.isPublic === true;
 
         const result = await handler.createDocument({
@@ -711,7 +711,7 @@ export function createCloudDeleteFileTool(handler: CloudStorageHandler): AnyAgen
     execute: async (_toolCallId, rawParams) => {
       const params = rawParams as Record<string, unknown>;
       try {
-        const fileId = readStringParam(params, "fileId", { required: true });
+        const fileId = readToolStringParam(params, "fileId", { required: true });
         await handler.deleteFile(fileId);
 
         return jsonResult({
@@ -744,9 +744,9 @@ Examples:
     execute: async (_toolCallId, rawParams) => {
       const params = rawParams as Record<string, unknown>;
       try {
-        const fileId = readStringParam(params, "fileId", { required: true });
-        const filename = readStringParam(params, "filename");
-        const folderId = readStringParam(params, "folderId");
+        const fileId = readToolStringParam(params, "fileId", { required: true });
+        const filename = readToolStringParam(params, "filename");
+        const folderId = readToolStringParam(params, "folderId");
         const isPublic = typeof params.isPublic === "boolean" ? params.isPublic : undefined;
 
         await handler.updateFile(fileId, {
@@ -779,8 +779,8 @@ export function createCloudCreateFolderTool(handler: CloudStorageHandler): AnyAg
     execute: async (_toolCallId, rawParams) => {
       const params = rawParams as Record<string, unknown>;
       try {
-        const name = readStringParam(params, "name", { required: true });
-        const parentId = readStringParam(params, "parentId");
+        const name = readToolStringParam(params, "name", { required: true });
+        const parentId = readToolStringParam(params, "parentId");
 
         const result = await handler.createFolder(name, parentId);
 
@@ -810,7 +810,7 @@ export function createCloudDeleteFolderTool(handler: CloudStorageHandler): AnyAg
     execute: async (_toolCallId, rawParams) => {
       const params = rawParams as Record<string, unknown>;
       try {
-        const folderId = readStringParam(params, "folderId", { required: true });
+        const folderId = readToolStringParam(params, "folderId", { required: true });
         await handler.deleteFolder(folderId);
 
         return jsonResult({
@@ -839,7 +839,7 @@ The returned URL can be shared via messaging, email, etc.`,
     execute: async (_toolCallId, rawParams) => {
       const params = rawParams as Record<string, unknown>;
       try {
-        const fileId = readStringParam(params, "fileId", { required: true });
+        const fileId = readToolStringParam(params, "fileId", { required: true });
 
         // First make it public
         await handler.updateFile(fileId, { isPublic: true });
@@ -886,16 +886,16 @@ Use this when users want to convert files between formats (e.g., "convert this P
     execute: async (_toolCallId, rawParams) => {
       const params = rawParams as Record<string, unknown>;
       try {
-        const fileId = readStringParam(params, "fileId", { required: true });
-        const targetType = readStringParam(params, "targetType", { required: true }) as
+        const fileId = readToolStringParam(params, "fileId", { required: true });
+        const targetType = readToolStringParam(params, "targetType", { required: true }) as
           | "docx"
           | "xlsx"
           | "pptx"
           | "pdf"
           | "txt"
           | "csv";
-        const filename = readStringParam(params, "filename");
-        const folderId = readStringParam(params, "folderId");
+        const filename = readToolStringParam(params, "filename");
+        const folderId = readToolStringParam(params, "folderId");
         const isPublic = params.isPublic === true;
 
         const result = await handler.convertDocument({
@@ -951,8 +951,8 @@ Example workflow:
     execute: async (_toolCallId, rawParams) => {
       const params = rawParams as Record<string, unknown>;
       try {
-        const fileId = readStringParam(params, "fileId", { required: true });
-        const caption = readStringParam(params, "caption");
+        const fileId = readToolStringParam(params, "fileId", { required: true });
+        const caption = readToolStringParam(params, "caption");
 
         const result = await handler.sendFileToChannel!({ fileId, caption });
 

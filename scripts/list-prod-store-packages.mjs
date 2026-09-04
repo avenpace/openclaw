@@ -2,18 +2,14 @@
 import fs from "node:fs";
 import path from "node:path";
 import { parse } from "yaml";
-
-const parsed = JSON.parse(fs.readFileSync(0, "utf8"));
-const roots = Array.isArray(parsed) ? parsed : [parsed];
 const specs = new Set();
 const target = {
   cpu: process.arch,
   libc: detectLibc(),
   os: process.platform,
 };
-
 function packageSpec(name, version) {
-  if (!name || !version || typeof version !== "string") {
+  if (typeof name !== "string" || !name || typeof version !== "string" || !version) {
     return undefined;
   }
   const normalizedVersion = version.replace(/\(.+\)$/, "");
@@ -24,9 +20,14 @@ function packageSpec(name, version) {
   ) {
     return undefined;
   }
+  if (normalizedVersion.startsWith("npm:")) {
+    return normalizedVersion.slice("npm:".length);
+  }
+  if (normalizedVersion.startsWith("@")) {
+    return normalizedVersion;
+  }
   return `${name}@${normalizedVersion}`;
 }
-
 function detectLibc() {
   if (process.platform !== "linux") {
     return undefined;
@@ -34,7 +35,6 @@ function detectLibc() {
   const report = process.report?.getReport?.();
   return report?.header?.glibcVersionRuntime ? "glibc" : "musl";
 }
-
 function matchesTargetSelector(selector, value) {
   if (!Array.isArray(selector) || !value) {
     return true;
@@ -46,18 +46,15 @@ function matchesTargetSelector(selector, value) {
   const allowed = selector.filter((entry) => typeof entry === "string" && !entry.startsWith("!"));
   return allowed.length === 0 || allowed.includes(value);
 }
-
 function packageEntryForSpec(lockfile, spec) {
   return lockfile?.packages?.[spec] ?? lockfile?.packages?.[`/${spec}`];
 }
-
 function normalizeLockfilePackageKey(key) {
   if (typeof key !== "string") {
     return undefined;
   }
   return (key.startsWith("/") ? key.slice(1) : key).replace(/\(.+\)$/, "");
 }
-
 function snapshotForSpec(lockfile, spec) {
   const snapshots = lockfile?.snapshots;
   if (!snapshots) {
@@ -69,7 +66,6 @@ function snapshotForSpec(lockfile, spec) {
     Object.entries(snapshots).find(([key]) => normalizeLockfilePackageKey(key) === spec)?.[1]
   );
 }
-
 function packageSupportsTarget(lockfile, spec) {
   const entry = packageEntryForSpec(lockfile, spec);
   return (
@@ -78,13 +74,19 @@ function packageSupportsTarget(lockfile, spec) {
     matchesTargetSelector(entry?.libc, target.libc)
   );
 }
-
 function addSpec(lockfile, spec) {
   if (spec && packageSupportsTarget(lockfile, spec)) {
     specs.add(spec);
   }
 }
-
+function parseListRoots() {
+  const input = fs.readFileSync(0, "utf8").trim();
+  if (!input) {
+    return [];
+  }
+  const parsed = JSON.parse(input);
+  return Array.isArray(parsed) ? parsed : [parsed];
+}
 function visitListNode(lockfile, node) {
   for (const dep of Object.values(node.dependencies ?? {})) {
     const name = dep.from || dep.name;
@@ -95,7 +97,15 @@ function visitListNode(lockfile, node) {
     visitListNode(lockfile, dep);
   }
 }
-
+function addImporterRoots(lockfile) {
+  for (const importer of Object.values(lockfile?.importers ?? {})) {
+    for (const deps of [importer.dependencies, importer.optionalDependencies]) {
+      for (const [name, dep] of Object.entries(deps ?? {})) {
+        addSpec(lockfile, packageSpec(name, dep?.version));
+      }
+    }
+  }
+}
 function readLockfile() {
   const lockfilePath = path.join(process.cwd(), "pnpm-lock.yaml");
   if (!fs.existsSync(lockfilePath)) {
@@ -103,7 +113,6 @@ function readLockfile() {
   }
   return parse(fs.readFileSync(lockfilePath, "utf8"));
 }
-
 function addSnapshotClosure(lockfile) {
   const snapshots = lockfile?.snapshots;
   const packages = lockfile?.packages;
@@ -123,7 +132,7 @@ function addSnapshotClosure(lockfile) {
       continue;
     }
     const addDependencySpec = (name, version) => {
-      const depSpec = packageSpec(name, typeof version === "string" ? version : version?.version);
+      const depSpec = packageSpec(name, typeof version === "string" ? version : version.version);
       if (
         !depSpec ||
         !packages[depSpec] ||
@@ -143,11 +152,10 @@ function addSnapshotClosure(lockfile) {
     }
   }
 }
-
 const lockfile = readLockfile();
-for (const root of roots) {
+for (const root of parseListRoots()) {
   visitListNode(lockfile, root);
 }
+addImporterRoots(lockfile);
 addSnapshotClosure(lockfile);
-
 process.stdout.write([...specs].toSorted((a, b) => a.localeCompare(b)).join("\n"));

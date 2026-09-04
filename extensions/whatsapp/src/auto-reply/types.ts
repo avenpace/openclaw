@@ -1,5 +1,8 @@
 // Whatsapp type declarations define plugin contracts.
-import type { ChannelRuntimeSurface } from "openclaw/plugin-sdk/channel-contract";
+import type {
+  ChannelAccountSnapshot,
+  ChannelRuntimeSurface,
+} from "openclaw/plugin-sdk/channel-contract";
 import type { WebInboundMessage } from "../inbound/types.js";
 import type { ReconnectPolicy } from "../reconnect.js";
 import type { WhatsAppSocketTimingOptions } from "../socket-timing.js";
@@ -13,6 +16,7 @@ export type WebChannelHealthState =
   | "logged-out"
   | "stopped";
 
+/** @deprecated Use `WebInboundMessage`. */
 export type WebInboundMsg = WebInboundMessage;
 
 export type WebChannelStatus = {
@@ -30,12 +34,17 @@ export type WebChannelStatus = {
   lastMessageAt?: number | null;
   lastEventAt?: number | null;
   lastTransportActivityAt?: number | null;
+  busy?: boolean;
+  lastRunActivityAt?: number | null;
   lastError?: string | null;
   healthState?: WebChannelHealthState;
+  lifecycle?: ChannelAccountSnapshot["lifecycle"];
+  terminalDisconnect?: boolean;
   /** Phone number (E.164 format) when connected, from sock.user.id */
   selfE164?: string | null;
 };
 
+// Clawku: multi-tenant WhatsApp worker mode (per-account docker container isolation).
 export type WhatsAppWorkerDockerOptions = {
   enabled?: boolean;
   image?: string;
@@ -63,17 +72,17 @@ export type WebMonitorTuning = {
   accountId?: string;
   /** Debounce window (ms) for batching rapid consecutive messages from the same sender. */
   debounceMs?: number;
-  /** Override WhatsApp worker mode (true forces worker, false forces direct). */
+  /** Clawku: override WhatsApp worker mode (true forces worker, false forces direct). */
   useWorker?: boolean;
-  /** Override WhatsApp worker settings for this monitor invocation. */
+  /** Clawku: override WhatsApp worker settings for this monitor invocation. */
   worker?: {
     maxWorkers?: number;
     docker?: WhatsAppWorkerDockerOptions;
   };
-  /** Override group policy for multi-tenant isolation. */
+  /** Clawku: override group policy for multi-tenant isolation. */
   groupPolicy?: "open" | "allowlist" | "disabled";
-  /** Override group allowlist for multi-tenant isolation. */
+  /** Clawku: override group allowlist for multi-tenant isolation. */
   groupAllowFrom?: string[];
-  /** Override per-group settings (e.g., requireMention) for multi-tenant isolation. */
+  /** Clawku: override per-group settings (e.g., requireMention) for multi-tenant isolation. */
   groups?: Record<string, { requireMention?: boolean }>;
 };

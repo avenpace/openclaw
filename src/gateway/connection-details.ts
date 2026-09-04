@@ -14,6 +14,22 @@ export type GatewayConnectionDetails = {
   message: string;
 };
 
+/** Project raw transport details into the credential-safe CLI/report shape. */
+export function projectGatewayConnectionDetailsForDiagnostics(
+  details: GatewayConnectionDetails,
+): GatewayConnectionDetails {
+  return {
+    ...details,
+    url: redactSensitiveUrlLikeString(details.url),
+    message: redactSensitiveUrlLikeString(details.message),
+  };
+}
+
+/** Redact one Gateway URL before it crosses an operator-visible diagnostic boundary. */
+export function projectGatewayUrlForDiagnostics(url: string): string {
+  return redactSensitiveUrlLikeString(url);
+}
+
 type GatewayConnectionDetailResolvers = {
   getRuntimeConfig?: () => OpenClawConfig;
   resolveConfigPath?: (env: NodeJS.ProcessEnv) => string;
@@ -28,6 +44,7 @@ export function buildGatewayConnectionDetailsWithResolvers(
     configPath?: string;
     urlSource?: "cli" | "env";
     ignoreEnvUrlOverride?: boolean;
+    localPortOverride?: number;
   } = {},
   resolvers: GatewayConnectionDetailResolvers = {},
 ): GatewayConnectionDetails {
@@ -40,13 +57,15 @@ export function buildGatewayConnectionDetailsWithResolvers(
   const remote = isRemoteMode ? config.gateway?.remote : undefined;
   const tlsEnabled = config.gateway?.tls?.enabled === true;
   const localPort =
-    resolvers.resolveGatewayPort?.(config, process.env) ?? resolveGatewayPort(config);
+    options.localPortOverride ??
+    resolvers.resolveGatewayPort?.(config, process.env) ??
+    resolveGatewayPort(config);
   const bindMode = config.gateway?.bind ?? "loopback";
   const scheme = tlsEnabled ? "wss" : "ws";
   const localUrl = `${scheme}://127.0.0.1:${localPort}`;
   const cliUrlOverride = normalizeOptionalString(options.url);
   const envUrlOverride =
-    cliUrlOverride || options.ignoreEnvUrlOverride
+    cliUrlOverride || options.ignoreEnvUrlOverride || options.localPortOverride !== undefined
       ? undefined
       : normalizeOptionalString(process.env.OPENCLAW_GATEWAY_URL);
   const urlOverride = cliUrlOverride ?? envUrlOverride;

@@ -21,7 +21,7 @@ export type InstallSecurityScanResult = {
 };
 
 /** Plugin install request kinds that share install policy without skill install semantics. */
-export type PluginInstallRequestKind = Exclude<InstallPolicyRequestKind, "skill-install">;
+type PluginInstallRequestKind = Exclude<InstallPolicyRequestKind, "skill-install">;
 
 /** Skill install metadata shape passed into shared install policy evaluation. */
 export type SkillInstallSpecMetadata = {
@@ -38,13 +38,6 @@ export type SkillInstallSpecMetadata = {
   extract?: boolean;
   stripComponents?: number;
   targetDir?: string;
-};
-
-/** Package executable metadata used to scope dependency and entrypoint scans. */
-export type PackageExecutableScanMetadata = {
-  runtimeExtensions?: readonly string[];
-  runtimeSetupEntry?: string;
-  setupEntry?: string;
 };
 
 /** Lazily loads install scanning so normal plugin startup avoids policy/runtime imports. */
@@ -77,7 +70,6 @@ export async function scanPackageInstallSource(
     extensions: string[];
     logger: InstallScanLogger;
     packageDir: string;
-    packageMetadata?: PackageExecutableScanMetadata;
     pluginId: string;
     requestKind?: PluginInstallRequestKind;
     requestedSpecifier?: string;
@@ -86,6 +78,7 @@ export async function scanPackageInstallSource(
     manifestId?: string;
     version?: string;
     source?: InstallPolicySource;
+    trustedSourceLinkedOfficialInstall?: boolean;
   },
 ): Promise<InstallSecurityScanResult | undefined> {
   const { scanPackageInstallSourceRuntime } = await loadInstallSecurityScanRuntime();
@@ -97,7 +90,6 @@ export async function scanInstalledPackageDependencyTree(params: {
   additionalPackageDirs?: string[];
   allowManagedNpmRootPackagePeerSymlinks?: boolean;
   config?: OpenClawConfig;
-  dangerouslyForceUnsafeInstall?: boolean;
   dependencyScanRootDir?: string;
   logger: InstallScanLogger;
   mode?: "install" | "update";
@@ -112,7 +104,10 @@ export async function scanInstalledPackageDependencyTree(params: {
   return await scanInstalledPackageDependencyTreeRuntime(params);
 }
 
-/** Scans one file-based plugin install source. */
+/**
+ * Retained for install.runtime compatibility with pre-v2026.6.5 lazy install chunks.
+ * Remove only with the matching runtime-postbuild legacy alias cleanup.
+ */
 export async function scanFileInstallSource(
   params: InstallSafetyOverrides & {
     config?: OpenClawConfig;

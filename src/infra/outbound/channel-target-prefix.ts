@@ -28,7 +28,7 @@ export function stripTargetProviderPrefix(raw: string, ...providers: string[]): 
 }
 
 /** Removes generic target-kind prefixes such as room:, thread:, or user:. */
-export function stripTargetKindPrefix(
+export function stripOutboundTargetKindPrefix(
   raw: string,
   kinds: readonly string[] = ["channel", "conversation", "dm", "group", "room", "thread", "user"],
 ): string {
@@ -53,7 +53,7 @@ export function stripTargetTopicSuffix(
 }
 
 /** Parsed provider prefix and the channel that owns it. */
-export type ChannelTargetProviderPrefix = {
+type ChannelTargetProviderPrefix = {
   prefix: string;
   channel: string;
 };

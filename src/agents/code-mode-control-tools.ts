@@ -3,7 +3,7 @@
  * exec-compatible before-tool-call surface.
  */
 import { isPlainObject } from "../utils.js";
-import { normalizeToolName } from "./tool-policy.js";
+import { normalizeToolPolicyName } from "./tool-policy.js";
 import type { AnyAgentTool } from "./tools/common.js";
 
 /** Model-visible Code Mode exec tool name. */
@@ -11,19 +11,19 @@ export const CODE_MODE_EXEC_TOOL_NAME = "exec";
 /** Model-visible Code Mode wait tool name. */
 export const CODE_MODE_WAIT_TOOL_NAME = "wait";
 /** Hook metadata kind for Code Mode exec tools. */
-export const CODE_MODE_EXEC_TOOL_KIND = "code_mode_exec";
+const CODE_MODE_EXEC_TOOL_KIND = "code_mode_exec";
 
 /** Hook metadata kind type for Code Mode exec tools. */
-export type CodeModeExecToolKind = typeof CODE_MODE_EXEC_TOOL_KIND;
+type CodeModeExecToolKind = typeof CODE_MODE_EXEC_TOOL_KIND;
 /** Source language accepted by the Code Mode exec tool. */
-export type CodeModeExecToolInputKind = "javascript" | "typescript";
+type CodeModeExecToolInputKind = "javascript" | "typescript";
 /** Metadata attached to before-tool-call events for Code Mode exec. */
-export type CodeModeExecHookMetadata = {
+type CodeModeExecHookMetadata = {
   toolKind: CodeModeExecToolKind;
   toolInputKind?: CodeModeExecToolInputKind;
 };
 
-const codeModeControlTools = new WeakSet<AnyAgentTool>();
+const codeModeControlTools = new WeakSet<object>();
 
 /** Mark a tool as owned by code mode control flow. */
 export function markCodeModeControlTool<T extends AnyAgentTool>(tool: T): T {
@@ -31,13 +31,22 @@ export function markCodeModeControlTool<T extends AnyAgentTool>(tool: T): T {
   return tool;
 }
 
+/** Replicate code-mode identity from an original tool object to a wrapper. */
+export function copyCodeModeControlToolIdentity(original: object, wrapper: object): void {
+  if (codeModeControlTools.has(original)) {
+    codeModeControlTools.add(wrapper);
+  }
+}
+
 /** Return whether a tool was marked as code-mode owned. */
-export function isCodeModeControlTool(tool: AnyAgentTool): boolean {
+export function isCodeModeControlTool(tool: object): boolean {
   return codeModeControlTools.has(tool);
 }
 
 function isCodeModeExecTool(tool: AnyAgentTool): boolean {
-  return isCodeModeControlTool(tool) && normalizeToolName(tool.name) === CODE_MODE_EXEC_TOOL_NAME;
+  return (
+    isCodeModeControlTool(tool) && normalizeToolPolicyName(tool.name) === CODE_MODE_EXEC_TOOL_NAME
+  );
 }
 
 function resolveCodeModeExecToolInputKind(params: unknown): CodeModeExecToolInputKind | undefined {

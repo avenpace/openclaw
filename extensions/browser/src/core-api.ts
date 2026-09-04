@@ -3,51 +3,17 @@
  * APIs for modules that need a stable local import surface.
  */
 export {
-  DEFAULT_AI_SNAPSHOT_MAX_CHARS,
-  DEFAULT_UPLOAD_DIR,
   applyBrowserProxyPaths,
-  browserAct,
-  browserArmDialog,
-  browserArmFileChooser,
-  browserCloseTab,
-  browserCreateProfile,
-  browserConsoleMessages,
-  browserDeleteProfile,
-  browserDoctor,
-  browserFocusTab,
-  browserNavigate,
-  browserOpenTab,
-  browserPdfSave,
-  browserProfiles,
-  browserResetProfile,
-  browserScreenshotAction,
-  browserSnapshot,
-  browserStart,
-  browserStatus,
-  browserStop,
-  browserTabAction,
-  browserTabs,
   createBrowserControlContext,
   createBrowserRouteDispatcher,
-  createBrowserRuntimeState,
-  createBrowserRouteContext,
-  ensureBrowserControlAuth,
-  getBrowserControlState,
-  getBrowserProfileCapabilities,
+  isBrowserHostLocalRoute,
   isPersistentBrowserProfileMutation,
-  installBrowserAuthMiddleware,
-  installBrowserCommonMiddleware,
   normalizeBrowserFormField,
   normalizeBrowserFormFieldValue,
-  normalizeBrowserRequestPath,
   persistBrowserProxyFiles,
   redactCdpUrl,
-  registerBrowserRoutes,
   resolveBrowserConfig,
-  resolveBrowserControlAuth,
-  resolveExistingPathsWithinRoot,
   resolveExistingUploadPaths,
-  resolveProfile,
   resolveRequestedBrowserProfile,
   startBrowserControlServiceFromConfig,
   stopBrowserControlService,
@@ -56,51 +22,33 @@ export {
 export type {
   BrowserCreateProfileResult,
   BrowserDeleteProfileResult,
-  BrowserDoctorCheck,
-  BrowserDoctorReport,
+  BrowserImportProfileResult,
   BrowserFormField,
   BrowserResetProfileResult,
-  BrowserRouteRegistrar,
-  BrowserServerState,
   BrowserStatus,
   BrowserTab,
   BrowserTransport,
   ProfileStatus,
+  SystemProfileInfo,
   SnapshotResult,
 } from "./browser-runtime.js";
 export { BrowserToolSchema } from "./browser-tool.schema.js";
-export { normalizeOptionalString, readStringValue } from "openclaw/plugin-sdk/text-runtime";
+export { normalizeOptionalString, readStringValue } from "openclaw/plugin-sdk/string-coerce-runtime";
 export {
   touchSessionBrowserTab,
   trackSessionBrowserTab,
   untrackSessionBrowserTab,
 } from "./browser/session-tab-registry.js";
 export {
-  callGatewayTool,
   danger,
-  detectMime,
   formatCliCommand,
   formatDocsLink,
   formatHelpExamples,
   inheritOptionFromParent,
   info,
-  imageResultFromFile,
-  jsonResult,
-  listNodes,
-  optionalStringEnum,
-  readStringParam,
-  resolveNodeIdFromList,
-  selectDefaultNodeFromList,
-  stringEnum,
   theme,
 } from "./sdk-setup-tools.js";
-export {
-  getRuntimeConfig,
-  normalizePluginsConfig,
-  parseBooleanValue,
-  resolveEffectiveEnableState,
-  shortenHomePath,
-} from "./sdk-config.js";
+export { getRuntimeConfig, parseBooleanValue, shortenHomePath } from "./sdk-config.js";
 export {
   addGatewayClientOptions,
   callGatewayFromCli,
@@ -114,12 +62,4 @@ export {
   safeParseJson,
   withTimeout,
 } from "./sdk-node-runtime.js";
-export { createSubsystemLogger, wrapExternalContent } from "./sdk-security-runtime.js";
-export type { AnyAgentTool, NodeListNode } from "./sdk-setup-tools.js";
-export type { OpenClawConfig } from "./sdk-config.js";
-export type {
-  GatewayRequestHandlers,
-  GatewayRpcOpts,
-  NodeSession,
-  OpenClawPluginService,
-} from "./sdk-node-runtime.js";
+export type { GatewayRequestHandlers, GatewayRpcOpts, NodeSession } from "./sdk-node-runtime.js";

@@ -1,6 +1,6 @@
 import { Type } from "typebox";
 import type { AnyAgentTool } from "./common.js";
-import { jsonResult, readStringParam, readNumberParam } from "./common.js";
+import { jsonResult, readToolStringParam, readNumberParam } from "./common.js";
 
 /**
  * Image resize result
@@ -159,9 +159,9 @@ function resolveSourceType(params: Record<string, unknown>): {
   source: string;
   type: "path" | "base64" | "fileId";
 } | null {
-  const imagePath = readStringParam(params, "imagePath");
-  const imageBase64 = readStringParam(params, "imageBase64");
-  const fileId = readStringParam(params, "fileId");
+  const imagePath = readToolStringParam(params, "imagePath");
+  const imageBase64 = readToolStringParam(params, "imageBase64");
+  const fileId = readToolStringParam(params, "fileId");
 
   if (imagePath) {
     return { source: imagePath, type: "path" };
@@ -209,21 +209,21 @@ Specify width and/or height. If only one is provided, the other is calculated to
           return jsonResult({ error: "Provide at least width or height" });
         }
 
-        const fit = readStringParam(record, "fit") as
+        const fit = readToolStringParam(record, "fit") as
           | "cover"
           | "contain"
           | "fill"
           | "inside"
           | "outside"
           | undefined;
-        const format = readStringParam(record, "format") as
+        const format = readToolStringParam(record, "format") as
           | "jpeg"
           | "png"
           | "webp"
           | "avif"
           | undefined;
         const quality = readNumberParam(record, "quality", { integer: true });
-        const filename = readStringParam(record, "filename");
+        const filename = readToolStringParam(record, "filename");
         const isPublic = record.isPublic === true;
 
         const result = await handler.resizeImage({
@@ -295,14 +295,14 @@ Specify left, top, width, height in pixels.`,
           return jsonResult({ error: "Provide left, top, width, and height" });
         }
 
-        const format = readStringParam(record, "format") as
+        const format = readToolStringParam(record, "format") as
           | "jpeg"
           | "png"
           | "webp"
           | "avif"
           | undefined;
         const quality = readNumberParam(record, "quality", { integer: true });
-        const filename = readStringParam(record, "filename");
+        const filename = readToolStringParam(record, "filename");
         const isPublic = record.isPublic === true;
 
         const result = await handler.cropImage({
@@ -362,7 +362,7 @@ Use quality (1-100) to control compression. Lower = smaller file.`,
           return jsonResult({ error: "Provide imagePath, imageBase64, or fileId" });
         }
 
-        const format = readStringParam(record, "format", { required: true }) as
+        const format = readToolStringParam(record, "format", { required: true }) as
           | "jpeg"
           | "png"
           | "webp"
@@ -372,7 +372,7 @@ Use quality (1-100) to control compression. Lower = smaller file.`,
         }
 
         const quality = readNumberParam(record, "quality", { integer: true });
-        const filename = readStringParam(record, "filename");
+        const filename = readToolStringParam(record, "filename");
         const isPublic = record.isPublic === true;
 
         const result = await handler.convertImage({
@@ -424,8 +424,8 @@ Use this for creating profile pictures, preview images, or gallery thumbnails.`,
         }
 
         const size = readNumberParam(record, "size", { integer: true }) ?? 150;
-        const format = readStringParam(record, "format") as "jpeg" | "png" | "webp" | undefined;
-        const filename = readStringParam(record, "filename");
+        const format = readToolStringParam(record, "format") as "jpeg" | "png" | "webp" | undefined;
+        const filename = readToolStringParam(record, "filename");
         const isPublic = record.isPublic === true;
 
         const result = await handler.createThumbnail({
@@ -478,8 +478,8 @@ Example workflow:
       try {
         const record =
           params && typeof params === "object" ? (params as Record<string, unknown>) : {};
-        const fileId = readStringParam(record, "fileId", { required: true });
-        const caption = readStringParam(record, "caption");
+        const fileId = readToolStringParam(record, "fileId", { required: true });
+        const caption = readToolStringParam(record, "caption");
 
         if (!fileId) {
           return jsonResult({ error: "Provide fileId" });
@@ -534,7 +534,7 @@ The output is always a PNG with transparency.`,
           return jsonResult({ error: "Provide imagePath, imageBase64, or fileId" });
         }
 
-        const filename = readStringParam(record, "filename");
+        const filename = readToolStringParam(record, "filename");
         const isPublic = record.isPublic === true;
 
         const result = await handler.removeBackground!({
