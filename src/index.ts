@@ -42,12 +42,16 @@ export let handlePortError: LibraryExports["handlePortError"];
 export let loadConfig: LibraryExports["loadConfig"];
 /** @deprecated Use SQLite-backed session APIs. Scheduled for removal after 2026-10-12. */
 export let loadSessionStore: LibraryExports["loadSessionStore"];
+export let refreshPreparedModelRuntimeSnapshots: LibraryExports["refreshPreparedModelRuntimeSnapshots"];
+export let publishPreparedModelRuntimeSnapshot: LibraryExports["publishPreparedModelRuntimeSnapshot"];
+export let listConfiguredOwnerInputs: LibraryExports["listConfiguredOwnerInputs"];
 export let monitorWebChannel: LibraryExports["monitorWebChannel"];
 export let monitorWebInbox: LibraryExports["monitorWebInbox"];
 export let startWebLoginWithQr: LibraryExports["startWebLoginWithQr"];
 export let startWebLoginWithCode: LibraryExports["startWebLoginWithCode"];
 export let waitForWebLogin: LibraryExports["waitForWebLogin"];
 export let monitorTelegramProvider: LibraryExports["monitorTelegramProvider"];
+export let monitorDiscordProvider: LibraryExports["monitorDiscordProvider"];
 export let normalizeE164: LibraryExports["normalizeE164"];
 export let PortInUseError: LibraryExports["PortInUseError"];
 export let promptYesNo: LibraryExports["promptYesNo"];
@@ -121,6 +125,7 @@ if (!isMain) {
     startWebLoginWithCode,
     waitForWebLogin,
     monitorTelegramProvider,
+    monitorDiscordProvider,
     normalizeE164,
     PortInUseError,
     promptYesNo,
@@ -129,6 +134,9 @@ if (!isMain) {
     runCommandWithTimeout,
     runExec,
     runEmbeddedPiAgent,
+    refreshPreparedModelRuntimeSnapshots,
+    publishPreparedModelRuntimeSnapshot,
+    listConfiguredOwnerInputs,
     loadOpenClawPlugins,
     registerResolvedAgentDir,
     saveAuthProfileStore,

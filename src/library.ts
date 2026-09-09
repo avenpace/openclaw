@@ -3,7 +3,6 @@ import { saveAuthProfileStore } from "./agents/auth-profiles/store.js";
 // Public library facade for consumers embedding OpenClaw reply runtime APIs.
 import { DEFAULT_MODEL, DEFAULT_PROVIDER } from "./agents/defaults.js";
 import { runEmbeddedAgent as runEmbeddedPiAgent } from "./agents/embedded-agent-runner/run.js";
-import { loadModelCatalog } from "./plugin-sdk/agent-runtime.js";
 import type { ModelCatalogEntry } from "./agents/model-catalog.js";
 import { normalizeProviderId, normalizeModelRef, type ModelRef } from "./agents/model-selection.js";
 import { ensureOpenClawModelsJson } from "./agents/models-config.js";
@@ -19,11 +18,11 @@ import type { promptYesNo as promptYesNoRuntime } from "./cli/prompt.js";
 import { waitForever } from "./cli/wait.js";
 import { loadConfig, clearConfigCache } from "./config/config.js";
 import { setConfigOverride, getConfigOverrides } from "./config/runtime-overrides.js";
-import { resolveSessionStorePathCore } from "./config/sessions/paths.js";
-import { deriveSessionKey, resolveSessionKey } from "./config/sessions/session-key.js";
 // Clawku: upstream moved session store to SQLite; legacy load/save come from the
 // legacy-session-store module (re-exported below), route updates from the accessor.
 import { updateSessionLastRoute as updateLastRoute } from "./config/sessions/inbound.runtime.js";
+import { resolveSessionStorePathCore } from "./config/sessions/paths.js";
+import { deriveSessionKey, resolveSessionKey } from "./config/sessions/session-key.js";
 import { startGatewayServer } from "./gateway/server.js";
 import type { ensureBinary as ensureBinaryRuntime } from "./infra/binaries.js";
 import {
@@ -32,14 +31,15 @@ import {
   handlePortError,
   PortInUseError,
 } from "./infra/ports.js";
-import { applyMediaUnderstanding } from "./media-understanding/apply.js";
-import { transcribeFirstAudio } from "./media-understanding/audio-preflight.js";
-import { normalizeGoogleModelId } from "./plugin-sdk/image-generation-core.js";
-import { loadOpenClawPlugins } from "./plugins/loader.js";
 import {
   saveLegacySessionStore,
   type LegacySessionStoreSaveOptions,
 } from "./infra/state-migrations.legacy-session-store.js";
+import { applyMediaUnderstanding } from "./media-understanding/apply.js";
+import { transcribeFirstAudio } from "./media-understanding/audio-preflight.js";
+import { loadModelCatalog } from "./plugin-sdk/agent-runtime.js";
+import { normalizeGoogleModelId } from "./plugin-sdk/image-generation-core.js";
+import { loadOpenClawPlugins } from "./plugins/loader.js";
 import type {
   monitorWebChannel as monitorWebChannelRuntime,
   monitorWebInbox as monitorWebInboxRuntime,
@@ -50,10 +50,10 @@ import type {
   runCommandWithTimeout as runCommandWithTimeoutRuntime,
   runExec as runExecRuntime,
 } from "./process/exec.js";
-import { buildWorkspaceSkillStatus } from "./skills/discovery/status.js";
-import { maybeApplyTtsToPayload, textToSpeech, resolveTtsConfig } from "./tts/tts.js";
-import type { TtsResult } from "./tts/tts-runtime-types.js";
 import { createLazyRuntimeModule } from "./shared/lazy-runtime.js";
+import { buildWorkspaceSkillStatus } from "./skills/discovery/status.js";
+import type { TtsResult } from "./tts/tts-runtime-types.js";
+import { maybeApplyTtsToPayload, textToSpeech, resolveTtsConfig } from "./tts/tts.js";
 import { normalizeE164 } from "./utils.js";
 
 // Clawku platform: channel-specific exports are loaded dynamically from extensions.
@@ -64,11 +64,22 @@ async function loadTelegramExtension() {
 async function loadWhatsAppExtension() {
   return import("../extensions/whatsapp/runtime-api.js");
 }
+async function loadDiscordExtension() {
+  return import("../extensions/discord/runtime-api.js");
+}
 
 const monitorTelegramProvider: (...args: unknown[]) => Promise<void> = async (...args) => {
   const ext = await loadTelegramExtension();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return (ext as any).monitorTelegramProvider(...args);
+};
+
+// Clawku platform: Discord monitor is run per-persona by platform-api (not the gateway), so the
+// runtime entry must be reachable from the barrel. The merge re-wired Telegram but dropped this.
+const monitorDiscordProvider: (...args: unknown[]) => Promise<void> = async (...args) => {
+  const ext = await loadDiscordExtension();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return (ext as any).monitorDiscordProvider(...args);
 };
 
 const sendMessageWhatsApp: (...args: unknown[]) => Promise<unknown> = async (...args) => {
@@ -122,6 +133,14 @@ export const waitForWebLogin: WaitForWebLogin = async (...args) =>
   (await loadWebChannelRuntime()).waitForWebLogin(...args);
 
 export { loadLegacySessionStore as loadSessionStore } from "./infra/state-migrations.legacy-session-store.js";
+// Commit configured model-runtime owners from a config (gateway-reload semantics).
+// platform-api calls this to register a per-run persona agent as a configured owner
+// so the gateway-owned runtime lifecycle admits it (see prepared-model-runtime.owner).
+export { refreshPreparedModelRuntimeSnapshots } from "./agents/prepared-model-runtime.js";
+// platform-api publishes a single persona's configured owner (no global catalog stale)
+// instead of the whole-config refresh, to avoid thrashing the shared multi-tenant catalog.
+export { publishPreparedModelRuntimeSnapshot } from "./agents/prepared-model-runtime.js";
+export { listConfiguredOwnerInputs } from "./agents/prepared-model-runtime.owner.js";
 
 /**
  * @deprecated Legacy sessions.json compatibility for package-root consumers.
@@ -151,6 +170,7 @@ export {
   // loadSessionStore + saveSessionStore already exported at their legacy declarations above.
   // Platform: channel monitors loaded dynamically from extensions
   monitorTelegramProvider,
+  monitorDiscordProvider,
   normalizeE164,
   PortInUseError,
   resolveSessionKey,
