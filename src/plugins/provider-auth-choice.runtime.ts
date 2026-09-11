@@ -41,3 +41,18 @@ export function resolvePluginSetupProvider(
 ): ReturnType<ResolvePluginSetupProvider> {
   return resolvePluginSetupProviderImpl(...args);
 }
+
+// Running a provider's auth method from outside the CLI.
+//
+// These already exist in `provider-auth-choice.ts`, but only reach `dist`
+// inside a content-hashed chunk whose name changes on every build. An embedder
+// that pinned such a name would break silently on the next upgrade, so they are
+// surfaced here, on a module path that survives.
+//
+// Re-exports only: behaviour stays owned by the module they point at.
+export {
+  applyProviderPluginAuthMethodResultConfig,
+  prepareAuthChoiceLoadedPluginProvider,
+  runProviderPluginAuthMethod,
+  runProviderPluginAuthMethodUnpersisted,
+} from "./provider-auth-choice.js";
