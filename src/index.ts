@@ -45,6 +45,9 @@ export let loadSessionStore: LibraryExports["loadSessionStore"];
 export let refreshPreparedModelRuntimeSnapshots: LibraryExports["refreshPreparedModelRuntimeSnapshots"];
 export let publishPreparedModelRuntimeSnapshot: LibraryExports["publishPreparedModelRuntimeSnapshot"];
 export let listConfiguredOwnerInputs: LibraryExports["listConfiguredOwnerInputs"];
+export let createOperationalRunInstanceRef: LibraryExports["createOperationalRunInstanceRef"];
+export let prepareAgentRunAdmission: LibraryExports["prepareAgentRunAdmission"];
+export let loginAnthropic: LibraryExports["loginAnthropic"];
 export let monitorWebChannel: LibraryExports["monitorWebChannel"];
 export let monitorWebInbox: LibraryExports["monitorWebInbox"];
 export let startWebLoginWithQr: LibraryExports["startWebLoginWithQr"];
@@ -137,6 +140,9 @@ if (!isMain) {
     refreshPreparedModelRuntimeSnapshots,
     publishPreparedModelRuntimeSnapshot,
     listConfiguredOwnerInputs,
+    createOperationalRunInstanceRef,
+    prepareAgentRunAdmission,
+    loginAnthropic,
     loadOpenClawPlugins,
     registerResolvedAgentDir,
     saveAuthProfileStore,

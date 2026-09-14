@@ -247,7 +247,7 @@ async function exchangeAuthorizationCode(
 /**
  * Login with Anthropic OAuth (authorization code + PKCE)
  */
-async function loginAnthropic(options: {
+export async function loginAnthropic(options: {
   onAuth: (info: { url: string; instructions?: string }) => void;
   onPrompt: (prompt: OAuthPrompt) => Promise<string>;
   onProgress?: (message: string) => void;

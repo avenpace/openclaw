@@ -141,6 +141,17 @@ export { refreshPreparedModelRuntimeSnapshots } from "./agents/prepared-model-ru
 // instead of the whole-config refresh, to avoid thrashing the shared multi-tenant catalog.
 export { publishPreparedModelRuntimeSnapshot } from "./agents/prepared-model-runtime.js";
 export { listConfiguredOwnerInputs } from "./agents/prepared-model-runtime.owner.js";
+// Clawku platform: the API calls the core embedded runner directly rather than through the
+// gateway, so it must prepare each run's execution-identity admission itself. Without these
+// two the host has nothing to prepare with and every run dies at admission with "prepared
+// execution context is unavailable or disagrees with the run".
+export {
+  createOperationalRunInstanceRef,
+  prepareAgentRunAdmission,
+} from "./agents/admitted-run-context.js";
+// Clawku platform: the API drives the Anthropic sign-in itself (session-backed callbacks in
+// place of the CLI prompt), so the login entry must be reachable from the barrel.
+export { loginAnthropic } from "./llm/utils/oauth/anthropic.js";
 
 /**
  * @deprecated Legacy sessions.json compatibility for package-root consumers.
