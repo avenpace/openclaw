@@ -6,7 +6,7 @@ metadata: { "clawdbot": { "emoji": "🌐" } }
 
 # ⛔⛔⛔ MANDATORY CONTRACT - NO SKIPPING STEPS ⛔⛔⛔
 
-**DO NOT USE write/edit TOOLS DIRECTLY FOR CODE. YOU WILL TIMEOUT.**
+**You build the app yourself in this session with the write tool. Do NOT call `sessions_spawn` — sub-agent spawning is not available on this platform and every attempt fails. Write files directly, one complete file per write call, and keep going until the app is verified and registered.**
 
 ## WORKFLOW - FOLLOW EXACTLY
 
@@ -70,59 +70,34 @@ DATABASE: databases/{project-name}/database.sqlite
 {list all pages/views}
 ```
 
-### STEP 4: Spawn subagent with EXPLICIT path instruction
+### STEP 4: BUILD DIRECTLY (you are the builder)
 
-```
-sessions_spawn({
-  task: "BUILD websites/{project-name}/ - Read websites/{project-name}/BUILD-SPEC.md first. CRITICAL: Every write MUST use prefix 'websites/{project-name}/' - Example: write('websites/{project-name}/index.php'). When done building ALL files, find 'Requester session:' in your system prompt context, then call: sessions_send({ sessionKey: '<that-requester-session>', message: 'BUILD_COMPLETE: websites/{project-name}' })",
-  mode: "session"
-})
-```
+Tell the user in one line that the build has started, then write every file
+of the app yourself with the `write` tool. Rules:
 
-**Important**: Use `mode: "session"` (not "run") so you can poll status and send fix instructions.
+- Every path starts with `websites/{project-name}/` — never a bare `index.php`.
+- One complete file per `write` call: config, migrations, `app/Core/*`,
+  controllers, models, views, `index.php`, `migrate.php`, `assets/`,
+  `tests/run.php`. Do not stop to ask questions mid-build; the plan the user
+  approved is the spec.
+- Run the migration and the tests with `php_exec` as soon as the first
+  runnable version exists, then fix and re-run until they pass.
+- Keep a short progress note in MEMORY.md (project name, phase) so a
+  resumed session can continue instead of restarting.
 
-**Subagent completion**: The subagent's system prompt includes `Requester session: {your-session-key}`. When done, the subagent MUST call `sessions_send` with that session key to notify you.
+Do not use `sessions_spawn`, `sessions_send`, or a cron to wait on a build:
+there is no other agent — you are it.
 
-### STEP 5: BUILD MONITORING (AUTOMATIC - NO ACTION REQUIRED)
+### STEP 5: Self-check before verification
 
-✅ **Build supervision is AUTOMATIC** - the platform registers builds via the eval endpoint.
-
-When the subagent calls the eval endpoint to validate code, the platform automatically:
-
-- ✅ Registers the build for supervision
-- ✅ Tracks eval heartbeats
-- ✅ Monitors build progress
-- ✅ Auto-completes when eval passes
-
-**No manual registration needed!** The old curl registration is deprecated.
-
-**5A. Tell user build started:**
-
-```
-"🔨 Building in background. Platform is monitoring the build - I'll verify and let you know when it's ready."
-```
-
-**5B. Wait for notification from supervision service OR subagent BUILD_COMPLETE:**
-
-The platform will send you one of:
-
-- `BUILD_COMPLETE: websites/{project-name}` from subagent → proceed to STEP 6
-- `[BUILD SUPERVISION] Subagent stopped unexpectedly...` → handle failure/retry
-- `[BUILD TIMEOUT] Build exceeded timeout...` → notify user of failure
-
-**5C. Schedule a backup check (in case supervision misses something):**
-
-```
-cron add schedule="in 5 minutes" text="CHECK_BUILD_BACKUP: websites/{project-name}"
-```
-
-On this cron wake, check if build completed. If not, investigate manually.
+Confirm with `glob: websites/{project-name}/**/*.php` that every file the
+spec lists exists, then continue to STEP 6.
 
 ### STEP 6: VERIFICATION (Trust but Verify - DO NOT SKIP)
 
-⛔ **NEVER trust subagent claims. ALWAYS verify independently.**
+⛔ **NEVER announce an app you have not verified.**
 
-When subagent reports BUILD_COMPLETE, YOU (main agent) must verify:
+When all files are written, verify:
 
 **6A. Read and verify BUILD-SPEC.md requirements**:
 
@@ -204,17 +179,8 @@ node /app/openclaw/system-skills/website-builder/ui-smoke-test.js websites/{proj
 **If ANY verification fails**:
 
 1. Increment retry counter in MEMORY.md
-2. If retries < 3:
-   - Send fix instructions to subagent via sessions_send:
-     ```
-     sessions_send({
-       sessionKey: "{subagent-session-key}",
-       message: "FIXES REQUIRED:\n{list specific failures from tests/eval}\n\nFix these issues and send BUILD_COMPLETE when done."
-     })
-     ```
-   - Update MEMORY.md: Phase = AWAITING_FIX, CurrentRetry += 1
-   - Schedule next poll: `cron add schedule="in 1 minute" text="CHECK_BUILD: websites/{project-name}"`
-   - Wait for next poll cycle (cron will wake you)
+2. If retries < 3: fix the failing files yourself with `edit`/`write`, then
+   re-run STEP 6 (tests + eval-runner).
 3. If retries >= 3:
    - Report failure to user with specific issues
    - Remove supervision section from MEMORY.md
@@ -236,7 +202,7 @@ If registration fails → Debug and retry. DO NOT announce URL until registratio
 
 ### STEP 9: Notify user with preview link (ONLY after ALL steps succeed)
 
-Remove "ACTIVE BUILD SUPERVISION" section from MEMORY.md (task complete).
+Clear the build note in MEMORY.md (task complete).
 
 "✅ Your app is ready!
 Preview: https://{project-name}.clawku.co"
@@ -363,11 +329,12 @@ a) **Add Tailwind + daisyUI CDN** (if not present):
 ```
 
 b) **Choose appropriate daisyUI theme** based on app type:
-| App Type | Theme |
-|----------|-------|
-| POS, CRM, Admin, Finance | `corporate` or `business` |
-| Shop, Restaurant, Booking | `cupcake` or `autumn` |
-| SaaS, Analytics, Portal | `winter` or `nord` |
+
+| App Type                  | Theme                     |
+| ------------------------- | ------------------------- |
+| POS, CRM, Admin, Finance  | `corporate` or `business` |
+| Shop, Restaurant, Booking | `cupcake` or `autumn`     |
+| SaaS, Analytics, Portal   | `winter` or `nord`        |
 
 c) **Set theme on html element:**
 
@@ -461,216 +428,229 @@ Theme options: `corporate`, `business`, `cupcake`, `autumn`, `winter`, `nord`
 #### Class Mapping Tables
 
 **BUTTONS:**
-| Bootstrap | daisyUI |
-|-----------|---------|
-| `btn btn-primary` | `btn btn-primary` |
-| `btn btn-secondary` | `btn btn-neutral` |
-| `btn btn-success` | `btn btn-success` |
-| `btn btn-danger` | `btn btn-error` |
-| `btn btn-warning` | `btn btn-warning` |
-| `btn btn-info` | `btn btn-info` |
-| `btn btn-light` | `btn btn-ghost` |
-| `btn btn-outline-primary` | `btn btn-outline btn-primary` |
-| `btn btn-outline-secondary` | `btn btn-outline` |
-| `btn btn-sm` | `btn btn-sm` |
-| `btn btn-lg` | `btn btn-lg` |
-| `btn-close` | `btn btn-sm btn-circle btn-ghost` |
-| `w-100` (on buttons) | `w-full` |
+
+| Bootstrap                   | daisyUI                           |
+| --------------------------- | --------------------------------- |
+| `btn btn-primary`           | `btn btn-primary`                 |
+| `btn btn-secondary`         | `btn btn-neutral`                 |
+| `btn btn-success`           | `btn btn-success`                 |
+| `btn btn-danger`            | `btn btn-error`                   |
+| `btn btn-warning`           | `btn btn-warning`                 |
+| `btn btn-info`              | `btn btn-info`                    |
+| `btn btn-light`             | `btn btn-ghost`                   |
+| `btn btn-outline-primary`   | `btn btn-outline btn-primary`     |
+| `btn btn-outline-secondary` | `btn btn-outline`                 |
+| `btn btn-sm`                | `btn btn-sm`                      |
+| `btn btn-lg`                | `btn btn-lg`                      |
+| `btn-close`                 | `btn btn-sm btn-circle btn-ghost` |
+| `w-100` (on buttons)        | `w-full`                          |
 
 **FORMS:**
-| Bootstrap | daisyUI |
-|-----------|---------|
-| `form-control` | `input input-bordered w-full` |
-| `form-control-sm` | `input input-bordered input-sm w-full` |
-| `form-control-lg` | `input input-bordered input-lg w-full` |
-| `form-select` | `select select-bordered w-full` |
-| `form-check` | `form-control` |
-| `form-check-input` (checkbox) | `checkbox` |
-| `form-check-input` (radio) | `radio` |
-| `form-check-label` | `label cursor-pointer` |
-| `form-label` | `label` > `span class="label-text"` |
-| `form-text` | `label` > `span class="label-text-alt"` |
-| `input-group` | `join` |
-| `input-group-text` | `btn btn-neutral join-item` |
-| `form-floating` | (use regular label above input) |
-| `is-invalid` | `input-error` |
-| `invalid-feedback` | `label` > `span class="label-text-alt text-error"` |
+
+| Bootstrap                     | daisyUI                                            |
+| ----------------------------- | -------------------------------------------------- |
+| `form-control`                | `input input-bordered w-full`                      |
+| `form-control-sm`             | `input input-bordered input-sm w-full`             |
+| `form-control-lg`             | `input input-bordered input-lg w-full`             |
+| `form-select`                 | `select select-bordered w-full`                    |
+| `form-check`                  | `form-control`                                     |
+| `form-check-input` (checkbox) | `checkbox`                                         |
+| `form-check-input` (radio)    | `radio`                                            |
+| `form-check-label`            | `label cursor-pointer`                             |
+| `form-label`                  | `label` > `span class="label-text"`                |
+| `form-text`                   | `label` > `span class="label-text-alt"`            |
+| `input-group`                 | `join`                                             |
+| `input-group-text`            | `btn btn-neutral join-item`                        |
+| `form-floating`               | (use regular label above input)                    |
+| `is-invalid`                  | `input-error`                                      |
+| `invalid-feedback`            | `label` > `span class="label-text-alt text-error"` |
 
 **LAYOUT (Bootstrap Grid → Tailwind):**
-| Bootstrap | Tailwind |
-|-----------|----------|
-| `container` | `container mx-auto px-4` |
-| `container-fluid` | `w-full px-4` |
-| `row` | `flex flex-wrap -mx-2` or `grid grid-cols-12 gap-4` |
-| `col` | `flex-1 px-2` |
-| `col-6` | `w-1/2 px-2` or `col-span-6` |
-| `col-4` | `w-1/3 px-2` or `col-span-4` |
-| `col-3` | `w-1/4 px-2` or `col-span-3` |
-| `col-12` | `w-full px-2` or `col-span-12` |
-| `col-md-6` | `w-full md:w-1/2 px-2` |
-| `col-lg-4` | `w-full lg:w-1/3 px-2` |
-| `g-3` (gap) | `gap-3` |
-| `gx-3` | `gap-x-3` |
-| `gy-3` | `gap-y-3` |
+
+| Bootstrap         | Tailwind                                            |
+| ----------------- | --------------------------------------------------- |
+| `container`       | `container mx-auto px-4`                            |
+| `container-fluid` | `w-full px-4`                                       |
+| `row`             | `flex flex-wrap -mx-2` or `grid grid-cols-12 gap-4` |
+| `col`             | `flex-1 px-2`                                       |
+| `col-6`           | `w-1/2 px-2` or `col-span-6`                        |
+| `col-4`           | `w-1/3 px-2` or `col-span-4`                        |
+| `col-3`           | `w-1/4 px-2` or `col-span-3`                        |
+| `col-12`          | `w-full px-2` or `col-span-12`                      |
+| `col-md-6`        | `w-full md:w-1/2 px-2`                              |
+| `col-lg-4`        | `w-full lg:w-1/3 px-2`                              |
+| `g-3` (gap)       | `gap-3`                                             |
+| `gx-3`            | `gap-x-3`                                           |
+| `gy-3`            | `gap-y-3`                                           |
 
 **FLEXBOX:**
-| Bootstrap | Tailwind |
-|-----------|----------|
-| `d-flex` | `flex` |
-| `d-none` | `hidden` |
-| `d-block` | `block` |
-| `d-inline` | `inline` |
-| `d-md-flex` | `md:flex` |
-| `flex-column` | `flex-col` |
-| `flex-row` | `flex-row` |
-| `flex-wrap` | `flex-wrap` |
-| `justify-content-start` | `justify-start` |
-| `justify-content-center` | `justify-center` |
-| `justify-content-end` | `justify-end` |
+
+| Bootstrap                 | Tailwind          |
+| ------------------------- | ----------------- |
+| `d-flex`                  | `flex`            |
+| `d-none`                  | `hidden`          |
+| `d-block`                 | `block`           |
+| `d-inline`                | `inline`          |
+| `d-md-flex`               | `md:flex`         |
+| `flex-column`             | `flex-col`        |
+| `flex-row`                | `flex-row`        |
+| `flex-wrap`               | `flex-wrap`       |
+| `justify-content-start`   | `justify-start`   |
+| `justify-content-center`  | `justify-center`  |
+| `justify-content-end`     | `justify-end`     |
 | `justify-content-between` | `justify-between` |
-| `justify-content-around` | `justify-around` |
-| `align-items-start` | `items-start` |
-| `align-items-center` | `items-center` |
-| `align-items-end` | `items-end` |
-| `align-self-center` | `self-center` |
+| `justify-content-around`  | `justify-around`  |
+| `align-items-start`       | `items-start`     |
+| `align-items-center`      | `items-center`    |
+| `align-items-end`         | `items-end`       |
+| `align-self-center`       | `self-center`     |
 
 **SPACING:**
-| Bootstrap | Tailwind |
-|-----------|----------|
+
+| Bootstrap      | Tailwind              |
+| -------------- | --------------------- |
 | `m-0` to `m-5` | `m-0` to `m-5` (same) |
-| `mt-3` | `mt-3` |
-| `mb-3` | `mb-3` |
-| `mx-auto` | `mx-auto` |
+| `mt-3`         | `mt-3`                |
+| `mb-3`         | `mb-3`                |
+| `mx-auto`      | `mx-auto`             |
 | `p-0` to `p-5` | `p-0` to `p-5` (same) |
-| `py-3` | `py-3` |
-| `px-3` | `px-3` |
+| `py-3`         | `py-3`                |
+| `px-3`         | `px-3`                |
 
 **CARDS:**
-| Bootstrap | daisyUI |
-|-----------|---------|
-| `card` | `card bg-base-100 shadow-sm` |
-| `card-body` | `card-body` |
-| `card-title` | `card-title` |
-| `card-text` | `<p>` (no special class) |
-| `card-header` | `card-body border-b border-base-200` |
-| `card-footer` | `card-body border-t border-base-200` |
-| `card-img-top` | `figure` > `img` |
+
+| Bootstrap      | daisyUI                              |
+| -------------- | ------------------------------------ |
+| `card`         | `card bg-base-100 shadow-sm`         |
+| `card-body`    | `card-body`                          |
+| `card-title`   | `card-title`                         |
+| `card-text`    | `<p>` (no special class)             |
+| `card-header`  | `card-body border-b border-base-200` |
+| `card-footer`  | `card-body border-t border-base-200` |
+| `card-img-top` | `figure` > `img`                     |
 
 **TABLES:**
-| Bootstrap | daisyUI |
-|-----------|---------|
-| `table` | `table` |
-| `table-striped` | `table table-zebra` |
-| `table-hover` | (add `hover` class to `<tr>`) |
-| `table-bordered` | `table` + `[&_th]:border [&_td]:border` |
-| `table-sm` | `table table-sm` |
-| `table-responsive` | wrap in `<div class="overflow-x-auto">` |
-| `thead-dark` | `bg-neutral text-neutral-content` on thead |
-| `thead-light` | `bg-base-200` on thead |
+
+| Bootstrap          | daisyUI                                    |
+| ------------------ | ------------------------------------------ |
+| `table`            | `table`                                    |
+| `table-striped`    | `table table-zebra`                        |
+| `table-hover`      | (add `hover` class to `<tr>`)              |
+| `table-bordered`   | `table` + `[&_th]:border [&_td]:border`    |
+| `table-sm`         | `table table-sm`                           |
+| `table-responsive` | wrap in `<div class="overflow-x-auto">`    |
+| `thead-dark`       | `bg-neutral text-neutral-content` on thead |
+| `thead-light`      | `bg-base-200` on thead                     |
 
 **BADGES & ALERTS:**
-| Bootstrap | daisyUI |
-|-----------|---------|
-| `badge bg-primary` | `badge badge-primary` |
-| `badge bg-secondary` | `badge badge-neutral` |
-| `badge bg-success` | `badge badge-success` |
-| `badge bg-danger` | `badge badge-error` |
-| `badge bg-warning text-dark` | `badge badge-warning` |
-| `badge bg-info` | `badge badge-info` |
-| `badge rounded-pill` | `badge` (already rounded) |
-| `alert alert-success` | `alert alert-success` |
-| `alert alert-danger` | `alert alert-error` |
-| `alert alert-warning` | `alert alert-warning` |
-| `alert alert-info` | `alert alert-info` |
-| `alert-dismissible` | (add close button manually) |
+
+| Bootstrap                    | daisyUI                     |
+| ---------------------------- | --------------------------- |
+| `badge bg-primary`           | `badge badge-primary`       |
+| `badge bg-secondary`         | `badge badge-neutral`       |
+| `badge bg-success`           | `badge badge-success`       |
+| `badge bg-danger`            | `badge badge-error`         |
+| `badge bg-warning text-dark` | `badge badge-warning`       |
+| `badge bg-info`              | `badge badge-info`          |
+| `badge rounded-pill`         | `badge` (already rounded)   |
+| `alert alert-success`        | `alert alert-success`       |
+| `alert alert-danger`         | `alert alert-error`         |
+| `alert alert-warning`        | `alert alert-warning`       |
+| `alert alert-info`           | `alert alert-info`          |
+| `alert-dismissible`          | (add close button manually) |
 
 **MODALS:**
-| Bootstrap | daisyUI |
-|-----------|---------|
-| `<div class="modal fade">` | `<dialog class="modal">` |
-| `modal-dialog` | (not needed) |
-| `modal-dialog-centered` | `modal-middle` on dialog |
-| `modal-content` | `modal-box` |
-| `modal-header` | `<div class="flex justify-between items-center mb-4">` |
-| `modal-title` | `<h3 class="font-bold text-lg">` |
-| `modal-body` | (content directly in modal-box) |
-| `modal-footer` | `<div class="modal-action">` |
-| `data-bs-toggle="modal" data-bs-target="#id"` | `onclick="id.showModal()"` |
-| `data-bs-dismiss="modal"` | `<form method="dialog"><button class="btn">Close</button></form>` |
+
+| Bootstrap                                     | daisyUI                                                           |
+| --------------------------------------------- | ----------------------------------------------------------------- |
+| `<div class="modal fade">`                    | `<dialog class="modal">`                                          |
+| `modal-dialog`                                | (not needed)                                                      |
+| `modal-dialog-centered`                       | `modal-middle` on dialog                                          |
+| `modal-content`                               | `modal-box`                                                       |
+| `modal-header`                                | `<div class="flex justify-between items-center mb-4">`            |
+| `modal-title`                                 | `<h3 class="font-bold text-lg">`                                  |
+| `modal-body`                                  | (content directly in modal-box)                                   |
+| `modal-footer`                                | `<div class="modal-action">`                                      |
+| `data-bs-toggle="modal" data-bs-target="#id"` | `onclick="id.showModal()"`                                        |
+| `data-bs-dismiss="modal"`                     | `<form method="dialog"><button class="btn">Close</button></form>` |
 
 **NAVBAR:**
-| Bootstrap | daisyUI |
-|-----------|---------|
-| `navbar` | `navbar bg-base-100` |
-| `navbar-brand` | `<a class="btn btn-ghost text-xl">` |
-| `navbar-nav` | `menu menu-horizontal px-1` |
-| `nav-item` | `<li>` |
-| `nav-link` | `<a>` (menu styles it) |
-| `nav-link active` | add `active` class |
-| `navbar-toggler` | `btn btn-ghost lg:hidden` |
-| `navbar-collapse` | (use drawer for mobile) |
+
+| Bootstrap         | daisyUI                             |
+| ----------------- | ----------------------------------- |
+| `navbar`          | `navbar bg-base-100`                |
+| `navbar-brand`    | `<a class="btn btn-ghost text-xl">` |
+| `navbar-nav`      | `menu menu-horizontal px-1`         |
+| `nav-item`        | `<li>`                              |
+| `nav-link`        | `<a>` (menu styles it)              |
+| `nav-link active` | add `active` class                  |
+| `navbar-toggler`  | `btn btn-ghost lg:hidden`           |
+| `navbar-collapse` | (use drawer for mobile)             |
 
 **TEXT & TYPOGRAPHY:**
-| Bootstrap | Tailwind |
-|-----------|----------|
-| `text-muted` | `text-base-content/60` |
-| `text-primary` | `text-primary` |
-| `text-success` | `text-success` |
-| `text-danger` | `text-error` |
-| `text-warning` | `text-warning` |
-| `text-center` | `text-center` |
-| `text-start` | `text-left` |
-| `text-end` | `text-right` |
-| `fw-bold` | `font-bold` |
-| `fw-semibold` | `font-semibold` |
-| `fw-normal` | `font-normal` |
-| `fw-light` | `font-light` |
-| `fs-1` to `fs-6` | `text-4xl`, `text-3xl`, `text-2xl`, `text-xl`, `text-lg`, `text-base` |
-| `small` | `text-sm` |
-| `lead` | `text-lg` |
-| `h1` to `h6` classes | `text-4xl font-bold` etc. |
+
+| Bootstrap            | Tailwind                                                              |
+| -------------------- | --------------------------------------------------------------------- |
+| `text-muted`         | `text-base-content/60`                                                |
+| `text-primary`       | `text-primary`                                                        |
+| `text-success`       | `text-success`                                                        |
+| `text-danger`        | `text-error`                                                          |
+| `text-warning`       | `text-warning`                                                        |
+| `text-center`        | `text-center`                                                         |
+| `text-start`         | `text-left`                                                           |
+| `text-end`           | `text-right`                                                          |
+| `fw-bold`            | `font-bold`                                                           |
+| `fw-semibold`        | `font-semibold`                                                       |
+| `fw-normal`          | `font-normal`                                                         |
+| `fw-light`           | `font-light`                                                          |
+| `fs-1` to `fs-6`     | `text-4xl`, `text-3xl`, `text-2xl`, `text-xl`, `text-lg`, `text-base` |
+| `small`              | `text-sm`                                                             |
+| `lead`               | `text-lg`                                                             |
+| `h1` to `h6` classes | `text-4xl font-bold` etc.                                             |
 
 **BACKGROUNDS & BORDERS:**
-| Bootstrap | Tailwind / daisyUI |
-|-----------|----------|
-| `bg-primary` | `bg-primary text-primary-content` |
-| `bg-secondary` | `bg-neutral text-neutral-content` |
-| `bg-success` | `bg-success text-success-content` |
-| `bg-danger` | `bg-error text-error-content` |
-| `bg-warning` | `bg-warning text-warning-content` |
-| `bg-light` | `bg-base-200` |
-| `bg-dark` | `bg-neutral text-neutral-content` |
-| `bg-white` | `bg-base-100` |
-| `border` | `border border-base-200` |
-| `border-top` | `border-t` |
-| `border-bottom` | `border-b` |
-| `rounded` | `rounded` |
-| `rounded-pill` | `rounded-full` |
-| `rounded-circle` | `rounded-full` |
-| `shadow` | `shadow` |
-| `shadow-sm` | `shadow-sm` |
-| `shadow-lg` | `shadow-lg` |
+
+| Bootstrap        | Tailwind / daisyUI                |
+| ---------------- | --------------------------------- |
+| `bg-primary`     | `bg-primary text-primary-content` |
+| `bg-secondary`   | `bg-neutral text-neutral-content` |
+| `bg-success`     | `bg-success text-success-content` |
+| `bg-danger`      | `bg-error text-error-content`     |
+| `bg-warning`     | `bg-warning text-warning-content` |
+| `bg-light`       | `bg-base-200`                     |
+| `bg-dark`        | `bg-neutral text-neutral-content` |
+| `bg-white`       | `bg-base-100`                     |
+| `border`         | `border border-base-200`          |
+| `border-top`     | `border-t`                        |
+| `border-bottom`  | `border-b`                        |
+| `rounded`        | `rounded`                         |
+| `rounded-pill`   | `rounded-full`                    |
+| `rounded-circle` | `rounded-full`                    |
+| `shadow`         | `shadow`                          |
+| `shadow-sm`      | `shadow-sm`                       |
+| `shadow-lg`      | `shadow-lg`                       |
 
 **UTILITIES:**
-| Bootstrap | Tailwind |
-|-----------|----------|
-| `w-100` | `w-full` |
-| `h-100` | `h-full` |
-| `w-50` | `w-1/2` |
-| `w-25` | `w-1/4` |
-| `mw-100` | `max-w-full` |
-| `vh-100` | `h-screen` |
-| `overflow-auto` | `overflow-auto` |
-| `overflow-hidden` | `overflow-hidden` |
-| `position-relative` | `relative` |
-| `position-absolute` | `absolute` |
-| `position-fixed` | `fixed` |
-| `top-0` | `top-0` |
-| `bottom-0` | `bottom-0` |
-| `start-0` | `left-0` |
-| `end-0` | `right-0` |
-| `visually-hidden` | `sr-only` |
-| `cursor-pointer` | `cursor-pointer` |
+
+| Bootstrap           | Tailwind          |
+| ------------------- | ----------------- |
+| `w-100`             | `w-full`          |
+| `h-100`             | `h-full`          |
+| `w-50`              | `w-1/2`           |
+| `w-25`              | `w-1/4`           |
+| `mw-100`            | `max-w-full`      |
+| `vh-100`            | `h-screen`        |
+| `overflow-auto`     | `overflow-auto`   |
+| `overflow-hidden`   | `overflow-hidden` |
+| `position-relative` | `relative`        |
+| `position-absolute` | `absolute`        |
+| `position-fixed`    | `fixed`           |
+| `top-0`             | `top-0`           |
+| `bottom-0`          | `bottom-0`        |
+| `start-0`           | `left-0`          |
+| `end-0`             | `right-0`         |
+| `visually-hidden`   | `sr-only`         |
+| `cursor-pointer`    | `cursor-pointer`  |
 
 ---
 
@@ -696,17 +676,17 @@ Theme options: `corporate`, `business`, `cupcake`, `autumn`, `winter`, `nord`
 3. **Tests fail** → Fix and re-run, max 3 attempts. If still failing, report failure to user
 4. **Eval-runner not run** → You MUST run eval-runner after tests pass
 5. **Eval-runner fails** → Fix violations and re-run, max 3 attempts
-6. **Trusting subagent blindly** → **VIOLATION** - always verify with tests + eval before announcing
-7. **Announcing before verification** → **VIOLATION** - subagent claims mean nothing without proof
+6. **Calling sessions_spawn** → **VIOLATION** - sub-agents are not available here; build it yourself
+7. **Announcing before verification** → **VIOLATION** - tests + eval must pass first
 8. **Ignoring [BUILD SUPERVISION] messages** → **VIOLATION** - platform is telling you something is wrong
 
 ---
 
 # ═══════════════════════════════════════════════════════
 
-# SUBAGENT INSTRUCTIONS BELOW
+# BUILD CONTRACT — read before writing any code
 
-# (Read only if you ARE the spawned subagent, not main agent)
+# (this is your own build contract; there is no separate builder agent)
 
 # ═══════════════════════════════════════════════════════
 
@@ -714,7 +694,7 @@ Theme options: `corporate`, `business`, `cupcake`, `autumn`, `winter`, `nord`
 
 # ⛔⛔⛔ CRITICAL: PATH REQUIREMENTS ⛔⛔⛔
 
-## YOU ARE A SUBAGENT - YOUR WORKING DIRECTORY IS NOT THE PROJECT!
+## YOUR WORKING DIRECTORY IS THE WORKSPACE, NOT THE PROJECT!
 
 **Your task will contain a path like `websites/{project}/BUILD-SPEC.md`.**
 
@@ -779,11 +759,7 @@ When this document says "project root" or "at project root", it means `websites/
 
 ---
 
-# 📡 SUBAGENT COMPLETION SIGNALING (Level 3)
-
-## When you finish building ALL files, you MUST signal completion
-
-⛔ **DO NOT just stop working. You MUST explicitly signal BUILD_COMPLETE.**
+# 📡 WHEN THE FILES ARE WRITTEN (Level 3)
 
 After you have:
 
@@ -791,26 +767,9 @@ After you have:
 2. Created tests/run.php with tests for each entity
 3. Verified all files exist and have proper content
 
-**Send completion signal to main agent**:
-
-```
-sessions_send({
-  message: "BUILD_COMPLETE\n\nFiles created:\n- {list all files}\n\nTests: tests/run.php created with {N} tests\n\nReady for verification."
-})
-```
-
-**If main agent sends FIXES REQUIRED**:
-
-1. Read the fix instructions carefully
-2. Make the required fixes
-3. Send BUILD_COMPLETE again when done
-
-**DO NOT**:
-
-- Stop without sending BUILD_COMPLETE
-- Send BUILD_COMPLETE before ALL files are written
-- Ignore fix instructions from main agent
-- Message the user directly (main agent handles user communication)
+go straight to STEP 6 (tests + eval-runner), STEP 8 (register) and STEP 9
+(tell the user the URL). Do not stop between the last file and verification,
+and do not announce the app before registration succeeds.
 
 ---
 
@@ -967,11 +926,12 @@ Use Tailwind CSS + daisyUI via CDN for modern, non-generic styling. NO npm/bundl
 - Easy to override with custom CSS variables
 
 **daisyUI Theme Selection:**
-| App Type | daisyUI Theme | Feel |
-|----------|---------------|------|
-| POS, CRM, Finance | `corporate` or `business` | Professional, serious |
-| Shop, Restaurant, Booking | `cupcake` or `autumn` | Warm, friendly |
-| SaaS Portal, Analytics | `winter` or `nord` | Modern, clean |
+
+| App Type                  | daisyUI Theme             | Feel                  |
+| ------------------------- | ------------------------- | --------------------- |
+| POS, CRM, Finance         | `corporate` or `business` | Professional, serious |
+| Shop, Restaurant, Booking | `cupcake` or `autumn`     | Warm, friendly        |
+| SaaS Portal, Analytics    | `winter` or `nord`        | Modern, clean         |
 
 ---
 
