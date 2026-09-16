@@ -484,6 +484,10 @@ export function startAgentRunExecution(params: {
             requestedCwd: params.request.cwd,
             sessionEntry: params.sessionEntry,
           }),
+          // Clawku: inherited skill count for the child's exec gating (see AgentParamsSchema).
+          ...(params.request.installedSkillCount !== undefined
+            ? { installedSkillCount: params.request.installedSkillCount }
+            : {}),
           allowGatewaySubagentBinding: true,
           ...(params.mainRestartRecoveryOwnerLease
             ? { mainRestartRecoveryOwnerLease: params.mainRestartRecoveryOwnerLease }

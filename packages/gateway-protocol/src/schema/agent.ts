@@ -304,6 +304,11 @@ export const AgentParamsSchema = closedObject({
   bestEffortDeliver: Type.Optional(Type.Boolean()),
   lane: Type.Optional(Type.String()),
   cwd: Type.Optional(NonEmptyString),
+  // Clawku: a spawned sub-agent inherits its requester's installed-skill count
+  // so exec gating on external channels behaves the same for the child. The
+  // spawn launch request spreads spawned-run metadata into these params, so the
+  // closed schema has to know the field or every sessions_spawn is rejected.
+  installedSkillCount: Type.Optional(Type.Integer({ minimum: 0 })),
   // One-shot CLI gateway requests can ask the gateway to close process-wide
   // bundle MCP resources after the run instead of keeping them warm.
   cleanupBundleMcpOnRunEnd: Type.Optional(Type.Boolean()),
