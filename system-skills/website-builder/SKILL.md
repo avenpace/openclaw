@@ -6,7 +6,10 @@ metadata: { "clawdbot": { "emoji": "🌐" } }
 
 # ⛔⛔⛔ MANDATORY CONTRACT - NO SKIPPING STEPS ⛔⛔⛔
 
-**You build the app yourself in this session with the write tool. Do NOT call `sessions_spawn` — sub-agent spawning is not available on this platform and every attempt fails. Write files directly, one complete file per write call, and keep going until the app is verified and registered.**
+**Two rules that override everything below:**
+
+1. **STEP 1 is not optional.** First reply with the plan and wait for the user to answer **go**. Never start writing files in the same turn as the plan.
+2. **Once the user says go, you build the app yourself** with the `write` tool. Do NOT call `sessions_spawn` — sub-agent spawning is not available on this platform and every attempt fails. One complete file per write call; keep going in that turn until the app is verified, registered, and the user has the URL.
 
 ## WORKFLOW - FOLLOW EXACTLY
 
