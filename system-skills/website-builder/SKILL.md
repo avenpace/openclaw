@@ -88,6 +88,22 @@ of the app yourself with the `write` tool. Rules:
 Do not use `sessions_spawn`, `sessions_send`, or a cron to wait on a build:
 there is no other agent — you are it.
 
+**Do not re-read this file while building.** You have the contract in
+context already; re-reading 6,000 lines in chunks is what makes a build
+time out. If you need one detail, read only the section you need with a
+small `limit`.
+
+**Registration, so you do not have to look it up later** — after tests and
+eval pass, this exact call. `{user-id}` is the owner's id: the directory
+name right after `.openclaw-users/` in your workspace path (it also appears
+in the eval curl in your system prompt). Do not invent another route:
+
+```
+exec: curl -s -X POST http://localhost:3000/internal/websites/{project-name}/register -H "Content-Type: application/json" -d '{"userId": "{user-id}"}'
+```
+
+Then tell the user: `https://{project-name}.clawku.co`.
+
 ### STEP 5: Self-check before verification
 
 Confirm with `glob: websites/{project-name}/**/*.php` that every file the
