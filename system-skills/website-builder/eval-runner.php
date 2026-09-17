@@ -66,6 +66,7 @@ $evalResult = [
         'framework_contract' => ['status' => 'pass', 'checks' => []],
         'security' => ['status' => 'pass', 'checks' => []],
         'runtime_smoke' => ['status' => 'pass', 'checks' => []],
+        'responsive' => ['status' => 'pass', 'checks' => []],
     ],
     'missing_files' => [],
     'empty_files' => [],
@@ -1546,6 +1547,181 @@ if (is_dir($migrationsDir)) {
         'details' => [],
         'expected' => 'migrations/ directory must exist',
         'actual' => 'Directory not found',
+    ]);
+}
+
+// ============ RESPONSIVE CHECKS ============
+// The skill declares mobile-first "NOT OPTIONAL", but nothing verified it, so
+// builds shipped desktop-first layouts and full-width tables that overflow on a
+// phone. These turn that prose into a gate.
+
+logMsg("\n📱 RESPONSIVE\n");
+
+$htmlFiles = [];
+foreach ($phpFiles as $f) {
+    $c = @file_get_contents($f);
+    if ($c !== false && preg_match('/<(html|body|head|div|table)\b/i', $c)) {
+        $htmlFiles[] = $f;
+    }
+}
+foreach (glob("{$projectPath}/*.css") ?: [] as $f) { $htmlFiles[] = $f; }
+foreach (glob("{$projectPath}/assets/*.css") ?: [] as $f) { $htmlFiles[] = $f; }
+
+$rel = function (string $f) use ($projectPath): string {
+    return ltrim(str_replace($projectPath, '', $f), '/');
+};
+
+// 1. Viewport meta on every page that emits a <head>
+$missingViewport = [];
+foreach ($htmlFiles as $f) {
+    if (substr($f, -4) === '.css') { continue; }
+    $c = (string)@file_get_contents($f);
+    if (stripos($c, '<head') === false) { continue; }
+    if (!preg_match('/name\s*=\s*["\']viewport["\']/i', $c)) {
+        $missingViewport[] = $rel($f);
+    }
+}
+if ($missingViewport) {
+    logMsg("  ✗ Missing viewport meta in " . count($missingViewport) . " file(s)\n");
+    addCheck('responsive', [
+        'id' => 'VIEWPORT_META_MISSING',
+        'status' => 'fail',
+        'severity' => 'critical',
+        'file' => $missingViewport[0],
+        'message' => 'Page renders a <head> without a viewport meta tag — mobile browsers will render it at desktop width and zoom out',
+        'details' => ['files' => $missingViewport],
+        'expected' => '<meta name="viewport" content="width=device-width,initial-scale=1">',
+        'actual' => 'No viewport meta tag',
+    ]);
+} else {
+    logMsg("  ✓ All pages declare a viewport\n");
+    addCheck('responsive', [
+        'id' => 'VIEWPORT_META_MISSING',
+        'status' => 'pass',
+        'severity' => 'critical',
+        'file' => '',
+        'message' => 'Viewport meta present on all pages',
+        'details' => [],
+        'expected' => 'viewport meta present',
+        'actual' => 'present',
+    ]);
+}
+
+// 2. Tables must scroll inside their own container, not stretch the page
+$unwrappedTables = [];
+foreach ($htmlFiles as $f) {
+    if (substr($f, -4) === '.css') { continue; }
+    $c = (string)@file_get_contents($f);
+    if (!preg_match('/<table\b/i', $c)) { continue; }
+    $hasScrollWrapper = preg_match('/overflow-x\s*:\s*(auto|scroll)/i', $c)
+        || preg_match('/class\s*=\s*["\'][^"\']*overflow-x-(auto|scroll)/i', $c)
+        || preg_match('/class\s*=\s*["\'][^"\']*table-(responsive|container)/i', $c);
+    if (!$hasScrollWrapper) { $unwrappedTables[] = $rel($f); }
+}
+if ($unwrappedTables) {
+    logMsg("  ✗ Table without horizontal-scroll wrapper in " . count($unwrappedTables) . " file(s)\n");
+    addCheck('responsive', [
+        'id' => 'TABLE_NOT_SCROLLABLE',
+        'status' => 'fail',
+        'severity' => 'high',
+        'file' => $unwrappedTables[0],
+        'message' => 'A <table> is not wrapped in a horizontally scrollable container, so it will overflow the viewport on a phone',
+        'details' => ['files' => $unwrappedTables],
+        'expected' => 'Wrap each table: <div class="overflow-x-auto"> ... </div> (or overflow-x:auto on its container)',
+        'actual' => 'Table has no scroll container',
+    ]);
+} else {
+    logMsg("  ✓ Tables scroll inside their own container\n");
+    addCheck('responsive', [
+        'id' => 'TABLE_NOT_SCROLLABLE',
+        'status' => 'pass',
+        'severity' => 'high',
+        'file' => '',
+        'message' => 'No unwrapped tables',
+        'details' => [],
+        'expected' => 'tables wrapped',
+        'actual' => 'ok',
+    ]);
+}
+
+// 3. Fixed pixel widths wide enough to break a 375px screen
+$fixedWidths = [];
+foreach ($htmlFiles as $f) {
+    $c = (string)@file_get_contents($f);
+    if (preg_match_all('/(?<!max-)(?<!min-)width\s*:\s*(\d{3,})px/i', $c, $m)) {
+        foreach ($m[1] as $px) {
+            if ((int)$px > 420) { $fixedWidths[] = $rel($f) . " (width:{$px}px)"; }
+        }
+    }
+}
+$fixedWidths = array_values(array_unique($fixedWidths));
+if ($fixedWidths) {
+    logMsg("  ✗ Fixed width wider than a phone in " . count($fixedWidths) . " place(s)\n");
+    addCheck('responsive', [
+        'id' => 'FIXED_WIDTH_LAYOUT',
+        'status' => 'fail',
+        'severity' => 'high',
+        'file' => explode(' ', $fixedWidths[0])[0],
+        'message' => 'Fixed pixel width larger than a phone viewport — use max-width with a fluid width instead',
+        'details' => ['occurrences' => $fixedWidths],
+        'expected' => 'width:100% with max-width:<n>px',
+        'actual' => implode(', ', array_slice($fixedWidths, 0, 5)),
+    ]);
+} else {
+    logMsg("  ✓ No phone-breaking fixed widths\n");
+    addCheck('responsive', [
+        'id' => 'FIXED_WIDTH_LAYOUT',
+        'status' => 'pass',
+        'severity' => 'high',
+        'file' => '',
+        'message' => 'Layout widths are fluid',
+        'details' => [],
+        'expected' => 'fluid widths',
+        'actual' => 'ok',
+    ]);
+}
+
+// 4. Mobile-first: the skill forbids desktop-first shrink-down layouts
+$allCss = '';
+foreach ($htmlFiles as $f) { $allCss .= (string)@file_get_contents($f); }
+$hasMinWidth = preg_match('/@media[^{]*min-width/i', $allCss);
+$hasMaxWidth = preg_match('/@media[^{]*max-width/i', $allCss);
+$usesUtilityCdn = (bool)preg_match('/tailwindcss|daisyui|cdn\.tailwindcss/i', $allCss);
+if (!$hasMinWidth && !$hasMaxWidth && !$usesUtilityCdn) {
+    logMsg("  ✗ No media queries anywhere\n");
+    addCheck('responsive', [
+        'id' => 'NO_MEDIA_QUERIES',
+        'status' => 'fail',
+        'severity' => 'high',
+        'file' => 'index.php',
+        'message' => 'No responsive breakpoints found — the layout cannot adapt between phone and desktop',
+        'details' => [],
+        'expected' => 'Mobile-first CSS with @media (min-width: 768px) enhancements',
+        'actual' => 'No @media rules and no utility CSS framework',
+    ]);
+} elseif (!$hasMinWidth && $hasMaxWidth) {
+    logMsg("  ⚠ Desktop-first breakpoints (max-width only)\n");
+    addCheck('responsive', [
+        'id' => 'DESKTOP_FIRST_BREAKPOINTS',
+        'status' => 'warning',
+        'severity' => 'medium',
+        'file' => 'index.php',
+        'message' => 'Only max-width breakpoints found: this is a desktop layout shrinking down, which the skill forbids',
+        'details' => [],
+        'expected' => 'Base styles target mobile; add @media (min-width: 768px) for desktop',
+        'actual' => 'max-width breakpoints only',
+    ]);
+} else {
+    logMsg("  ✓ Mobile-first breakpoints present\n");
+    addCheck('responsive', [
+        'id' => 'NO_MEDIA_QUERIES',
+        'status' => 'pass',
+        'severity' => 'high',
+        'file' => '',
+        'message' => 'Responsive breakpoints present',
+        'details' => [],
+        'expected' => 'responsive breakpoints',
+        'actual' => 'ok',
     ]);
 }
 

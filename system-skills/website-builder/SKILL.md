@@ -6,10 +6,15 @@ metadata: { "clawdbot": { "emoji": "🌐" } }
 
 # ⛔⛔⛔ MANDATORY CONTRACT - NO SKIPPING STEPS ⛔⛔⛔
 
-**Two rules that override everything below:**
+**Three rules that override everything below:**
 
 1. **STEP 1 is not optional.** First reply with the plan and wait for the user to answer **go**. Never start writing files in the same turn as the plan.
 2. **Once the user says go, you build the app yourself** with the `write` tool. Do NOT call `sessions_spawn` — sub-agent spawning is not available on this platform and every attempt fails. One complete file per write call; keep going in that turn until the app is verified, registered, and the user has the URL.
+3. **Every screen is mobile-first.** Most people open these apps on a phone. The eval gate enforces this and will FAIL the build — these are not style opinions:
+   - `<meta name="viewport" content="width=device-width,initial-scale=1">` in every `<head>` → `VIEWPORT_META_MISSING`
+   - Wrap EVERY `<table>` in `<div class="overflow-x-auto">` so it scrolls instead of stretching the page → `TABLE_NOT_SCROLLABLE`
+   - No fixed `width:` over 420px — use `width:100%` with `max-width` → `FIXED_WIDTH_LAYOUT`
+   - Write base styles for the phone, then add `@media (min-width: 768px)` to enhance for desktop. A `max-width` breakpoint means you built desktop-first and shrank it → `DESKTOP_FIRST_BREAKPOINTS`
 
 ## WORKFLOW - FOLLOW EXACTLY
 
