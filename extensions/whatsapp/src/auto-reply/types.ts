@@ -85,4 +85,16 @@ export type WebMonitorTuning = {
   groupAllowFrom?: string[];
   /** Clawku: override per-group settings (e.g., requireMention) for multi-tenant isolation. */
   groups?: Record<string, { requireMention?: boolean }>;
+  /**
+   * Clawku: override the DM policy for multi-tenant isolation.
+   *
+   * Without this the monitor falls back to `account.dmPolicy` resolved from the
+   * runtime config, and an absent value defaults to "pairing" — which replies to
+   * unknown senders with a pairing code instead of ignoring them. Platform-managed
+   * accounts set their policy through config overrides that do not reliably reach
+   * `getRuntimeConfig()`, so the policy has to be passed in explicitly.
+   */
+  dmPolicy?: "open" | "allowlist" | "pairing" | "disabled";
+  /** Clawku: override the DM allowlist that goes with `dmPolicy`. */
+  allowFrom?: string[];
 };

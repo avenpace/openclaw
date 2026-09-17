@@ -70,14 +70,32 @@ const loadReplyResolverRuntime = createLazyRuntimeModule(
 function resolveWebMonitorConfigSnapshot(params: {
   cfg: WhatsAppRuntimeConfig;
   accountId?: string | null;
+  tuning?: WebMonitorTuning;
 }): {
   cfg: WhatsAppRuntimeConfig;
   account: ReturnType<typeof resolveWhatsAppAccount>;
 } {
-  const account = resolveWhatsAppAccount({
+  const resolvedAccount = resolveWhatsAppAccount({
     cfg: params.cfg,
     accountId: params.accountId,
   });
+  // Clawku: explicit tuning wins over whatever the runtime config resolved to.
+  // Platform-managed accounts configure policy with setConfigOverride, which does
+  // not reliably reach getRuntimeConfig() — so without this an allowlist-only
+  // account silently falls back to dmPolicy="pairing" and answers strangers with
+  // a pairing code. Applied to the account itself so every downstream read
+  // (inbound policy, admission, command auth) sees the same values.
+  const t = params.tuning;
+  const account = t
+    ? {
+        ...resolvedAccount,
+        ...(t.dmPolicy !== undefined ? { dmPolicy: t.dmPolicy } : {}),
+        ...(t.allowFrom !== undefined ? { allowFrom: t.allowFrom } : {}),
+        ...(t.groupPolicy !== undefined ? { groupPolicy: t.groupPolicy } : {}),
+        ...(t.groupAllowFrom !== undefined ? { groupAllowFrom: t.groupAllowFrom } : {}),
+        ...(t.groups !== undefined ? { groups: t.groups } : {}),
+      }
+    : resolvedAccount;
   const cfg = {
     ...params.cfg,
     channels: {
@@ -85,6 +103,7 @@ function resolveWebMonitorConfigSnapshot(params: {
       whatsapp: {
         ...params.cfg.channels?.whatsapp,
         responsePrefix: account.messagePrefix,
+        dmPolicy: account.dmPolicy,
         allowFrom: account.allowFrom,
         groupAllowFrom: account.groupAllowFrom,
         groupPolicy: account.groupPolicy,
@@ -141,11 +160,13 @@ export async function monitorWebChannel(
   const { cfg, account } = resolveWebMonitorConfigSnapshot({
     cfg: baseCfg,
     accountId: tuning.accountId,
+    tuning,
   });
   const loadCurrentMonitorConfig = () =>
     resolveWebMonitorConfigSnapshot({
       cfg: getRuntimeConfig(),
       accountId: account.accountId,
+      tuning,
     }).cfg;
 
   const maxMediaBytes = resolveWhatsAppMediaMaxBytes(account);
