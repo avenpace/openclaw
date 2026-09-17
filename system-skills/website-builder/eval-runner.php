@@ -1700,11 +1700,11 @@ if (!$hasMinWidth && !$hasMaxWidth && !$usesUtilityCdn) {
         'actual' => 'No @media rules and no utility CSS framework',
     ]);
 } elseif (!$hasMinWidth && $hasMaxWidth) {
-    logMsg("  ⚠ Desktop-first breakpoints (max-width only)\n");
+    logMsg("  ✗ Desktop-first breakpoints (max-width only)\n");
     addCheck('responsive', [
         'id' => 'DESKTOP_FIRST_BREAKPOINTS',
-        'status' => 'warning',
-        'severity' => 'medium',
+        'status' => 'fail',
+        'severity' => 'high',
         'file' => 'index.php',
         'message' => 'Only max-width breakpoints found: this is a desktop layout shrinking down, which the skill forbids',
         'details' => [],
