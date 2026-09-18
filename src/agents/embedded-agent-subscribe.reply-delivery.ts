@@ -26,9 +26,25 @@ export function createReplyDelivery({ params, state, log }: ReplyDeliveryParams)
   const pendingPartialReplyTasks = new Set<Promise<void>>();
   const shouldAllowSilentTurnText = (text: string | undefined) =>
     Boolean(text && isSilentReplyText(text, SILENT_REPLY_TOKEN));
-  const emitAssistantStreamDataSafely = (
+  /**
+   * Clawku: the assistant stream is observational — it is how a UI shows text
+   * arriving. Block replies and partial replies are deliveries, which a
+   * before_agent_finalize hook may still revise, so those keep deferring.
+   *
+   * Without this split, loading any plugin that registers before_agent_finalize
+   * (the codex extension does, for every run regardless of the active model)
+   * deferred the whole assistant stream to terminal delivery. A four-minute
+   * agentic turn therefore emitted nothing at all and then dumped the entire
+   * answer at once, which reads as a hung spinner.
+   */
+  const streamEmittedDeliveries = new WeakSet<object>();
+  const emitAssistantStreamEventOnly = (
     delivery: EmbeddedAgentSubscribeContext["state"]["deferredAssistantEvents"][number],
   ) => {
+    if (streamEmittedDeliveries.has(delivery)) {
+      return;
+    }
+    streamEmittedDeliveries.add(delivery);
     const { data } = delivery;
     emitAgentEvent({
       runId: params.runId,
@@ -46,6 +62,12 @@ export function createReplyDelivery({ params, state, log }: ReplyDeliveryParams)
           }),
       });
     }
+  };
+  const emitAssistantStreamDataSafely = (
+    delivery: EmbeddedAgentSubscribeContext["state"]["deferredAssistantEvents"][number],
+  ) => {
+    const { data } = delivery;
+    emitAssistantStreamEventOnly(delivery);
     if (delivery.emitPartialReply && params.onPartialReply && state.shouldEmitPartialReplies) {
       try {
         const maybeTask = params.onPartialReply(data);
@@ -71,6 +93,8 @@ export function createReplyDelivery({ params, state, log }: ReplyDeliveryParams)
   ) => {
     const delivery = { data, emitPartialReply: options?.emitPartialReply === true };
     if (state.deferBlockReplyDelivery) {
+      // Observers see the text now; the reply itself is delivered on flush.
+      emitAssistantStreamEventOnly(delivery);
       state.deferredAssistantEvents.push(delivery);
       return;
     }
