@@ -68,6 +68,7 @@ import type { PromptMode } from "../../system-prompt.types.js";
 import type { CloudStorageHandler } from "../../tools/cloud-storage-tool.js";
 import type { DevicesHandler } from "../../tools/devices-tool.js";
 import type { HermesMemoryHandler } from "../../tools/hermes-memory-tool.js";
+import type { SessionSearchHandler } from "../../tools/hermes-session-tool.js";
 import type { HermesSkillsHandler } from "../../tools/hermes-skills-tool.js";
 import type { ImageResizeHandler } from "../../tools/image-resize-tool.js";
 import type { InstagramHandler } from "../../tools/instagram-tool.js";
@@ -407,6 +408,8 @@ export type RunEmbeddedAgentParams = {
   hermesMemoryHandler?: HermesMemoryHandler;
   /** Handler for Hermes skills (autonomous skill creation and management). */
   hermesSkillsHandler?: HermesSkillsHandler;
+  /** Handler for searching this persona's own past conversations (Hermes session index). */
+  sessionSearchHandler?: SessionSearchHandler;
   /** Handler for Instagram management (login, post, reply, like, follow). */
   instagramHandler?: InstagramHandler;
   /** Skip per-chunk live visible-text parsing when no live stream consumer exists (e.g. subagents). */

@@ -8,14 +8,6 @@ import { extractModelCompat } from "../../../plugins/provider-model-compat.js";
 import { getPluginToolMeta } from "../../../plugins/tools.js";
 import { isSubagentSessionKey } from "../../../routing/session-key.js";
 import { createOpenClawCodingTools } from "../../agent-tools.js";
-// Clawku: platform-injected handler tools (present only when platform-api provides the handler).
-import { createCloudStorageTools } from "../../tools/cloud-storage-tool.js";
-import { createDevicesTools } from "../../tools/devices-tool.js";
-import { createHermesMemoryTools } from "../../tools/hermes-memory-tool.js";
-import { createHermesSkillsTools } from "../../tools/hermes-skills-tool.js";
-import { getBuiltinImageResizeHandler } from "../../tools/image-resize-handler-builtin.js";
-import { createImageResizeTools } from "../../tools/image-resize-tool.js";
-import { createInstagramTools } from "../../tools/instagram-tool.js";
 import { getChannelAgentToolMeta } from "../../channel-tools.js";
 import type { CodeModeSkill } from "../../code-mode-skills.js";
 import { resolveConversationCapabilityProfile } from "../../conversation-capability-profile.js";
@@ -34,11 +26,20 @@ import {
   type ToolSearchTargetTranscriptProjection,
 } from "../../tool-search.js";
 import { resolveAgentToolSurfacePlan } from "../../tool-surface-plan.js";
+// Clawku: platform-injected handler tools (present only when platform-api provides the handler).
+import { createCloudStorageTools } from "../../tools/cloud-storage-tool.js";
 import type { ComputerContextEpoch } from "../../tools/computer-tool.js";
 import type {
   CronCreatorToolAllowlistEntry,
   CronToolsAllowCaptureRef,
 } from "../../tools/cron-tool.js";
+import { createDevicesTools } from "../../tools/devices-tool.js";
+import { createHermesMemoryTools } from "../../tools/hermes-memory-tool.js";
+import { createHermesSessionTools } from "../../tools/hermes-session-tool.js";
+import { createHermesSkillsTools } from "../../tools/hermes-skills-tool.js";
+import { getBuiltinImageResizeHandler } from "../../tools/image-resize-handler-builtin.js";
+import { createImageResizeTools } from "../../tools/image-resize-tool.js";
+import { createInstagramTools } from "../../tools/instagram-tool.js";
 import { log } from "../logger.js";
 import { resolveAttemptToolPolicyMessageProvider } from "./attempt-run-decisions.js";
 import { resolveAttemptSpawnWorkspaceDir } from "./attempt-thread-helpers.js";
@@ -352,6 +353,9 @@ export function prepareEmbeddedAttemptToolBase(params: {
         }
         if (attempt.hermesSkillsHandler) {
           allTools.push(...createHermesSkillsTools(attempt.hermesSkillsHandler));
+        }
+        if (attempt.sessionSearchHandler) {
+          allTools.push(...createHermesSessionTools(attempt.sessionSearchHandler));
         }
         if (attempt.instagramHandler) {
           allTools.push(...createInstagramTools(attempt.instagramHandler));

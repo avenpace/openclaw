@@ -394,6 +394,23 @@ export async function dispatchEmbeddedRunAttempt(input: {
         control.laneTaskAbortController.abort();
       }
     },
+    // Clawku: platform-injected tool handlers.
+    //
+    // `attemptParams` is an explicit projection, not a spread, so anything not
+    // named here is silently dropped before `attempt-tool-prepare.ts` gates its
+    // handler tools on presence. These were lost in the upstream merge, which
+    // made every Clawku handler tool — hermes memory/skills/session search,
+    // devices, cloud storage, instagram, browser — quietly disappear from every
+    // persona while the code that registers them still looked correct. Keep
+    // this list in step with the handler fields on RunEmbeddedAgentParams.
+    devicesHandler: params.devicesHandler,
+    cloudStorageHandler: params.cloudStorageHandler,
+    imageResizeHandler: params.imageResizeHandler,
+    browserHandler: params.browserHandler,
+    hermesMemoryHandler: params.hermesMemoryHandler,
+    hermesSkillsHandler: params.hermesSkillsHandler,
+    sessionSearchHandler: params.sessionSearchHandler,
+    instagramHandler: params.instagramHandler,
     replyOperation: params.replyOperation,
     shouldEmitToolResult: params.shouldEmitToolResult,
     shouldEmitToolOutput: params.shouldEmitToolOutput,
