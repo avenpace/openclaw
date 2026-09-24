@@ -1322,11 +1322,16 @@ $forbiddenPatterns = [
     'EXEC_PREG_REPLACE_E' => '/\bpreg_replace\s*\([^,]*\/[^\/]*e[^\/]*\//i',
 
     // Shell execution - CRITICAL
-    'SHELL_EXEC' => '/\bexec\s*\(/i',
-    'SHELL_SHELL_EXEC' => '/\bshell_exec\s*\(/i',
-    'SHELL_SYSTEM' => '/\bsystem\s*\(/i',
-    'SHELL_PASSTHRU' => '/\bpassthru\s*\(/i',
-    'SHELL_POPEN' => '/\bpopen\s*\(/i',
+    // (?<![\w>:]) excludes METHOD calls: $db->exec() is PDO, not the shell
+    // builtin, and PHP has no way to reach the builtin through -> or ::. A bare
+    // /\bexec\s*\(/ matched $db->exec( and so refused to publish ANY webapp
+    // using PDO — which is all of them. Method-call spacing is normalised
+    // before these are applied (see $probe below), so `$db -> exec(` is covered.
+    'SHELL_EXEC' => '/(?<![\w>:])exec\s*\(/i',
+    'SHELL_SHELL_EXEC' => '/(?<![\w>:])shell_exec\s*\(/i',
+    'SHELL_SYSTEM' => '/(?<![\w>:])system\s*\(/i',
+    'SHELL_PASSTHRU' => '/(?<![\w>:])passthru\s*\(/i',
+    'SHELL_POPEN' => '/(?<![\w>:])popen\s*\(/i',
     'SHELL_PROC_OPEN' => '/\bproc_open\s*\(/i',
     'SHELL_PCNTL' => '/\bpcntl_exec\s*\(/i',
     'SHELL_BACKTICK' => '/`[^`]+`/',
@@ -1425,8 +1430,13 @@ foreach ($phpFiles as $phpFile) {
             continue;
         }
 
+        // Collapse whitespace around -> and :: so the lookbehinds above can tell
+        // a method call from a builtin. PCRE has no variable-length lookbehind,
+        // so `$db  ->  exec(` could not otherwise be distinguished from `exec(`.
+        $probe = preg_replace('/\s*(->|::)\s*/', '$1', $line);
+
         foreach ($forbiddenPatterns as $code => $pattern) {
-            if (preg_match($pattern, $line, $matches)) {
+            if (preg_match($pattern, $probe, $matches)) {
                 $sandboxViolations[] = [
                     'code' => $code,
                     'file' => $relativePath,
