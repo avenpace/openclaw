@@ -40,6 +40,7 @@ import { createHermesSkillsTools } from "../../tools/hermes-skills-tool.js";
 import { getBuiltinImageResizeHandler } from "../../tools/image-resize-handler-builtin.js";
 import { createImageResizeTools } from "../../tools/image-resize-tool.js";
 import { createInstagramTools } from "../../tools/instagram-tool.js";
+import { createMarketplaceTools } from "../../tools/marketplace-tool.js";
 import { log } from "../logger.js";
 import { resolveAttemptToolPolicyMessageProvider } from "./attempt-run-decisions.js";
 import { resolveAttemptSpawnWorkspaceDir } from "./attempt-thread-helpers.js";
@@ -359,6 +360,9 @@ export function prepareEmbeddedAttemptToolBase(params: {
         }
         if (attempt.instagramHandler) {
           allTools.push(...createInstagramTools(attempt.instagramHandler));
+        }
+        if (attempt.marketplaceHandler) {
+          allTools.push(...createMarketplaceTools(attempt.marketplaceHandler));
         }
         // Image resize always available: provided handler or built-in Sharp fallback.
         allTools.push(

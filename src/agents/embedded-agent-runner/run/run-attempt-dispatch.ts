@@ -411,6 +411,7 @@ export async function dispatchEmbeddedRunAttempt(input: {
     hermesSkillsHandler: params.hermesSkillsHandler,
     sessionSearchHandler: params.sessionSearchHandler,
     instagramHandler: params.instagramHandler,
+    marketplaceHandler: params.marketplaceHandler,
     replyOperation: params.replyOperation,
     shouldEmitToolResult: params.shouldEmitToolResult,
     shouldEmitToolOutput: params.shouldEmitToolOutput,

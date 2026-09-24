@@ -72,6 +72,7 @@ import type { SessionSearchHandler } from "../../tools/hermes-session-tool.js";
 import type { HermesSkillsHandler } from "../../tools/hermes-skills-tool.js";
 import type { ImageResizeHandler } from "../../tools/image-resize-tool.js";
 import type { InstagramHandler } from "../../tools/instagram-tool.js";
+import type { MarketplaceHandler } from "../../tools/marketplace-tool.js";
 import type { EmbeddedAgentExecutionPhase } from "../execution-phase.js";
 import type { BlockReplyFlushContext } from "../types.js";
 import type { AuthProfileFailurePolicy } from "./auth-profile-failure-policy.types.js";
@@ -412,6 +413,8 @@ export type RunEmbeddedAgentParams = {
   sessionSearchHandler?: SessionSearchHandler;
   /** Handler for Instagram management (login, post, reply, like, follow). */
   instagramHandler?: InstagramHandler;
+  /** Handler for the connected marketplaces (TikTok Shop, Shopee, Shopify). */
+  marketplaceHandler?: MarketplaceHandler;
   /** Skip per-chunk live visible-text parsing when no live stream consumer exists (e.g. subagents). */
   suppressLiveStreamOutput?: boolean;
   /**
