@@ -23,6 +23,7 @@ without manual browser interaction.
 - `ig.mjs like <postUrl>` — Like a post
 - `ig.mjs follow <username>` — Follow a user
 - `ig.mjs profile [username]` — Retrieve profile stats (own profile if omitted)
+- `ig.mjs set-profile --name "<display name>" --bio "<bio>" --url "<link>" [--username <handle>] [--pic <imageUrl>]` — Edit the account's profile (only the flags you pass are changed; `--pic` needs a hosted PNG/JPG URL, e.g. a Media Studio result)
 
 ## Workflows
 
@@ -38,6 +39,12 @@ without manual browser interaction.
 1. The owner sends a caption and an image. Make sure you have a hosted `imageUrl`.
 2. Run `ig.mjs post "<imageUrl>" "<caption>"`. On success the result JSON has `postUrl`.
 3. Confirm to the owner with the returned `postUrl`.
+
+### Setting up the account profile
+
+1. Get a profile picture rendered via the **media-studio** skill (`--aspect 1:1`) and wait for its `resultUrl`.
+2. Run `ig.mjs set-profile --name "..." --bio "..." --url "..." --pic <resultUrl>`; the result lists what changed.
+3. Confirm with `ig.mjs profile`.
 
 ### Engaging / growing
 

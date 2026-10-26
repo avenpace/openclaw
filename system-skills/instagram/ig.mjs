@@ -11,6 +11,7 @@
 //   node /app/openclaw/system-skills/instagram/ig.mjs like <postUrl>
 //   node /app/openclaw/system-skills/instagram/ig.mjs follow <username>
 //   node /app/openclaw/system-skills/instagram/ig.mjs profile [username]
+//   node /app/openclaw/system-skills/instagram/ig.mjs set-profile --name "<n>" --bio "<b>" --url "<u>" [--username <u>] [--pic <imageUrl>]
 import { createInstagramHandler } from "/app/dist/services/instagram-handler.js";
 
 function resolvePersonaId() {
@@ -57,11 +58,31 @@ try {
     case "profile":
       r = await h.igProfile(args[0]);
       break;
+    case "set-profile": {
+      // --name "<full name>" --bio "<biography>" --url "<external url>" --username <handle> --pic <imageUrl>
+      const f = {};
+      const map = {
+        name: "fullName",
+        bio: "biography",
+        url: "externalUrl",
+        username: "username",
+        pic: "profilePicUrl",
+      };
+      for (let i = 0; i < args.length; i++) {
+        const m = args[i].match(/^--([a-z]+)(?:=(.*))?$/);
+        if (!m) continue;
+        const key = map[m[1]];
+        const val = m[2] !== undefined ? m[2] : args[++i];
+        if (key && val !== undefined) f[key] = val;
+      }
+      r = await h.igSetProfile(f);
+      break;
+    }
     default:
       console.error(
         JSON.stringify({
           error: "UNKNOWN_CMD",
-          usage: "check | setup | post | reply | like | follow | profile",
+          usage: "check | setup | post | reply | like | follow | profile | set-profile",
         }),
       );
       process.exit(2);
