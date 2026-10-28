@@ -36,10 +36,15 @@ and the studio is not always awake, so **you never wait for a result inside a re
 3. **The platform delivers the result.** When a render finishes, the platform itself sends the
    image and your draft caption to the owner on WhatsApp, and sends you a `[MEDIA READY]` message
    with the job id and `resultUrl`. You do not need to resend the image.
-4. **Owner decides.** "setuju <id>" (or any clear approval) → run
-   `node /app/openclaw/system-skills/instagram/ig.mjs post <resultUrl> "<caption>"`, then
-   `media.mjs posted <id> <postUrl>` and confirm the post link. A revision request → `media.mjs reject <id> "<note>"`,
+4. **Owner decides.** "setuju <id>" (or any clear approval) → download the `resultUrl` image
+   to a temp file, write the approved caption to a temp file, and publish with the Instagram
+   manager's gated executor:
+   `node /app/openclaw/system-skills/instagram-manager/ig_post_ui.mjs <image> <caption-file>`
+   (one post per owner command; it enforces the ≥3 h spacing, warning lock and AI label —
+   obey its `RESULT …` line, never retry a failure). Then `media.mjs posted <id> <postUrl>`
+   and confirm the post link. A revision request → `media.mjs reject <id> "<note>"`,
    then a new `request` that carries the change in `--notes` (mention the previous job id).
+   Do NOT post via the legacy `ig.mjs post` — it is retired for publishing on this account.
 5. **Failures.** The platform tells the owner when a render fails; offer a different direction and
    `request` again.
 
@@ -52,6 +57,7 @@ and the studio is not always awake, so **you never wait for a result inside a re
 
 ## Notes
 
-- Results are hosted by the platform (`resultUrl`); pass that URL straight to `ig.mjs post` or
-  `ig.mjs set-profile --pic`.
+- Results are hosted by the platform (`resultUrl`); feed that URL's image to
+  `ig_post_ui.mjs` for publishing (see step 4) or `ig.mjs set-profile --pic` for profile
+  pictures.
 - `list --status DONE` shows what is waiting for a decision; `status <id>` answers "is it ready yet?".
