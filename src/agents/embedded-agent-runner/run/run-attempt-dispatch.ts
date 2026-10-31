@@ -412,6 +412,7 @@ export async function dispatchEmbeddedRunAttempt(input: {
     sessionSearchHandler: params.sessionSearchHandler,
     instagramHandler: params.instagramHandler,
     marketplaceHandler: params.marketplaceHandler,
+    clinicHandler: params.clinicHandler,
     replyOperation: params.replyOperation,
     shouldEmitToolResult: params.shouldEmitToolResult,
     shouldEmitToolOutput: params.shouldEmitToolOutput,

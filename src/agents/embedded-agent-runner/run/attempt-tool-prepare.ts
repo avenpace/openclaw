@@ -26,6 +26,7 @@ import {
   type ToolSearchTargetTranscriptProjection,
 } from "../../tool-search.js";
 import { resolveAgentToolSurfacePlan } from "../../tool-surface-plan.js";
+import { createClinicTools } from "../../tools/clinic-tool.js";
 // Clawku: platform-injected handler tools (present only when platform-api provides the handler).
 import { createCloudStorageTools } from "../../tools/cloud-storage-tool.js";
 import type { ComputerContextEpoch } from "../../tools/computer-tool.js";
@@ -363,6 +364,9 @@ export function prepareEmbeddedAttemptToolBase(params: {
         }
         if (attempt.marketplaceHandler) {
           allTools.push(...createMarketplaceTools(attempt.marketplaceHandler));
+        }
+        if (attempt.clinicHandler) {
+          allTools.push(...createClinicTools(attempt.clinicHandler));
         }
         // Image resize always available: provided handler or built-in Sharp fallback.
         allTools.push(

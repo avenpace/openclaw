@@ -65,6 +65,7 @@ type BrowserHandler = {
 };
 import type { SilentReplyPromptMode } from "../../system-prompt.types.js";
 import type { PromptMode } from "../../system-prompt.types.js";
+import type { ClinicHandler } from "../../tools/clinic-tool.js";
 import type { CloudStorageHandler } from "../../tools/cloud-storage-tool.js";
 import type { DevicesHandler } from "../../tools/devices-tool.js";
 import type { HermesMemoryHandler } from "../../tools/hermes-memory-tool.js";
@@ -415,6 +416,8 @@ export type RunEmbeddedAgentParams = {
   instagramHandler?: InstagramHandler;
   /** Handler for the connected marketplaces (TikTok Shop, Shopee, Shopify). */
   marketplaceHandler?: MarketplaceHandler;
+  /** Clinic front-desk tools, bound by the host to the verified WhatsApp sender. */
+  clinicHandler?: ClinicHandler;
   /** Skip per-chunk live visible-text parsing when no live stream consumer exists (e.g. subagents). */
   suppressLiveStreamOutput?: boolean;
   /**

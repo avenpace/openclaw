@@ -1107,9 +1107,23 @@ if ($hasPasswordHash) {
     ]);
 }
 
-// Check for input validation
+// Check for input validation. The Validator class is part of the MVC scaffold;
+// a flat app (one index.php, or a suite with lib/ and pages/) has no app/ tree
+// and is checked for SQL safety by the injection patterns above instead.
 $validatorFile = "{$projectPath}/app/Core/Validator.php";
-if (file_exists($validatorFile)) {
+if (!is_dir("{$projectPath}/app")) {
+    logMsg("  - No app/ tree: Validator class check does not apply\n");
+    addCheck('security', [
+        'id' => 'PREPARED_STATEMENTS_USED',
+        'status' => 'warning',
+        'severity' => 'high',
+        'file' => '',
+        'message' => 'Not an MVC project; Validator class check skipped',
+        'details' => [],
+        'expected' => 'Validator class exists (MVC projects)',
+        'actual' => 'Flat project',
+    ]);
+} elseif (file_exists($validatorFile)) {
     logMsg("  ✓ Validator class exists\n");
     addCheck('security', [
         'id' => 'PREPARED_STATEMENTS_USED',
