@@ -149,3 +149,34 @@ export type { HermesSkillsHandler } from "./agents/tools/hermes-skills-tool.js";
 export type { MsgContext } from "./auto-reply/templating.js";
 export type { ReplyPayload } from "./auto-reply/types.js";
 export type { TtsResult } from "./tts/tts-runtime-types.js";
+
+// Clawku platform: platform-api runs its own per-persona channel monitors through the lazy
+// loaders above. The plugin loader injects each channel's runtime into the module instance
+// it loaded natively, which is not the instance these loaders import, so the monitors saw
+// "<Channel> runtime not initialized". Inject a plugin runtime into the instances the
+// platform actually calls. Returns the channels that were activated.
+export async function activatePlatformChannelRuntimes(): Promise<string[]> {
+  const { createPluginRuntime } = await import("./plugins/runtime/index.js");
+  const runtime = createPluginRuntime();
+  const activated: string[] = [];
+  const setters: Array<[string, () => Promise<unknown>, string]> = [
+    ["telegram", () => import("../extensions/telegram/runtime-api.js"), "setTelegramRuntime"],
+    ["whatsapp", () => import("../extensions/whatsapp/runtime-api.js"), "setWhatsAppRuntime"],
+    ["discord", () => import("../extensions/discord/runtime-api.js"), "setDiscordRuntime"],
+    ["slack", () => import("../extensions/slack/runtime-api.js"), "setSlackRuntime"],
+    ["signal", () => import("../extensions/signal/runtime-api.js"), "setSignalRuntime"],
+  ];
+  for (const [id, load, name] of setters) {
+    try {
+      const mod = (await load()) as Record<string, unknown>;
+      const setter = mod[name];
+      if (typeof setter === "function") {
+        (setter as (value: unknown) => void)(runtime);
+        activated.push(id);
+      }
+    } catch (err) {
+      console.warn(`[clawku] channel runtime activation failed for ${id}:`, err);
+    }
+  }
+  return activated;
+}

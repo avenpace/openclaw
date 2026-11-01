@@ -16,6 +16,19 @@ import { collectRootPackageExcludedExtensionDirs } from "./root-package-bundled-
 
 export { collectRootPackageExcludedExtensionDirs };
 
+// CLAWKU: upstream publishes these channel plugins to npm and builds them isolated (own
+// node_modules, private chunks). Clawku embeds OpenClaw and drives them from platform-api, so
+// they must be core-bundled: isolated copies are invisible to the web-channel facade ("missing
+// plugin that provides light-runtime-api and runtime-api") and get duplicated module state.
+const CLAWKU_CORE_BUNDLED_PLUGIN_DIRS = new Set(["whatsapp", "discord", "slack", "signal"]);
+function collectBuildExcludedExtensionDirs(params) {
+  const excluded = collectBuildExcludedExtensionDirs(params);
+  for (const id of CLAWKU_CORE_BUNDLED_PLUGIN_DIRS) {
+    excluded.delete(id);
+  }
+  return excluded;
+}
+
 const TOP_LEVEL_PUBLIC_SURFACE_EXTENSIONS = new Set([".ts", ".js", ".mts", ".cts", ".mjs", ".cjs"]);
 const BUNDLED_PLUGIN_BUILD_IDS_ENV = "OPENCLAW_BUNDLED_PLUGIN_BUILD_IDS";
 /** @internal Shared repository-script contract. */
@@ -380,7 +393,7 @@ export function collectBundledPluginBuildEntries(params = {}) {
 export function collectSourceCheckoutPluginBuildEntries(params = {}) {
   const env = params.env ?? process.env;
   const dockerSelected = parseDockerSelectedPluginBuildIdFilter(env);
-  const excluded = collectRootPackageExcludedExtensionDirs(params);
+  const excluded = collectBuildExcludedExtensionDirs(params);
   return collectBundledPluginBuildEntries({
     ...params,
     includeExternalSourceEntries: !dockerSelected,
@@ -473,7 +486,7 @@ export function listBundledPluginPackArtifacts(params = {}) {
   const excludedPackageDirs =
     params.includeRootPackageExcludedDirs === true
       ? new Set()
-      : collectRootPackageExcludedExtensionDirs(params);
+      : collectBuildExcludedExtensionDirs(params);
   const entries = collectBundledPluginBuildEntries(params).filter(
     ({ id }) => !NON_PACKAGED_BUNDLED_PLUGIN_DIRS.has(id) && !excludedPackageDirs.has(id),
   );
