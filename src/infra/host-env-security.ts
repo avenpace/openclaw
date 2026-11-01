@@ -45,9 +45,33 @@ export function withHostExecInheritedEnvOmitted<T>(keys: Iterable<string>, run: 
   return scopedBlockedInheritedEnvKeys.run(normalized, run);
 }
 
+/**
+ * Clawku: names the embedding host never lets an exec child inherit (its encryption key,
+ * JWT secrets, internal API keys). Process-wide on purpose: the async-scoped list above
+ * does not reach runs the host detaches from its own async context.
+ */
+const hostBlockedInheritedEnvKeys = new Set<string>();
+
+export function setHostExecInheritedEnvDenylist(keys: Iterable<string>): void {
+  hostBlockedInheritedEnvKeys.clear();
+  for (const key of keys) {
+    const trimmed = key.trim();
+    if (trimmed) {
+      hostBlockedInheritedEnvKeys.add(trimmed.toUpperCase());
+    }
+  }
+}
+
 function isScopedBlockedHostExecEnvVarName(rawKey: string): boolean {
   const key = normalizeEnvVarKey(rawKey);
-  return key ? (scopedBlockedInheritedEnvKeys.getStore()?.has(key.toUpperCase()) ?? false) : false;
+  if (!key) {
+    return false;
+  }
+  const upper = key.toUpperCase();
+  return (
+    hostBlockedInheritedEnvKeys.has(upper) ||
+    (scopedBlockedInheritedEnvKeys.getStore()?.has(upper) ?? false)
+  );
 }
 
 function isNoPagerOverride(key: string, value: string): boolean {

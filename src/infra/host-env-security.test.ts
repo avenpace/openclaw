@@ -802,3 +802,26 @@ describe("host env security policy parity", () => {
     );
   });
 });
+
+describe("host exec inherited env denylist (Clawku)", () => {
+  it("drops denylisted inherited keys and keeps the rest", async () => {
+    const { setHostExecInheritedEnvDenylist, sanitizeHostExecEnv } =
+      await import("./host-env-security.js");
+    setHostExecInheritedEnvDenylist(["PLATFORM_MASTER_KEY_B64", "internal_api_key"]);
+    try {
+      const env = sanitizeHostExecEnv({
+        baseEnv: {
+          PLATFORM_MASTER_KEY_B64: "x",
+          INTERNAL_API_KEY: "y",
+          HOME: "/home/a",
+          PATH: "/usr/bin",
+        },
+      });
+      expect(env.PLATFORM_MASTER_KEY_B64).toBeUndefined();
+      expect(env.INTERNAL_API_KEY).toBeUndefined();
+      expect(env.HOME).toBe("/home/a");
+    } finally {
+      setHostExecInheritedEnvDenylist([]);
+    }
+  });
+});

@@ -147,6 +147,9 @@ export { loginAnthropic } from "./llm/utils/oauth/anthropic.js";
 type PlatformPluginRecord = { id: string; status?: string; rootDir?: string };
 let platformChannelRegistry: { plugins?: PlatformPluginRecord[] } | undefined;
 
+// Clawku: secrets the host keeps out of every exec child's environment.
+export { setHostExecInheritedEnvDenylist } from "./infra/host-env-security.js";
+
 export async function activatePlatformChannelRuntimes(registry?: unknown): Promise<string[]> {
   if (registry && typeof registry === "object") {
     platformChannelRegistry = registry as { plugins?: PlatformPluginRecord[] };
