@@ -20,7 +20,7 @@ export { collectRootPackageExcludedExtensionDirs };
 // node_modules, private chunks). Clawku embeds OpenClaw and drives them from platform-api, so
 // they must be core-bundled: isolated copies are invisible to the web-channel facade ("missing
 // plugin that provides light-runtime-api and runtime-api") and get duplicated module state.
-const CLAWKU_CORE_BUNDLED_PLUGIN_DIRS = new Set(["whatsapp", "discord", "slack", "signal"]);
+const CLAWKU_CORE_BUNDLED_PLUGIN_DIRS = new Set(["whatsapp", "discord", "slack"]);
 function collectBuildExcludedExtensionDirs(params) {
   const excluded = collectRootPackageExcludedExtensionDirs(params);
   for (const id of CLAWKU_CORE_BUNDLED_PLUGIN_DIRS) {
