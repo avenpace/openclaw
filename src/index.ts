@@ -1,18 +1,44 @@
 #!/usr/bin/env node
+import { existsSync } from "node:fs";
 // Re-exports the OpenClaw CLI entry point for package execution.
 // Package executable entrypoint that forwards to the CLI bootstrap.
 import process from "node:process";
 import { fileURLToPath } from "node:url";
-import { formatCliFailureLines } from "./cli/failure-output.js";
-import { runCliWithExitFinalization } from "./cli/one-shot-exit.js";
-import { formatUncaughtError } from "./infra/errors.js";
-import { runFatalErrorHooks } from "./infra/fatal-error-hooks.js";
-import { isMainModule } from "./infra/is-main.js";
+import { disableExitUnsafeCompilers } from "./bootstrap/node-exit-safe-compilers.js";
+import { resolveCliArgvInvocation } from "./cli/argv-invocation.js";
+import { tryRunUpdateAdmissionBeforeStartup } from "./cli/run-main-update-admission.js";
 import {
-  installUnhandledRejectionHandler,
-  isBenignUncaughtExceptionError,
-  isUncaughtExceptionHandled,
-} from "./infra/unhandled-rejections.js";
+  configureGatewayStartupTraceConsoleFormatting,
+  createGatewayDispatchStartupTrace,
+} from "./cli/startup-trace.js";
+import { isMainModule } from "./infra/is-main.js";
+import "./shared/detached-async-context.js";
+
+const isMain = isMainModule({
+  currentFile: fileURLToPath(import.meta.url),
+});
+if (isMain) {
+  disableExitUnsafeCompilers();
+}
+const handledAdmission =
+  isMain && (await tryRunUpdateAdmissionBeforeStartup(resolveCliArgvInvocation(process.argv)));
+const packageRootUrl = new URL("../", import.meta.url);
+if (
+  !handledAdmission &&
+  !existsSync(new URL("entry.ts", import.meta.url)) &&
+  (existsSync(new URL(".openclaw-lifecycle-pending", packageRootUrl)) ||
+    existsSync(new URL("dist/openclaw-install-guard", packageRootUrl)))
+) {
+  const { completePendingPackageLifecycle } = await import("./infra/package-lifecycle.js");
+  try {
+    await completePendingPackageLifecycle({ packageRoot: fileURLToPath(packageRootUrl) });
+  } catch (error) {
+    throw new Error(
+      `OpenClaw package lifecycle is incomplete. Reinstall with package scripts enabled, then retry. ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error },
+    );
+  }
+}
 
 type LegacyCliDeps = {
   runCli: (
@@ -24,6 +50,16 @@ type LegacyCliDeps = {
 };
 
 type LibraryExports = typeof import("./library.js");
+
+// Re-export types for platform integration
+export type { MsgContext } from "./auto-reply/templating.js";
+export type { ReplyPayload } from "./auto-reply/types.js";
+export type { ModelCatalogEntry } from "./agents/model-catalog.js";
+export type { DevicesHandler } from "./agents/tools/devices-tool.js";
+export type { HermesMemoryHandler } from "./agents/tools/hermes-memory-tool.js";
+export type { HermesSkillsHandler } from "./agents/tools/hermes-skills-tool.js";
+export type { ModelRef } from "./agents/model-selection.js";
+export type { TtsResult } from "./tts/tts-runtime-types.js";
 
 // These bindings are populated only for library consumers. The CLI entry stays
 // on the lean path and must not read them while running as main.
@@ -40,8 +76,6 @@ export let ensurePortAvailable: LibraryExports["ensurePortAvailable"];
 export let getReplyFromConfig: LibraryExports["getReplyFromConfig"];
 export let handlePortError: LibraryExports["handlePortError"];
 export let loadConfig: LibraryExports["loadConfig"];
-/** @deprecated Use SQLite-backed session APIs. Scheduled for removal after 2026-10-12. */
-export let loadSessionStore: LibraryExports["loadSessionStore"];
 export let refreshPreparedModelRuntimeSnapshots: LibraryExports["refreshPreparedModelRuntimeSnapshots"];
 export let publishPreparedModelRuntimeSnapshot: LibraryExports["publishPreparedModelRuntimeSnapshot"];
 export let listConfiguredOwnerInputs: LibraryExports["listConfiguredOwnerInputs"];
@@ -66,8 +100,6 @@ export let runEmbeddedPiAgent: LibraryExports["runEmbeddedPiAgent"];
 export let loadOpenClawPlugins: LibraryExports["loadOpenClawPlugins"];
 export let registerResolvedAgentDir: LibraryExports["registerResolvedAgentDir"];
 export let saveAuthProfileStore: LibraryExports["saveAuthProfileStore"];
-/** @deprecated Use SQLite-backed session APIs. Scheduled for removal after 2026-10-12. */
-export let saveSessionStore: LibraryExports["saveSessionStore"];
 export let sendMessageWhatsApp: LibraryExports["sendMessageWhatsApp"];
 export let setConfigOverride: LibraryExports["setConfigOverride"];
 export let getConfigOverrides: LibraryExports["getConfigOverrides"];
@@ -85,12 +117,17 @@ export let maybeApplyTtsToPayload: LibraryExports["maybeApplyTtsToPayload"];
 export let textToSpeech: LibraryExports["textToSpeech"];
 export let resolveTtsConfig: LibraryExports["resolveTtsConfig"];
 
-async function loadLegacyCliDeps(): Promise<LegacyCliDeps> {
-  const { runCli } = await import("./cli/run-main.js");
+async function loadLegacyCliDeps(argv: string[]): Promise<LegacyCliDeps> {
+  const startupTrace = createGatewayDispatchStartupTrace(argv, "entry");
+  await configureGatewayStartupTraceConsoleFormatting(startupTrace);
+  const { runCli } = await startupTrace.measure(
+    "run-main-import",
+    () => import("./cli/run-main.js"),
+  );
   return { runCli };
 }
 
-// Legacy direct file entrypoint only. Package root exports now live in library.ts.
+// Legacy executable bridge, also exported for callers that retain their own process lifecycle.
 export async function runLegacyCliEntry(
   argv: string[] = process.argv,
   deps?: LegacyCliDeps,
@@ -98,14 +135,14 @@ export async function runLegacyCliEntry(
     retainConsoleRoutingUntilProcessExit?: boolean;
   },
 ): Promise<void> {
-  const { runCli } = deps ?? (await loadLegacyCliDeps());
+  const { runCli } = deps ?? (await loadLegacyCliDeps(argv));
   await runCli(argv, options);
 }
 
-const isMain = isMainModule({
-  currentFile: fileURLToPath(import.meta.url),
-});
-
+const handledRootVersion =
+  isMain &&
+  !handledAdmission &&
+  (await import("./entry.version-fast-path.js")).tryHandleRootVersionFastPath(process.argv);
 if (!isMain) {
   ({
     applyTemplate,
@@ -121,7 +158,6 @@ if (!isMain) {
     getReplyFromConfig,
     handlePortError,
     loadConfig,
-    loadSessionStore,
     monitorWebChannel,
     monitorWebInbox,
     startWebLoginWithQr,
@@ -146,7 +182,6 @@ if (!isMain) {
     loadOpenClawPlugins,
     registerResolvedAgentDir,
     saveAuthProfileStore,
-    saveSessionStore,
     sendMessageWhatsApp,
     setConfigOverride,
     getConfigOverrides,
@@ -166,18 +201,33 @@ if (!isMain) {
   } = await import("./library.js"));
 }
 
-// Re-export types for platform integration
-export type { MsgContext } from "./auto-reply/templating.js";
-export type { ReplyPayload } from "./auto-reply/types.js";
-export type { ModelCatalogEntry } from "./agents/model-catalog.js";
-export type { DevicesHandler } from "./agents/tools/devices-tool.js";
-export type { HermesMemoryHandler } from "./agents/tools/hermes-memory-tool.js";
-export type { HermesSkillsHandler } from "./agents/tools/hermes-skills-tool.js";
-export type { ModelRef } from "./agents/model-selection.js";
-export type { TtsResult } from "./tts/tts-runtime-types.js";
+if (isMain && !handledRootVersion && !handledAdmission) {
+  const [
+    { formatCliFailureLines, formatCliJsonFailure, isExpectedCliError },
+    { isJsonOutputModeActive },
+    { runCliWithExitFinalization },
+    { withCliProcessScope },
+    { installDistEsmResolveFastPath },
+    { formatUncaughtError },
+    { runFatalErrorHooks },
+    {
+      installUnhandledRejectionHandler,
+      isBenignUncaughtExceptionError,
+      isUncaughtExceptionHandled,
+    },
+  ] = await Promise.all([
+    import("./cli/failure-output.js"),
+    import("./cli/json-output-mode.js"),
+    import("./cli/one-shot-exit.js"),
+    import("./cli/runtime-cleanup-scope.js"),
+    import("./entry.esm-resolve-fast-path.js"),
+    import("./infra/errors.js"),
+    import("./infra/fatal-error-hooks.js"),
+    import("./infra/unhandled-rejections.js"),
+  ]);
+  installDistEsmResolveFastPath(import.meta.url);
 
-if (isMain) {
-  const { restoreRuntimeTerminalState } = await import("./runtime.js");
+  const { defaultRuntime, restoreRuntimeTerminalState } = await import("./runtime.js");
 
   // Global error handlers to prevent silent crashes from unhandled rejections/exceptions.
   // These log the error and exit gracefully instead of crashing without trace.
@@ -194,6 +244,9 @@ if (isMain) {
       );
       return;
     }
+    if (isJsonOutputModeActive(process.argv)) {
+      defaultRuntime.writeJson(formatCliJsonFailure(error));
+    }
     for (const line of formatCliFailureLines({
       title: "OpenClaw hit an unexpected runtime error.",
       error,
@@ -209,12 +262,17 @@ if (isMain) {
   });
 
   void runCliWithExitFinalization({
-    run: async () =>
-      await runLegacyCliEntry(process.argv, undefined, {
-        // Finalizers and process-exit hooks can still emit diagnostics after runCli settles.
-        retainConsoleRoutingUntilProcessExit: true,
-      }),
+    run: () =>
+      withCliProcessScope(() =>
+        runLegacyCliEntry(process.argv, undefined, {
+          // Finalizers and process-exit hooks can still emit diagnostics after runCli settles.
+          retainConsoleRoutingUntilProcessExit: true,
+        }),
+      ),
     onError: (err) => {
+      if (isJsonOutputModeActive(process.argv)) {
+        defaultRuntime.writeJson(formatCliJsonFailure(err));
+      }
       for (const line of formatCliFailureLines({
         title: "The CLI command failed.",
         error: err,
@@ -222,8 +280,10 @@ if (isMain) {
       })) {
         console.error(line);
       }
-      for (const message of runFatalErrorHooks({ reason: "legacy_cli_failure", error: err })) {
-        console.error("[openclaw]", message);
+      if (!isExpectedCliError(err)) {
+        for (const message of runFatalErrorHooks({ reason: "legacy_cli_failure", error: err })) {
+          console.error("[openclaw]", message);
+        }
       }
       restoreRuntimeTerminalState("legacy cli failure", { resumeStdinIfPaused: false });
       process.exitCode = 1;

@@ -28,6 +28,7 @@ vi.mock("nostr-tools", async (importOriginal) => {
       auth = relayMocks.auth;
       close = relayMocks.close;
       connect = relayMocks.connect;
+      connected = true;
       idleSince: number | undefined;
       ongoingOperations = 0;
       publish = relayMocks.publish;
@@ -89,13 +90,12 @@ describe("Buzz QA relay driver", () => {
     relayMocks.replayedMessage = undefined;
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => ({
-        ok: true,
-        json: async () => ({
+      vi.fn(async () =>
+        Response.json({
           self: RELAY_PUBLIC_KEY,
           software: "https://github.com/block/buzz",
         }),
-      })),
+      ),
     );
   });
 

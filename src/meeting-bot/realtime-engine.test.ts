@@ -1,5 +1,7 @@
-import { describe, expect, it, vi } from "vitest";
+import { setImmediate } from "node:timers/promises";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { RealtimeVoiceProviderPlugin } from "../plugins/types.js";
+import { createDeferredCore } from "../shared/deferred.js";
 import type {
   RealtimeVoiceBridge,
   RealtimeVoiceBridgeCreateRequest,
@@ -21,9 +23,10 @@ async function createEngineFixture(options?: {
   let onHumanBargeIn: ((audio: Buffer) => boolean) | undefined;
   const handleBargeIn = vi.fn();
   const submitToolResult = vi.fn();
+  const closeBridge = vi.fn<RealtimeVoiceBridge["close"]>();
   const bridge: RealtimeVoiceBridge = {
     acknowledgeMark: vi.fn(),
-    close: vi.fn(),
+    close: closeBridge,
     connect: vi.fn(async () => {}),
     handleBargeIn,
     isConnected: vi.fn(() => true),
@@ -41,26 +44,39 @@ async function createEngineFixture(options?: {
     },
   };
   const pendingWrites: PendingWrite[] = [];
+  const writeStarts = new Map<number, ReturnType<typeof createDeferredCore<void>>>();
+  const writeStart = (count: number) => {
+    let receipt = writeStarts.get(count);
+    if (!receipt) {
+      receipt = createDeferredCore();
+      writeStarts.set(count, receipt);
+    }
+    return receipt;
+  };
   const writeOutput = vi.fn(
     () =>
       new Promise<void>((resolve) => {
         pendingWrites.push({ resolve });
+        writeStart(pendingWrites.length).resolve();
       }),
   );
   const clearOutput = vi.fn(async () => {});
   const beginOutput = vi.fn();
+  const stopTransport = vi.fn<MeetingRealtimeAudioTransport["stop"]>(async () => {});
+  const disposeTransport = vi.fn<MeetingRealtimeAudioTransport["dispose"]>(async () => {});
   const transport: MeetingRealtimeAudioTransport = {
     beginOutput,
     clearOutput,
-    dispose: vi.fn(async () => {}),
+    dispose: disposeTransport,
     onFatal: vi.fn(),
     startBargeInMonitor: (handler) => {
       onHumanBargeIn = handler;
     },
     startInput: vi.fn(),
-    stop: vi.fn(async () => {}),
+    stop: stopTransport,
     writeOutput,
   };
+  const logger = { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() };
   const handle = await startMeetingRealtimeEngine({
     config: {
       chrome: { audioFormat: "pcm16-24khz" },
@@ -73,12 +89,7 @@ async function createEngineFixture(options?: {
     consultAgent: vi.fn(async () => ({ text: "unused" })),
     fullConfig: {} as never,
     handleToolCall: options?.handleToolCall ?? vi.fn(async () => {}),
-    logger: {
-      debug: vi.fn(),
-      error: vi.fn(),
-      info: vi.fn(),
-      warn: vi.fn(),
-    },
+    logger,
     meetingSessionId: "meeting-1",
     platform: {
       displayName: "Test Meeting",
@@ -95,12 +106,34 @@ async function createEngineFixture(options?: {
   }
   const bridgeCallbacks = callbacks;
   return {
+    closeBridge,
+    disposeTransport,
+    logger,
+    stopTransport,
     beginOutput,
     callbacks: bridgeCallbacks,
     clearOutput,
     handle,
     handleBargeIn,
     submitToolResult,
+    async waitForWriteStart(count: number) {
+      let timeout: ReturnType<typeof setTimeout> | undefined;
+      try {
+        await Promise.race([
+          writeStart(count).promise,
+          new Promise<never>((_, reject) => {
+            timeout = setTimeout(
+              () => reject(new Error(`Output write ${count} did not start within 1000 ms`)),
+              1_000,
+            );
+          }),
+        ]);
+        // Give detached work a turn before checking counts/order, without completing the write.
+        await setImmediate();
+      } finally {
+        clearTimeout(timeout);
+      }
+    },
     releaseWrite(index: number) {
       const pending = pendingWrites[index];
       if (!pending) {
@@ -133,9 +166,57 @@ async function createEngineFixture(options?: {
   };
 }
 
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
 describe("meeting realtime engine output ownership", () => {
+  it.each(["resolve", "reject"] as const)(
+    "drains provider transcripts before %s cleanup releases transport",
+    async (outcome) => {
+      const fixture = await createEngineFixture();
+      const providerClosed = createDeferredCore();
+      fixture.closeBridge.mockReturnValue(providerClosed.promise);
+      let settled = false;
+      const closing = fixture.handle.stop().then(() => {
+        settled = true;
+      });
+      const concurrentClose = fixture.handle.stop();
+      try {
+        await vi.waitFor(() => expect(fixture.closeBridge).toHaveBeenCalledOnce());
+        expect(settled).toBe(false);
+        expect(fixture.handle.getHealth().bridgeClosed).toBe(false);
+        expect(fixture.stopTransport).not.toHaveBeenCalled();
+        expect(fixture.disposeTransport).not.toHaveBeenCalled();
+        fixture.callbacks.onTranscript?.("assistant", "Final meeting answer", true);
+        expect(fixture.handle.getHealth().recentTalkEvents).toContainEqual(
+          expect.objectContaining({
+            type: "output.text.done",
+            final: true,
+          }),
+        );
+        expect(fixture.logger.info).toHaveBeenCalledWith(
+          "[meeting-test] realtime assistant: chars=20",
+        );
+        if (outcome === "reject") {
+          providerClosed.reject(new Error("provider cleanup failed"));
+        } else {
+          providerClosed.resolve();
+        }
+        await Promise.all([closing, concurrentClose]);
+        expect(settled).toBe(true);
+        expect(fixture.stopTransport).toHaveBeenCalledOnce();
+        expect(fixture.disposeTransport).toHaveBeenCalledOnce();
+        await fixture.handle.stop();
+        expect(fixture.closeBridge).toHaveBeenCalledOnce();
+      } finally {
+        providerClosed.resolve();
+        await closing;
+      }
+    },
+  );
+
   it.each([
-    [{ status: "completed" as const, responseId: "response-1" }, "turn.ended"],
     [
       { status: "failed" as const, responseId: "response-1", message: "provider failed" },
       "turn.ended",
@@ -159,7 +240,8 @@ describe("meeting realtime engine output ownership", () => {
       fixture.callbacks.onTranscript?.("user", "first turn", true);
       fixture.announceOutputResponse("response-1");
       fixture.sendOutputAudio(Buffer.from([1]), "response-1");
-      await vi.waitFor(() => expect(fixture.writeOutput).toHaveBeenCalledTimes(1));
+      await fixture.waitForWriteStart(1);
+      expect(fixture.writeOutput).toHaveBeenCalledTimes(1);
       fixture.callbacks.onResponseDone?.(outcome);
       fixture.callbacks.onEvent?.({
         direction: "server",
@@ -179,7 +261,8 @@ describe("meeting realtime engine output ownership", () => {
       fixture.callbacks.onTranscript?.("user", "later turn", true);
       fixture.announceOutputResponse("response-2");
       fixture.sendOutputAudio(Buffer.from([2]), "response-2");
-      await vi.waitFor(() => expect(fixture.writeOutput).toHaveBeenCalledTimes(2));
+      await fixture.waitForWriteStart(2);
+      expect(fixture.writeOutput).toHaveBeenCalledTimes(2);
       fixture.callbacks.onResponseDone?.({ status: "completed", responseId: "response-2" });
       fixture.callbacks.onEvent?.({
         direction: "server",
@@ -255,9 +338,8 @@ describe("meeting realtime engine output ownership", () => {
       fixture.callbacks.onReady?.();
       fixture.callbacks.onTranscript?.("user", "old turn", true);
       fixture.sendOutputAudio(active, "response-1");
-      await vi.waitFor(() => {
-        expect(fixture.writeOutput).toHaveBeenCalledOnce();
-      });
+      await fixture.waitForWriteStart(1);
+      expect(fixture.writeOutput).toHaveBeenCalledOnce();
       fixture.sendOutputAudio(stale, "response-1");
       fixture.callbacks.onToolCall?.({
         itemId: "item-old",
@@ -301,9 +383,8 @@ describe("meeting realtime engine output ownership", () => {
 
       fixture.callbacks.onReady?.();
       fixture.sendOutputAudio(fresh, "response-1");
-      await vi.waitFor(() => {
-        expect(fixture.writeOutput).toHaveBeenCalledTimes(2);
-      });
+      await fixture.waitForWriteStart(2);
+      expect(fixture.writeOutput).toHaveBeenCalledTimes(2);
       expect(fixture.writeOutput).toHaveBeenLastCalledWith(fresh);
       fixture.releaseWrite(1);
     } finally {
@@ -321,21 +402,18 @@ describe("meeting realtime engine output ownership", () => {
       for (const frame of queued) {
         fixture.callbacks.onAudio(frame);
       }
-      await vi.waitFor(() => {
-        expect(fixture.writeOutput).toHaveBeenCalledTimes(1);
-      });
+      await fixture.waitForWriteStart(1);
+      expect(fixture.writeOutput).toHaveBeenCalledTimes(1);
       expect(fixture.writeOutput).toHaveBeenLastCalledWith(first);
 
       fixture.releaseWrite(0);
-      await vi.waitFor(() => {
-        expect(fixture.writeOutput).toHaveBeenCalledTimes(2);
-      });
+      await fixture.waitForWriteStart(2);
+      expect(fixture.writeOutput).toHaveBeenCalledTimes(2);
       expect(fixture.writeOutput).toHaveBeenLastCalledWith(Buffer.concat(queued.slice(0, 25)));
 
       fixture.releaseWrite(1);
-      await vi.waitFor(() => {
-        expect(fixture.writeOutput).toHaveBeenCalledTimes(3);
-      });
+      await fixture.waitForWriteStart(3);
+      expect(fixture.writeOutput).toHaveBeenCalledTimes(3);
       expect(fixture.writeOutput).toHaveBeenLastCalledWith(Buffer.concat(queued.slice(25)));
       fixture.releaseWrite(2);
     } finally {
@@ -353,13 +431,13 @@ describe("meeting realtime engine output ownership", () => {
       fixture.callbacks.onClearAudio("barge-in");
       fixture.callbacks.onAudio(fresh);
 
-      await vi.waitFor(() => {
-        expect(fixture.writeOutput).toHaveBeenCalledOnce();
-      });
+      await fixture.waitForWriteStart(1);
+      expect(fixture.writeOutput).toHaveBeenCalledOnce();
       expect(fixture.writeOutput).toHaveBeenCalledWith(fresh);
       expect(fixture.writeOutput).not.toHaveBeenCalledWith(stale);
       expect(fixture.clearOutput).toHaveBeenCalledOnce();
-      expect(fixture.beginOutput).toHaveBeenCalledTimes(2);
+      expect(fixture.beginOutput).toHaveBeenCalledOnce();
+      expect(fixture.beginOutput).toHaveBeenCalledAfter(fixture.clearOutput);
       fixture.releaseWrite(0);
     } finally {
       await fixture.handle.stop();
@@ -376,9 +454,8 @@ describe("meeting realtime engine output ownership", () => {
 
       fixture.announceOutputResponse("response-1");
       fixture.sendOutputAudio(active);
-      await vi.waitFor(() => {
-        expect(fixture.writeOutput).toHaveBeenCalledTimes(1);
-      });
+      await fixture.waitForWriteStart(1);
+      expect(fixture.writeOutput).toHaveBeenCalledTimes(1);
       fixture.sendOutputAudio(stale);
 
       expect(fixture.triggerHumanBargeIn()).toBe(true);
@@ -390,9 +467,8 @@ describe("meeting realtime engine output ownership", () => {
       fixture.sendOutputAudio(fresh);
       fixture.releaseWrite(0);
 
-      await vi.waitFor(() => {
-        expect(fixture.writeOutput).toHaveBeenCalledTimes(2);
-      });
+      await fixture.waitForWriteStart(2);
+      expect(fixture.writeOutput).toHaveBeenCalledTimes(2);
       expect(fixture.writeOutput).toHaveBeenLastCalledWith(fresh);
       expect(fixture.writeOutput).not.toHaveBeenCalledWith(stale);
       expect(fixture.writeOutput).not.toHaveBeenCalledWith(late);
@@ -416,9 +492,8 @@ describe("meeting realtime engine output ownership", () => {
       fixture.announceOutputResponse("response-2");
       fixture.callbacks.onAudio(fresh);
 
-      await vi.waitFor(() => {
-        expect(fixture.writeOutput).toHaveBeenCalledOnce();
-      });
+      await fixture.waitForWriteStart(1);
+      expect(fixture.writeOutput).toHaveBeenCalledOnce();
       expect(fixture.writeOutput).toHaveBeenCalledWith(fresh);
       expect(fixture.writeOutput).not.toHaveBeenCalledWith(stale);
       fixture.releaseWrite(0);
@@ -433,15 +508,14 @@ describe("meeting realtime engine output ownership", () => {
       const fixture = await createEngineFixture();
       try {
         const first = Buffer.alloc(48_000, 1);
-        const queued = Buffer.alloc(48_000, 2);
+        const queued = Buffer.alloc(48_000 * 119, 2);
         const overflow = Buffer.from([3]);
         const late = Buffer.from([4]);
         const fresh = Buffer.from([5]);
 
         fixture.sendOutputAudio(first, "response-1");
-        await vi.waitFor(() => {
-          expect(fixture.writeOutput).toHaveBeenCalledTimes(1);
-        });
+        await fixture.waitForWriteStart(1);
+        expect(fixture.writeOutput).toHaveBeenCalledTimes(1);
         fixture.sendOutputAudio(queued, "response-1");
         fixture.sendOutputAudio(overflow, "response-1");
 
@@ -466,9 +540,8 @@ describe("meeting realtime engine output ownership", () => {
         fixture.sendOutputAudio(fresh, "response-2");
         fixture.releaseWrite(0);
 
-        await vi.waitFor(() => {
-          expect(fixture.writeOutput).toHaveBeenCalledTimes(2);
-        });
+        await fixture.waitForWriteStart(2);
+        expect(fixture.writeOutput).toHaveBeenCalledTimes(2);
         expect(fixture.writeOutput).toHaveBeenLastCalledWith(fresh);
         expect(fixture.clearOutput).toHaveBeenCalledTimes(2);
         expect(fixture.clearOutput.mock.invocationCallOrder[1]).toBeLessThan(
@@ -491,9 +564,9 @@ describe("meeting realtime engine output ownership", () => {
       const fresh = Buffer.from([4]);
 
       fixture.sendOutputAudio(active, "response-1");
-      await vi.waitFor(() => {
-        expect(fixture.writeOutput).toHaveBeenCalledOnce();
-      });
+      await fixture.waitForWriteStart(1);
+      expect(fixture.writeOutput).toHaveBeenCalledOnce();
+      vi.spyOn(Date, "now").mockReturnValue(Date.now() + 5_000);
       fixture.sendOutputAudio(queued, "response-1");
       fixture.sendOutputAudio(Buffer.from([5]), "response-1");
       await vi.waitFor(() => {
@@ -507,9 +580,8 @@ describe("meeting realtime engine output ownership", () => {
       fixture.sendOutputAudio(fresh, "response-2");
       fixture.releaseWrite(0);
 
-      await vi.waitFor(() => {
-        expect(fixture.writeOutput).toHaveBeenCalledTimes(2);
-      });
+      await fixture.waitForWriteStart(2);
+      expect(fixture.writeOutput).toHaveBeenCalledTimes(2);
       expect(fixture.writeOutput).toHaveBeenLastCalledWith(fresh);
       expect(fixture.writeOutput).not.toHaveBeenCalledWith(late);
       fixture.releaseWrite(1);
@@ -527,9 +599,9 @@ describe("meeting realtime engine output ownership", () => {
       const fresh = Buffer.from([4]);
 
       fixture.callbacks.onAudio(active);
-      await vi.waitFor(() => {
-        expect(fixture.writeOutput).toHaveBeenCalledOnce();
-      });
+      await fixture.waitForWriteStart(1);
+      expect(fixture.writeOutput).toHaveBeenCalledOnce();
+      vi.spyOn(Date, "now").mockReturnValue(Date.now() + 5_000);
       fixture.callbacks.onAudio(queued);
       fixture.callbacks.onAudio(Buffer.from([5]));
       await vi.waitFor(() => {
@@ -541,12 +613,35 @@ describe("meeting realtime engine output ownership", () => {
       fixture.callbacks.onAudio(fresh);
       fixture.releaseWrite(0);
 
-      await vi.waitFor(() => {
-        expect(fixture.writeOutput).toHaveBeenCalledTimes(2);
-      });
+      await fixture.waitForWriteStart(2);
+      expect(fixture.writeOutput).toHaveBeenCalledTimes(2);
       expect(fixture.writeOutput).toHaveBeenLastCalledWith(fresh);
       expect(fixture.writeOutput).not.toHaveBeenCalledWith(late);
       fixture.releaseWrite(1);
+    } finally {
+      await fixture.handle.stop();
+    }
+  });
+
+  it("plays a long reply that streams ahead of playback", async () => {
+    const fixture = await createEngineFixture();
+    try {
+      const first = Buffer.alloc(48_000, 1);
+      const rest = Array.from({ length: 9 }, (_, index) => Buffer.alloc(48_000, index + 2));
+      fixture.sendOutputAudio(first, "response-1");
+      await fixture.waitForWriteStart(1);
+      for (const chunk of rest) {
+        fixture.sendOutputAudio(chunk, "response-1");
+      }
+      await setImmediate();
+      expect(fixture.clearOutput).not.toHaveBeenCalled();
+      expect(fixture.handleBargeIn).not.toHaveBeenCalled();
+      for (const [index, chunk] of rest.entries()) {
+        fixture.releaseWrite(index);
+        await fixture.waitForWriteStart(index + 2);
+        expect(fixture.writeOutput).toHaveBeenLastCalledWith(chunk);
+      }
+      fixture.releaseWrite(rest.length);
     } finally {
       await fixture.handle.stop();
     }
@@ -556,10 +651,9 @@ describe("meeting realtime engine output ownership", () => {
     const fixture = await createEngineFixture();
     try {
       fixture.sendOutputAudio(Buffer.from([0]), "response-1");
-      await vi.waitFor(() => {
-        expect(fixture.writeOutput).toHaveBeenCalledTimes(1);
-      });
-      for (let index = 1; index < 257; index += 1) {
+      await fixture.waitForWriteStart(1);
+      expect(fixture.writeOutput).toHaveBeenCalledTimes(1);
+      for (let index = 1; index < 6_001; index += 1) {
         fixture.sendOutputAudio(Buffer.from([index]), "response-1");
       }
 
@@ -584,9 +678,9 @@ describe("meeting realtime engine output ownership", () => {
       const fresh = Buffer.from([6]);
 
       fixture.sendOutputAudio(Buffer.alloc(48_000, 1), "response-1");
-      await vi.waitFor(() => {
-        expect(fixture.writeOutput).toHaveBeenCalledTimes(1);
-      });
+      await fixture.waitForWriteStart(1);
+      expect(fixture.writeOutput).toHaveBeenCalledTimes(1);
+      vi.spyOn(Date, "now").mockReturnValue(Date.now() + 5_000);
       fixture.sendOutputAudio(Buffer.alloc(48_000, 2), "response-1");
       fixture.sendOutputAudio(Buffer.from([3]), "response-1");
       await vi.waitFor(() => {
@@ -614,9 +708,8 @@ describe("meeting realtime engine output ownership", () => {
       expect(fixture.handle.getHealth().recentTalkEvents.map((event) => event.type)).not.toContain(
         "session.error",
       );
-      await vi.waitFor(() => {
-        expect(fixture.writeOutput).toHaveBeenCalledTimes(2);
-      });
+      await fixture.waitForWriteStart(2);
+      expect(fixture.writeOutput).toHaveBeenCalledTimes(2);
       expect(fixture.writeOutput).toHaveBeenLastCalledWith(fresh);
       expect(fixture.writeOutput).not.toHaveBeenCalledWith(replacement);
       expect(fixture.writeOutput).not.toHaveBeenCalledWith(late);

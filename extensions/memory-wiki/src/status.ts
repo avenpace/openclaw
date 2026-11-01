@@ -1,13 +1,14 @@
-// Memory Wiki plugin module implements status behavior.
 import fs from "node:fs/promises";
 import path from "node:path";
+import { runTasksWithConcurrency } from "openclaw/plugin-sdk/concurrency-runtime";
 import { listActiveMemoryPublicArtifacts } from "openclaw/plugin-sdk/memory-host-core";
 import { pathExists } from "openclaw/plugin-sdk/security-runtime";
+import { normalizeOptionalString } from "openclaw/plugin-sdk/string-coerce-runtime";
 import type { OpenClawConfig } from "../api.js";
-import { walkMemoryWikiDirectory } from "./bounded-walk.js";
+import { listMemoryWikiPagePaths } from "./bounded-walk.js";
 import { filterMemoryWikiBridgeArtifacts, resolveMemoryWikiVaultAgentId } from "./bridge.js";
 import type { ResolvedMemoryWikiConfig } from "./config.js";
-import { toWikiPageSummary, type WikiPageKind } from "./markdown.js";
+import { parseWikiMarkdown, WIKI_PAGE_GROUPS, type WikiPageKind } from "./markdown.js";
 import { probeObsidianCli } from "./obsidian.js";
 
 type MemoryWikiStatusWarning = {
@@ -22,47 +23,9 @@ type MemoryWikiStatusWarning = {
   message: string;
 };
 
-export type MemoryWikiStatus = {
-  vaultScope: ResolvedMemoryWikiConfig["vault"]["scope"];
-  agentId: string | null;
-  vaultMode: ResolvedMemoryWikiConfig["vaultMode"];
-  renderMode: ResolvedMemoryWikiConfig["vault"]["renderMode"];
-  vaultPath: string;
-  vaultExists: boolean;
-  bridge: ResolvedMemoryWikiConfig["bridge"];
-  bridgePublicArtifactCount: number | null;
-  obsidianCli: {
-    enabled: boolean;
-    requested: boolean;
-    available: boolean;
-    command: string | null;
-  };
-  unsafeLocal: {
-    allowPrivateMemoryCoreAccess: boolean;
-    pathCount: number;
-  };
-  pageCounts: Record<WikiPageKind, number>;
-  sourceCounts: {
-    native: number;
-    bridge: number;
-    bridgeEvents: number;
-    unsafeLocal: number;
-    other: number;
-  };
-  warnings: MemoryWikiStatusWarning[];
-};
+export type MemoryWikiStatus = Awaited<ReturnType<typeof resolveMemoryWikiStatus>>;
 
-type MemoryWikiDoctorFix = {
-  code: MemoryWikiStatusWarning["code"];
-  message: string;
-};
-
-export type MemoryWikiDoctorReport = {
-  healthy: boolean;
-  warningCount: number;
-  status: MemoryWikiStatus;
-  fixes: MemoryWikiDoctorFix[];
-};
+export type MemoryWikiDoctorReport = ReturnType<typeof buildMemoryWikiDoctorReport>;
 
 type ResolveMemoryWikiStatusDeps = {
   appConfig?: OpenClawConfig;
@@ -72,10 +35,7 @@ type ResolveMemoryWikiStatusDeps = {
   resolveCommand?: (command: string) => Promise<string | null>;
 };
 
-async function collectVaultCounts(vaultPath: string): Promise<{
-  pageCounts: Record<WikiPageKind, number>;
-  sourceCounts: MemoryWikiStatus["sourceCounts"];
-}> {
+function createEmptyVaultCounts() {
   const pageCounts: Record<WikiPageKind, number> = {
     entity: 0,
     concept: 0,
@@ -83,57 +43,55 @@ async function collectVaultCounts(vaultPath: string): Promise<{
     synthesis: 0,
     report: 0,
   };
-  const sourceCounts: MemoryWikiStatus["sourceCounts"] = {
+  const sourceCounts = {
     native: 0,
     bridge: 0,
     bridgeEvents: 0,
     unsafeLocal: 0,
     other: 0,
   };
-  const dirs = ["entities", "concepts", "sources", "syntheses", "reports"] as const;
-  for (const dir of dirs) {
-    const entries = await walkMemoryWikiDirectory(vaultPath, dir);
-    for (const entry of entries) {
-      if (
-        entry.kind !== "file" ||
-        !entry.relativePath.endsWith(".md") ||
-        path.basename(entry.relativePath) === "index.md"
-      ) {
-        continue;
-      }
-      const absolutePath = path.join(vaultPath, entry.relativePath);
-      const relativeToVault = entry.relativePath.split(path.sep).join("/");
-      const raw = await fs.readFile(absolutePath, "utf8").catch(() => null);
-      if (raw === null) {
-        continue;
-      }
-      const page = toWikiPageSummary({
-        absolutePath,
-        relativePath: relativeToVault,
-        raw,
-      });
-      if (!page) {
-        continue;
-      }
-      pageCounts[page.kind] += 1;
-      if (page.kind !== "source") {
-        continue;
-      }
-      if (page.sourceType === "memory-bridge-events") {
-        sourceCounts.bridgeEvents += 1;
-      } else if (page.sourceType === "memory-bridge") {
-        sourceCounts.bridge += 1;
-      } else if (
-        page.provenanceMode === "unsafe-local" ||
-        page.sourceType === "memory-unsafe-local"
-      ) {
-        sourceCounts.unsafeLocal += 1;
-      } else if (!page.sourceType) {
-        sourceCounts.native += 1;
-      } else {
-        sourceCounts.other += 1;
-      }
-    }
+  return { pageCounts, sourceCounts };
+}
+
+async function collectVaultCounts(vaultPath: string) {
+  const { pageCounts, sourceCounts } = createEmptyVaultCounts();
+  for (const { dir, kind } of WIKI_PAGE_GROUPS) {
+    await runTasksWithConcurrency({
+      tasks: (await listMemoryWikiPagePaths(vaultPath, dir)).map((relativePath) => async () => {
+        const raw = await fs.readFile(path.join(vaultPath, relativePath), "utf8").catch(() => null);
+        if (raw === null) {
+          return;
+        }
+        let frontmatter: Record<string, unknown>;
+        try {
+          frontmatter = parseWikiMarkdown(raw).frontmatter;
+        } catch {
+          return;
+        }
+        pageCounts[kind] += 1;
+        if (kind !== "source") {
+          return;
+        }
+        const sourceType = normalizeOptionalString(frontmatter.sourceType);
+        if (sourceType === "memory-bridge-events") {
+          sourceCounts.bridgeEvents += 1;
+        } else if (sourceType === "memory-bridge") {
+          sourceCounts.bridge += 1;
+        } else if (
+          normalizeOptionalString(frontmatter.provenanceMode) === "unsafe-local" ||
+          sourceType === "memory-unsafe-local"
+        ) {
+          sourceCounts.unsafeLocal += 1;
+        } else if (!sourceType) {
+          sourceCounts.native += 1;
+        } else {
+          sourceCounts.other += 1;
+        }
+      }),
+      limit: 16,
+      errorMode: "stop",
+      throwOnError: true,
+    });
   }
   return { pageCounts, sourceCounts };
 }
@@ -213,7 +171,7 @@ function buildWarnings(params: {
 export async function resolveMemoryWikiStatus(
   config: ResolvedMemoryWikiConfig,
   deps?: ResolveMemoryWikiStatusDeps,
-): Promise<MemoryWikiStatus> {
+) {
   const agentId = resolveMemoryWikiVaultAgentId(config);
   const exists = deps?.pathExists ?? pathExists;
   const vaultExists = await exists(config.vault.path);
@@ -233,22 +191,7 @@ export async function resolveMemoryWikiStatus(
   const obsidianProbe = await probeObsidianCli({ resolveCommand: deps?.resolveCommand });
   const counts = vaultExists
     ? await collectVaultCounts(config.vault.path)
-    : {
-        pageCounts: {
-          entity: 0,
-          concept: 0,
-          source: 0,
-          synthesis: 0,
-          report: 0,
-        },
-        sourceCounts: {
-          native: 0,
-          bridge: 0,
-          bridgeEvents: 0,
-          unsafeLocal: 0,
-          other: 0,
-        },
-      };
+    : createEmptyVaultCounts();
 
   return {
     vaultScope: config.vault.scope,
@@ -280,7 +223,7 @@ export async function resolveMemoryWikiStatus(
   };
 }
 
-export function buildMemoryWikiDoctorReport(status: MemoryWikiStatus): MemoryWikiDoctorReport {
+export function buildMemoryWikiDoctorReport(status: MemoryWikiStatus) {
   const fixes = status.warnings.map((warning) => ({
     code: warning.code,
     message:

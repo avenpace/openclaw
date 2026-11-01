@@ -1,40 +1,28 @@
 import path from "node:path";
+import { splitShellArgs } from "../utils/shell-argv.js";
+import { analyzeArgvCommand } from "./exec-argv-analysis.js";
 import type { ExecCommandAnalysis, ExecCommandSegment } from "./exec-command-analysis-types.js";
 // Shared exec approval analysis types and Windows-only shell enforcement helpers.
 import { rebuildWindowsShellCommandFromSource, windowsEscapeArg } from "./windows-shell-command.js";
-import { splitShellArgs } from "../utils/shell-argv.js";
-import { analyzeArgvCommand } from "./exec-argv-analysis.js";
 
 export { analyzeArgvCommand };
 
 export {
   matchAllowlist,
-  parseExecArgvToken,
-  buildHashedArgPatternFromArgv,
-  resolveAllowlistCandidatePath,
-  resolveApprovalAuditCandidatePath,
+  buildCwdBoundHashedArgPattern,
   resolveApprovalAuditTrustPath,
-  resolveCommandResolution,
   resolveCommandResolutionFromArgv,
   resolveExecutionTargetCandidatePath,
   resolveExecutionTargetResolution,
   resolveExecutionTargetTrustPath,
-  resolvePolicyAllowlistCandidatePath,
   resolvePolicyTargetCandidatePath,
   resolvePolicyTargetResolution,
   resolvePolicyTargetTrustPath,
   resolveExecutableTrustPath,
-  type CommandResolution,
   type ExecutableResolution,
-  type ExecArgvToken,
 } from "./exec-command-resolution.js";
 
-export {
-  analyzeWindowsShellCommand,
-  isWindowsPlatform,
-  tokenizeWindowsSegment,
-  windowsEscapeArg,
-} from "./windows-shell-command.js";
+export { isWindowsPlatform } from "./windows-shell-command.js";
 export type {
   ExecCommandAnalysis,
   ExecCommandSegment,
@@ -310,7 +298,6 @@ function validateFindCommand(params: {
   return { ok: true };
 }
 
-
 // Clawku: shell control operators that separate independent commands. Used to split a
 // shell command into per-command segments for external-channel safe-command routing.
 const CLAWKU_SHELL_CONTROL_OPERATORS = new Set(["|", "||", "&&", ";", "&", "|&", "\n"]);
@@ -333,7 +320,11 @@ export function analyzeShellCommand(params: {
   // Reject constructs that can hide an executable inside an otherwise-safe command
   // (command substitution `$(...)`/backticks, process substitution `<(...)`/`>(...)`).
   if (/\$\(|`|<\(|>\(/.test(command)) {
-    return { ok: false, reason: "command substitution is not allowed on external channels", segments: [] };
+    return {
+      ok: false,
+      reason: "command substitution is not allowed on external channels",
+      segments: [],
+    };
   }
   const tokens = splitShellArgs(command);
   if (!tokens || tokens.length === 0) {
@@ -371,7 +362,11 @@ export function analyzeShellCommand(params: {
     }
     const analysis = analyzeArgvCommand({ argv: effectiveArgv, cwd: params.cwd, env: params.env });
     if (!analysis.ok || analysis.segments.length === 0) {
-      return { ok: false, reason: analysis.reason ?? "unable to resolve command segment", segments: [] };
+      return {
+        ok: false,
+        reason: analysis.reason ?? "unable to resolve command segment",
+        segments: [],
+      };
     }
     segments.push(...analysis.segments);
   }

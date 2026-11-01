@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { completeFollowupRunLifecycle, markFollowupRunEnqueued } from "./queue/types.js";
+import { attachToolAllowlistIntersection } from "../../agents/tool-policy-shared.js";
+import { markReplyPayloadForSourceSuppressionDelivery } from "../reply-payload.js";
+import { completeFollowupRunLifecycle, markFollowupRunEnqueued } from "./queue/lifecycle.js";
+import type { ReplyOperationRunState } from "./reply-operation-run-state.js";
 import { resolveStrandedReplyRecovery } from "./stranded-reply-recovery.js";
 import { createMockFollowupRun } from "./test-helpers.js";
 
@@ -7,6 +10,7 @@ const STRANDED_REPLY_RETRY_MARKER = "stranded-reply-retry";
 
 describe("buildStrandedReplyRetryFollowupRun lifecycle ownership", () => {
   it("does not share the client turn's turnAdoptionLifecycle with the system retry", () => {
+    const receipts: ReplyOperationRunState[] = [{ agentTurn: "ok" }];
     const onComplete = vi.fn();
     const onEnqueued = vi.fn(() => true);
     const parent = createMockFollowupRun({
@@ -18,11 +22,12 @@ describe("buildStrandedReplyRetryFollowupRun lifecycle ownership", () => {
         onDeferred: onEnqueued,
       },
       admissionSessionId: "sess-rotated",
-      onReplyAdmissionWaitChange: vi.fn(),
+      replyOperationRunStates: receipts,
     });
 
     const recovery = resolveStrandedReplyRecovery({
       base: parent,
+      payloads: [],
       finalText:
         "A substantive stranded final must be re-delivered via message(action=send). It includes enough user-facing detail to require the one-shot recovery path.",
       sourceReplyDeliveryMode: "message_tool_only",
@@ -38,11 +43,12 @@ describe("buildStrandedReplyRetryFollowupRun lifecycle ownership", () => {
     const retry = recovery.run;
 
     expect(retry.turnAdoptionLifecycle).toBeUndefined();
+    expect(retry.replyOperationRunStates).toBeUndefined();
+    expect(parent.replyOperationRunStates).toBe(receipts);
     expect(retry.strandedReplyRetry).toBe(true);
     expect(retry.summaryLine).toBe(STRANDED_REPLY_RETRY_MARKER);
     // Session routing stays; only the client-turn lifecycle identity is detached.
     expect(retry.admissionSessionId).toBe("sess-rotated");
-    expect(retry.onReplyAdmissionWaitChange).toBe(parent.onReplyAdmissionWaitChange);
     expect(retry.run.sessionKey).toBe(parent.run.sessionKey);
 
     // mark/complete no-op when lifecycle is absent (drop-policy onDrop path too).
@@ -59,17 +65,88 @@ describe("buildStrandedReplyRetryFollowupRun lifecycle ownership", () => {
     completeFollowupRunLifecycle(parent);
     expect(onComplete).toHaveBeenCalledTimes(1);
   });
+
+  it("expires the client turn's skill authoring grant instead of rebinding it", async () => {
+    // chat.send mints a personal grant that refuses a second run; carrying it over killed the retry.
+    const parent = createMockFollowupRun({ prompt: "user question" });
+    parent.run.skillLibraryAuthoring = {
+      target: "personal",
+      defaultTarget: "workspace",
+      multipleProfiles: true,
+      bind: () => {
+        throw new Error("Personal authoring cannot move to a replacement run.");
+      },
+      invoke: vi.fn(),
+    };
+
+    const recovery = resolveStrandedReplyRecovery({
+      base: parent,
+      payloads: [],
+      finalText:
+        "A substantive stranded final must be re-delivered via message(action=send). It includes enough user-facing detail to require the one-shot recovery path.",
+      sourceReplyDeliveryMode: "message_tool_only",
+      sendPolicyDenied: false,
+      successfulSourceReplyDelivery: false,
+      isHeartbeat: false,
+      isRoomEvent: false,
+    });
+    if (recovery.kind !== "retry") {
+      throw new Error("expected retry recovery");
+    }
+    const authoring = recovery.run.run.skillLibraryAuthoring;
+    expect(authoring?.defaultTarget).toBe("personal");
+    expect(() => authoring?.bind({} as never)).not.toThrow();
+    await expect(authoring?.invoke({ action: "list" })).rejects.toMatchObject({
+      code: "AUTHORITY_EXPIRED",
+    });
+  });
 });
 
 describe("resolveStrandedReplyRecovery", () => {
   const substantiveFinal =
     "This reply is substantive enough to look user-facing. It contains a second sentence so the private-final policy treats it as stranded output.";
 
-  it("creates one priority retry for a substantive private final", () => {
-    const base = createMockFollowupRun({ prompt: "question" });
+  it.each([
+    { payload: { text: "The recovered answer is ready." }, expected: "none" },
+    {
+      payload: { text: "The fallback model is active.", isFallbackNotice: true },
+      expected: "retry",
+    },
+  ])(
+    "distinguishes a pending terminal answer from a notice: $expected",
+    ({ payload, expected }) => {
+      const recovery = resolveStrandedReplyRecovery({
+        base: createMockFollowupRun({ prompt: "question" }),
+        payloads: [markReplyPayloadForSourceSuppressionDelivery(payload)],
+        finalText: substantiveFinal,
+        sourceReplyDeliveryMode: "message_tool_only",
+        sendPolicyDenied: false,
+        successfulSourceReplyDelivery: false,
+        isHeartbeat: false,
+        isRoomEvent: false,
+      });
+
+      expect(recovery.kind).toBe(expected);
+    },
+  );
+
+  it.each([
+    { label: "uncapped", toolsAllow: undefined, expected: ["message"] },
+    { label: "wildcard", toolsAllow: ["*"], expected: ["message"] },
+    { label: "messaging group", toolsAllow: ["group:messaging", "exec"], expected: ["message"] },
+    { label: "empty cap", toolsAllow: [], expected: [] },
+    { label: "non-messaging cap", toolsAllow: ["exec"], expected: [] },
+    {
+      label: "intersected denial",
+      toolsAllow: attachToolAllowlistIntersection(["message"], [["*"], ["exec"]]),
+      expected: [],
+    },
+  ])("restricts the priority retry to authorized messaging: $label", ({ toolsAllow, expected }) => {
+    const base = createMockFollowupRun({ prompt: "question", toolsAllow });
 
     const recovery = resolveStrandedReplyRecovery({
       base,
+      payloads: [],
       finalText: substantiveFinal,
       sourceReplyDeliveryMode: "message_tool_only",
       sendPolicyDenied: false,
@@ -82,13 +159,7 @@ describe("resolveStrandedReplyRecovery", () => {
     if (recovery.kind === "retry") {
       expect(recovery.run.strandedReplyRetry).toBe(true);
       expect(recovery.run.disableCollectBatching).toBe(true);
-      expect(recovery.run.prompt).toBe(
-        `[System] Your previous reply was not delivered to the conversation because ` +
-          `you did not call message(action=send). Your reply text was:\n\n` +
-          `"${substantiveFinal}"\n\n` +
-          `Please deliver this reply now by calling message(action=send). ` +
-          `Do not add any extra commentary; just deliver the original reply.`,
-      );
+      expect(recovery.run.toolsAllow).toEqual(expected);
     }
   });
 
@@ -103,6 +174,7 @@ describe("resolveStrandedReplyRecovery", () => {
 
     const recovery = resolveStrandedReplyRecovery({
       base,
+      payloads: [],
       finalText: substantiveCjkFinal,
       sourceReplyDeliveryMode: "message_tool_only",
       sendPolicyDenied: false,
@@ -125,6 +197,7 @@ describe("resolveStrandedReplyRecovery", () => {
 
     const recovery = resolveStrandedReplyRecovery({
       base,
+      payloads: [],
       finalText: "",
       sourceReplyDeliveryMode: "message_tool_only",
       sendPolicyDenied: false,
@@ -146,6 +219,7 @@ describe("resolveStrandedReplyRecovery", () => {
 
     const recovery = resolveStrandedReplyRecovery({
       base,
+      payloads: [],
       finalText: substantiveFinal,
       sourceReplyDeliveryMode: "message_tool_only",
       sendPolicyDenied: false,

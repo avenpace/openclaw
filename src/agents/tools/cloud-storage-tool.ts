@@ -520,7 +520,10 @@ The content is uploaded as a text file. Set isPublic=true to get a shareable URL
       const params = rawParams as Record<string, unknown>;
       try {
         const filename = readToolStringParam(params, "filename", { required: true });
-        const content = readToolStringParam(params, "content", { required: true, allowEmpty: true });
+        const content = readToolStringParam(params, "content", {
+          required: true,
+          allowEmpty: true,
+        });
         const mimeType = readToolStringParam(params, "mimeType");
         const folderId = readToolStringParam(params, "folderId");
         const isPublic = params.isPublic === true;

@@ -1,4 +1,3 @@
-// Tool-call shaped text helpers detect malformed text that resembles tool calls.
 import { asOptionalRecord } from "@openclaw/normalization-core/record-coerce";
 import { normalizeOptionalString as readTrimmedString } from "@openclaw/normalization-core/string-coerce";
 
@@ -44,13 +43,7 @@ function classifyJsonValue(value: unknown): ToolCallShapedTextDetection | null {
 
   const toolCalls = record.tool_calls ?? record.toolCalls;
   if (Array.isArray(toolCalls)) {
-    for (const toolCall of toolCalls) {
-      const detection = classifyJsonValue(toolCall);
-      if (detection) {
-        return detection;
-      }
-    }
-    return { kind: "json_tool_call" };
+    return classifyJsonValue(toolCalls) ?? { kind: "json_tool_call" };
   }
 
   const functionRecord = asOptionalRecord(record.function);
@@ -82,26 +75,8 @@ function classifyJsonValue(value: unknown): ToolCallShapedTextDetection | null {
   return null;
 }
 
-function collectFencedJsonCandidates(text: string): string[] {
-  const candidates: string[] = [];
-  const fenceRe = /```(?:json|tool|tool_call|function_call)?[^\n\r]*[\r\n]([\s\S]*?)```/gi;
-  for (const match of text.matchAll(fenceRe)) {
-    const candidate = match[1]?.trim();
-    if (candidate && candidate.length <= MAX_JSON_CANDIDATE_CHARS) {
-      candidates.push(candidate);
-    }
-  }
-  return candidates;
-}
-
 function findBalancedJsonEnd(text: string, start: number): number | null {
-  const opening = text[start];
-  const closing = opening === "{" ? "}" : opening === "[" ? "]" : "";
-  if (!closing) {
-    return null;
-  }
-
-  const stack = [closing];
+  const stack = [text[start] === "{" ? "}" : "]"];
   let inString = false;
   let escaped = false;
   for (let index = start + 1; index < text.length; index += 1) {
@@ -142,9 +117,18 @@ function findBalancedJsonEnd(text: string, start: number): number | null {
   return null;
 }
 
-function collectBalancedJsonCandidates(text: string): string[] {
-  const candidates: string[] = [];
-  for (let index = 0; index < text.length && candidates.length < MAX_JSON_CANDIDATES; index += 1) {
+function* iterateJsonCandidates(text: string): Generator<string> {
+  // Fenced candidates take precedence even when balanced JSON appears earlier.
+  const fenceRe = /```(?:json|tool|tool_call|function_call)?[^\n\r]*[\r\n]([\s\S]*?)```/gi;
+  for (const match of text.matchAll(fenceRe)) {
+    const candidate = match[1]?.trim();
+    if (candidate && candidate.length <= MAX_JSON_CANDIDATE_CHARS) {
+      yield candidate;
+    }
+  }
+
+  let count = 0;
+  for (let index = 0; index < text.length && count < MAX_JSON_CANDIDATES; index += 1) {
     const ch = text[index];
     if (ch !== "{" && ch !== "[") {
       continue;
@@ -155,16 +139,15 @@ function collectBalancedJsonCandidates(text: string): string[] {
     }
     const candidate = text.slice(index, end).trim();
     if (candidate.length > 1) {
-      candidates.push(candidate);
+      count += 1;
+      yield candidate;
     }
     index = end - 1;
   }
-  return candidates;
 }
 
 function detectJsonToolCall(text: string): ToolCallShapedTextDetection | null {
-  const candidates = [...collectFencedJsonCandidates(text), ...collectBalancedJsonCandidates(text)];
-  for (const candidate of candidates) {
+  for (const candidate of iterateJsonCandidates(text)) {
     try {
       const detection = classifyJsonValue(JSON.parse(candidate));
       if (detection) {
@@ -190,13 +173,48 @@ function detectXmlToolCall(text: string): ToolCallShapedTextDetection | null {
   return { kind: "xml_tool_call", ...(toolName ? { toolName } : {}) };
 }
 
+const LEGACY_TOOL_CALL_OPEN_RE = /\[\s*TOOL_CALL\s*\]\s*{/gi;
+const LEGACY_TOOL_NAME_RE = /\btool\s*=>\s*["']([A-Za-z_][A-Za-z0-9_.:-]{0,119})["']/gi;
+const LEGACY_ARGS_RE = /\bargs\s*=>/gi;
+const LEGACY_FIELD_GAP_CHARS = 8_000;
+
+// `[TOOL_CALL] { tool => "name", args => ... }`: the leftmost opener whose first
+// `tool =>` within 8,000 characters is followed by `args =>` within another 8,000.
+// Matches of each part never overlap, so both passes only move forward.
+function findLegacyBracketedToolName(text: string): string | undefined {
+  const argsStarts = Array.from(text.matchAll(LEGACY_ARGS_RE), (match) => match.index);
+  const callable: Array<{ start: number; name: string }> = [];
+  let nextArgs = 0;
+  for (const match of text.matchAll(LEGACY_TOOL_NAME_RE)) {
+    const end = match.index + match[0].length;
+    while (nextArgs < argsStarts.length && argsStarts[nextArgs]! < end) {
+      nextArgs += 1;
+    }
+    if (nextArgs < argsStarts.length && argsStarts[nextArgs]! - end <= LEGACY_FIELD_GAP_CHARS) {
+      callable.push({ start: match.index, name: match[1]! });
+    }
+  }
+  let nextCallable = 0;
+  for (const opener of text.matchAll(LEGACY_TOOL_CALL_OPEN_RE)) {
+    const end = opener.index + opener[0].length;
+    while (nextCallable < callable.length && callable[nextCallable]!.start < end) {
+      nextCallable += 1;
+    }
+    const tool = callable[nextCallable];
+    if (!tool) {
+      return undefined;
+    }
+    if (tool.start - end <= LEGACY_FIELD_GAP_CHARS) {
+      return tool.name;
+    }
+  }
+  return undefined;
+}
+
 function detectBracketedToolCall(text: string): ToolCallShapedTextDetection | null {
-  const legacyMatch =
-    /\[\s*TOOL_CALL\s*\]\s*{[\s\S]{0,8000}?\btool\s*=>\s*["']([A-Za-z_][A-Za-z0-9_.:-]{0,119})["'][\s\S]{0,8000}?\bargs\s*=>[\s\S]*?(?:\[\s*\/\s*TOOL_CALL\s*\]|$)/i.exec(
-      text,
-    );
-  if (legacyMatch?.[1]) {
-    return { kind: "bracketed_tool_call", toolName: legacyMatch[1] };
+  const legacyToolName = findLegacyBracketedToolName(text);
+  if (legacyToolName) {
+    return { kind: "bracketed_tool_call", toolName: legacyToolName };
   }
 
   const match =
@@ -209,7 +227,7 @@ function detectBracketedToolCall(text: string): ToolCallShapedTextDetection | nu
 
 function detectReactAction(text: string): ToolCallShapedTextDetection | null {
   const match =
-    /(?:^|\n)\s*Action\s*:\s*([A-Za-z_][A-Za-z0-9_.:-]{0,119})\s*(?:\r?\n)+\s*Action Input\s*:/i.exec(
+    /(?:^|\n)[^\S\n]*Action\s*:\s*([A-Za-z_][A-Za-z0-9_.:-]{0,119})[^\S\n]*\n\s*Action Input\s*:/i.exec(
       text,
     );
   if (!match?.[1]) {

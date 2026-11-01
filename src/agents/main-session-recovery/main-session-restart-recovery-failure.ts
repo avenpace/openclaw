@@ -1,25 +1,109 @@
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
+import { stripInternalMetadataForDisplay } from "../../auto-reply/reply/display-text-sanitize.js";
 import type { InternalSessionEntry as SessionEntry } from "../../config/sessions.js";
+import { hasRestartRecoveryTerminalRun } from "../../config/sessions/restart-recovery-state.js";
 import {
   loadSessionEntry,
   type SessionTranscriptTurnExpectedState,
   type SessionTranscriptTurnLifecyclePatch,
 } from "../../config/sessions/session-accessor.js";
+import { buildRestartRecoveryExpectedState } from "../../config/sessions/session-transcript-turn-state.js";
 import { appendAssistantMessageToSessionTranscript } from "../../config/sessions/transcript.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import type { GatewayRecoveryRuntime } from "../../gateway/server-instance-runtime.types.js";
 import type { DeliveryContext } from "../../utils/delivery-context.shared.js";
+import { buildMainSessionRecoverySettlementPatch } from "./main-session-recovery-clear.js";
 import type { MainSessionRecoveryObservation } from "./main-session-recovery-state.js";
 import { commitMainSessionRecovery } from "./main-session-recovery-store.js";
-import { resolveRestartRecoveryDeliveryContext } from "./main-session-restart-dispatch.js";
+import { resolveRestartRecoveryDeliveryContext } from "./main-session-restart-recovery-delivery.js";
 import {
-  buildRestartRecoveryExpectedState,
   mainSessionRecoveryLog,
+  resolveRestartRecoveryTerminalClientRunId,
 } from "./main-session-restart-recovery-shared.js";
 
-const TOMBSTONED_SESSION_NOTICE =
-  "I couldn't continue this session after a gateway restart. " +
-  "Use /new or /reset to start a replacement session.";
+/** Publish one local interruption notice and retire the exact input without replay or delivery. */
+async function settleInterruptedRestartRecovery(
+  params: Omit<
+    Parameters<typeof tombstoneMainRestartRecoveryWithNotice>[0],
+    "cfg" | "gatewayRuntime"
+  >,
+): Promise<"settled" | "skipped" | "notice_failed"> {
+  const { entry } = params;
+  const endedAt = Date.now();
+  const capturedReply =
+    entry.pendingFinalDelivery?.kind === "replayable"
+      ? stripInternalMetadataForDisplay(entry.pendingFinalDelivery.text).trim()
+      : undefined;
+  const result = await appendAssistantMessageToSessionTranscript({
+    agentId: params.agentId,
+    sessionKey: params.sessionKey,
+    storePath: params.storePath,
+    expectedSessionId: entry.sessionId,
+    expectedLifecycleRevision: entry.lifecycleRevision ?? null,
+    expectedSessionState: buildRestartRecoveryExpectedState(entry, params.observation),
+    idempotencyKey: `main-session-restart-recovery:${entry.restartRecoveryDeliverySourceRunId ?? entry.restartRecoveryDeliveryRunId ?? entry.sessionId}:interrupted`,
+    text:
+      `This interrupted turn could not resume after the Gateway restarted: ${params.reason}. ` +
+      "Your session and transcript are preserved. Send a new authenticated message to continue." +
+      (capturedReply ? `\n\nSaved reply (delivery unconfirmed):\n${capturedReply}` : ""),
+    sessionLifecyclePatch: {
+      ...buildMainSessionRecoverySettlementPatch({
+        entry,
+        recordTerminalSource: true,
+        terminalRunId: entry.restartRecoveryDeliveryRunId,
+      }),
+      status: "interrupted",
+      pendingFinalDelivery: undefined,
+      lifecycleRunId: undefined,
+      lastRunId:
+        resolveRestartRecoveryTerminalClientRunId(entry) ??
+        entry.restartRecoveryDeliveryRunId ??
+        entry.restartRecoveryDeliverySourceRunId,
+      lastRunError: params.reason,
+      endedAt,
+      runtimeMs: Math.max(0, endedAt - (entry.startedAt ?? endedAt)),
+      updatedAt: endedAt,
+    },
+  });
+  if (result.ok) {
+    return "settled";
+  }
+  if ("code" in result && result.code === "session-rebound") {
+    return "skipped";
+  }
+  mainSessionRecoveryLog.warn(
+    `failed to settle interrupted recovery ${params.sessionKey}: ${result.reason}`,
+  );
+  return "notice_failed";
+}
+
+/** Sender loss retires one input only when no other execution or delivery custody remains. */
+export async function finishDelegatedRestartRecovery(
+  params: Parameters<typeof tombstoneMainRestartRecoveryWithNotice>[0],
+): Promise<"notice_failed" | "skipped" | "tombstoned" | "settled"> {
+  const { entry } = params;
+  if (
+    entry.pendingFinalDelivery ||
+    entry.restartRecoveryHarnessCompletion ||
+    (entry.restartRecoveryRuns ?? []).some(
+      (run) =>
+        run.runId !== entry.restartRecoveryDeliveryRunId &&
+        run.runId !== entry.restartRecoveryDeliverySourceRunId &&
+        !hasRestartRecoveryTerminalRun(entry, run.runId),
+    )
+  ) {
+    return await tombstoneMainRestartRecoveryWithNotice(params);
+  }
+  return await settleInterruptedRestartRecovery(params);
+}
+
+function buildTombstonedSessionNotice(reason: string): string {
+  return (
+    `I couldn't continue this session after a gateway restart: ${reason}. ` +
+    "Your transcript is safe. In WebChat, use Resume in new session to continue it; " +
+    "in other channels, use /new or /reset to start a replacement session."
+  );
+}
 
 function buildRestartRecoveryTombstoneNoticeKey(entry: SessionEntry): string {
   const interruptedRunId =
@@ -42,7 +126,7 @@ async function sendRestartRecoveryTombstoneNotice(params: {
       to: params.deliveryContext.to,
       accountId: params.deliveryContext.accountId,
       threadId: params.deliveryContext.threadId,
-      text: TOMBSTONED_SESSION_NOTICE,
+      text: buildTombstonedSessionNotice(params.reason),
       idempotencyKey: buildRestartRecoveryTombstoneNoticeKey(params.entry),
     });
     mainSessionRecoveryLog.info(
@@ -62,15 +146,12 @@ async function writeRestartRecoveryTombstoneNotice(params: {
   storePath: string;
   expectedSessionState: SessionTranscriptTurnExpectedState;
   sessionLifecyclePatch: SessionTranscriptTurnLifecyclePatch;
+  reason: string;
 }): Promise<"failed" | "stale" | "written"> {
   const result = await appendAssistantMessageToSessionTranscript({
-    agentId: params.agentId,
-    sessionKey: params.sessionKey,
+    ...params,
     expectedSessionId: params.entry.sessionId,
-    expectedSessionState: params.expectedSessionState,
-    sessionLifecyclePatch: params.sessionLifecyclePatch,
-    storePath: params.storePath,
-    text: TOMBSTONED_SESSION_NOTICE,
+    text: buildTombstonedSessionNotice(params.reason),
     idempotencyKey: buildRestartRecoveryTombstoneNoticeKey(params.entry),
   }).catch((error: unknown) => ({ ok: false as const, reason: String(error) }));
   if (!result.ok) {
@@ -83,31 +164,6 @@ async function writeRestartRecoveryTombstoneNotice(params: {
     : "code" in result && result.code === "session-rebound"
       ? "stale"
       : "failed";
-}
-
-async function claimMainRestartRecoveryTombstone(params: {
-  observation: MainSessionRecoveryObservation;
-  reason: string;
-  storePath: string;
-  sessionKey: string;
-}): Promise<SessionEntry | null> {
-  const claim = await commitMainSessionRecovery({
-    command: {
-      kind: "tombstone",
-      now: Date.now(),
-      observation: params.observation,
-      reason: params.reason,
-    },
-    requireWriteSuccess: true,
-    target: { sessionKey: params.sessionKey, storePath: params.storePath },
-  });
-  if (claim.transition.kind !== "tombstoned" || !claim.entry) {
-    return null;
-  }
-  mainSessionRecoveryLog.warn(
-    `tombstoned main-session restart recovery: ${params.sessionKey} (${params.reason})`,
-  );
-  return claim.entry;
 }
 
 export async function tombstoneMainRestartRecoveryWithNotice(params: {
@@ -142,14 +198,14 @@ export async function tombstoneMainRestartRecoveryWithNotice(params: {
       }
       const now = Date.now();
       const notice = await writeRestartRecoveryTombstoneNotice({
-        agentId: params.agentId,
+        ...params,
         entry,
         expectedSessionState: buildRestartRecoveryExpectedState(entry, observation),
-        sessionKey: params.sessionKey,
         sessionLifecyclePatch: {
           abortedLastRun: false,
           endedAt: now,
           lifecycleRunId: undefined,
+          lastRunId: resolveRestartRecoveryTerminalClientRunId(entry),
           mainRestartRecovery: {
             ...recoveryState,
             revision: recoveryState.revision + 1,
@@ -159,7 +215,6 @@ export async function tombstoneMainRestartRecoveryWithNotice(params: {
           status: "failed",
           updatedAt: now,
         },
-        storePath: params.storePath,
       });
       if (notice === "written") {
         return "tombstoned";
@@ -168,17 +223,17 @@ export async function tombstoneMainRestartRecoveryWithNotice(params: {
         return "notice_failed";
       }
       const current = loadSessionEntry({
+        agentId: params.agentId,
         sessionKey: params.sessionKey,
         storePath: params.storePath,
         readConsistency: "latest",
-      }) as SessionEntry | undefined;
+      });
       const state = current?.mainRestartRecovery;
       if (
         !current ||
         current.sessionId !== params.entry.sessionId ||
         state?.cycleId !== params.observation.cycleId ||
         state.tombstone ||
-        current.status !== "running" ||
         current.abortedLastRun !== true
       ) {
         return "skipped";
@@ -192,16 +247,26 @@ export async function tombstoneMainRestartRecoveryWithNotice(params: {
     }
     return "notice_failed";
   }
-  const tombstonedEntry = await claimMainRestartRecoveryTombstone(params);
-  if (!tombstonedEntry) {
+  const claim = await commitMainSessionRecovery({
+    command: {
+      kind: "tombstone",
+      now: Date.now(),
+      observation: params.observation,
+      reason: params.reason,
+    },
+    requireWriteSuccess: true,
+    target: params,
+  });
+  if (claim.transition.kind !== "tombstoned" || !claim.entry) {
     return "skipped";
   }
+  mainSessionRecoveryLog.warn(
+    `tombstoned main-session restart recovery: ${params.sessionKey} (${params.reason})`,
+  );
   await sendRestartRecoveryTombstoneNotice({
+    ...params,
     deliveryContext,
-    entry: tombstonedEntry,
-    gatewayRuntime: params.gatewayRuntime,
-    reason: params.reason,
-    sessionKey: params.sessionKey,
+    entry: claim.entry,
   });
   return "tombstoned";
 }

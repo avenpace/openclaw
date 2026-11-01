@@ -1,5 +1,6 @@
 {
   "id": "clawrouter",
+  "categories": ["models"],
   "activation": {
     "onStartup": false
   },
@@ -36,5 +37,9 @@
     "type": "object",
     "additionalProperties": false,
     "properties": {}
+  },
+  "modelCatalog": {
+    "discovery": { "clawrouter": "runtime" },
+    "runtimeAugment": true
   }
 }

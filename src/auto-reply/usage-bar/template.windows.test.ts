@@ -17,8 +17,8 @@ vi.mock("node:os", async (importOriginal) => {
 });
 
 describe.runIf(process.platform === "win32")("usage footer Windows home paths", () => {
-  afterEach(() => {
-    clearUsageBarTemplateCacheForTest();
+  afterEach(async () => {
+    await clearUsageBarTemplateCacheForTest();
     homeState.home = undefined;
   });
 
@@ -38,6 +38,7 @@ describe.runIf(process.platform === "win32")("usage footer Windows home paths", 
             usageTemplate: `~\\${fileName}`,
           },
         } as OpenClawConfig,
+        agentDir: "C:\\openclaw\\agents\\main\\agent",
         sessionRaw: "full",
         usage: { input: 12, output: 3 },
         provider: "fixture",

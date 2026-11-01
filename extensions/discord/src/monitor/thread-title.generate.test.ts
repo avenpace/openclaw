@@ -1,12 +1,14 @@
 // Discord tests cover thread title.generate plugin behavior.
-import { generateConversationLabel } from "openclaw/plugin-sdk/reply-dispatch-runtime";
-import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { EMPTY_DISCORD_TEST_CONFIG } from "../test-support/config.js";
+import { generateThreadTitle } from "./thread-title.js";
 
-vi.mock("openclaw/plugin-sdk/reply-dispatch-runtime", { spy: true });
+const generateConversationLabelMock = vi.hoisted(() => vi.fn());
 
-const generateConversationLabelMock = vi.fn<typeof generateConversationLabel>();
-let generateThreadTitle: typeof import("./thread-title.js").generateThreadTitle;
+vi.mock("openclaw/plugin-sdk/reply-dispatch-runtime", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("openclaw/plugin-sdk/reply-dispatch-runtime")>()),
+  generateConversationLabel: generateConversationLabelMock,
+}));
 
 function hasLoneSurrogate(value: string): boolean {
   for (let index = 0; index < value.length; index += 1) {
@@ -24,17 +26,9 @@ function hasLoneSurrogate(value: string): boolean {
   return false;
 }
 
-beforeAll(async () => {
-  ({ generateThreadTitle } = await import("./thread-title.js"));
-});
-
 beforeEach(() => {
-  vi.restoreAllMocks();
   generateConversationLabelMock.mockReset();
   generateConversationLabelMock.mockResolvedValue("Generated title");
-  vi.mocked(generateConversationLabel).mockImplementation((...args) =>
-    generateConversationLabelMock(...args),
-  );
 });
 
 describe("generateThreadTitle", () => {
@@ -72,7 +66,7 @@ describe("generateThreadTitle", () => {
       userMessage:
         "Channel: release-status\n\nChannel description: Deploy updates and incident notes\n\nMessage:\nSummarize deployment blockers and owner follow-ups.",
       prompt:
-        "Generate a concise Discord thread title (3-6 words). Return only the title. Use channel context when provided and avoid redundant channel-name words unless needed for clarity.",
+        "Generate a concise Discord thread title (3-6 words) in sentence case: capitalize only the first word and words that are always capitalized. Return only the title. Use channel context when provided and avoid redundant channel-name words unless needed for clarity.",
       modelRef: "openai/gpt-4.1-mini@local",
       timeoutMs: 60_000,
       maxLength: 600,

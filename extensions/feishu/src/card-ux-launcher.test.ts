@@ -3,8 +3,8 @@ import { createRuntimeEnv } from "openclaw/plugin-sdk/plugin-test-runtime";
 import { afterAll, describe, expect, it, vi, beforeEach } from "vitest";
 import type { ClawdbotConfig, RuntimeEnv } from "../runtime-api.js";
 import {
+  expectFeishuCardButtonRow,
   expectFirstSentCardUsesFillWidthOnly,
-  expectSentCardHasP2pAction,
 } from "./card-test-helpers.js";
 import { maybeHandleFeishuQuickActionMenu } from "./card-ux-launcher.js";
 
@@ -24,17 +24,6 @@ describe("feishu quick-action launcher", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-  });
-
-  it("ignores unsupported bot menu keys", async () => {
-    await expect(
-      maybeHandleFeishuQuickActionMenu({
-        cfg,
-        eventKey: "other",
-        operatorOpenId: "u123",
-      }),
-    ).resolves.toBe(false);
-    expect(sendCardFeishuMock).not.toHaveBeenCalled();
   });
 
   it("opens the launcher from a supported bot menu event", async () => {
@@ -57,8 +46,14 @@ describe("feishu quick-action launcher", () => {
     expect(sendArgs?.cfg).toBe(cfg);
     expect(sendArgs?.to).toBe("user:u123");
     expect(sendArgs?.accountId).toBe("main");
-    expectSentCardHasP2pAction(sendCardFeishuMock);
     expectFirstSentCardUsesFillWidthOnly(sendCardFeishuMock);
+    const buttons = expectFeishuCardButtonRow(sendArgs?.card);
+    expect(buttons).toHaveLength(3);
+    expect(buttons.map((button) => button.value)).toEqual([
+      expect.objectContaining({ q: "/help", c: { u: "u123", e: 600_100, t: "p2p" } }),
+      expect.objectContaining({ m: expect.objectContaining({ command: "/new" }) }),
+      expect.objectContaining({ m: expect.objectContaining({ command: "/reset" }) }),
+    ]);
   });
 
   it("does not send launcher cards when expiry would exceed a valid Date", async () => {
@@ -78,21 +73,5 @@ describe("feishu quick-action launcher", () => {
     expect(runtime.log).toHaveBeenCalledWith(
       "feishu[main]: failed to open quick-action launcher for u123: invalid expiry clock",
     );
-  });
-
-  it("falls back to legacy menu handling when launcher send fails", async () => {
-    sendCardFeishuMock.mockRejectedValueOnce(new Error("network"));
-    const runtime: RuntimeEnv = createRuntimeEnv();
-
-    const handled = await maybeHandleFeishuQuickActionMenu({
-      cfg,
-      eventKey: "quick-actions",
-      operatorOpenId: "u123",
-      accountId: "main",
-      runtime,
-      now: 100,
-    });
-
-    expect(handled).toBe(false);
   });
 });

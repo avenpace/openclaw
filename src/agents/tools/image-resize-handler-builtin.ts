@@ -10,7 +10,9 @@ import type { ImageResizeHandler, ImageResizeResult } from "./image-resize-tool.
 
 // Dynamic import of sharp to handle cases where it's not installed.
 // Type as the callable default export (the module namespace itself is not callable).
-type SharpFactory = (typeof import("sharp"))["default"];
+// oxlint-disable-next-line typescript/no-explicit-any -- sharp is an optional runtime dependency.
+type SharpFactory = (input?: unknown, options?: unknown) => any;
+const SHARP_MODULE = "sharp";
 let sharpModule: SharpFactory | null = null;
 
 async function getSharp(): Promise<SharpFactory> {
@@ -18,7 +20,7 @@ async function getSharp(): Promise<SharpFactory> {
     return sharpModule;
   }
   try {
-    sharpModule = (await import("sharp")).default;
+    sharpModule = ((await import(SHARP_MODULE)) as { default: SharpFactory }).default;
     return sharpModule;
   } catch {
     throw new Error("Sharp is not installed. Run: pnpm add sharp");

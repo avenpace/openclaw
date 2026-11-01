@@ -89,7 +89,9 @@ Check if information already exists before adding.`,
           | "add"
           | "replace"
           | "remove";
-        const target = readToolStringParam(params, "target", { required: true }) as "memory" | "user";
+        const target = readToolStringParam(params, "target", { required: true }) as
+          | "memory"
+          | "user";
         const content = readToolStringParam(params, "content");
         const oldText = readToolStringParam(params, "oldText");
 
@@ -138,7 +140,9 @@ Returns the raw content of the specified memory store.`,
     execute: async (_toolCallId, rawParams) => {
       const params = rawParams as Record<string, unknown>;
       try {
-        const target = readToolStringParam(params, "target", { required: true }) as "memory" | "user";
+        const target = readToolStringParam(params, "target", { required: true }) as
+          | "memory"
+          | "user";
         const content = await handler.getMemory(target);
 
         return jsonResult({

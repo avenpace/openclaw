@@ -16,9 +16,7 @@ export type InstagramHandler = {
   igReply: (postUrl: string, comment: string) => Promise<{ ok: boolean; message: string }>;
   igLike: (postUrl: string) => Promise<{ ok: boolean; message: string }>;
   igFollow: (username: string) => Promise<{ ok: boolean; message: string }>;
-  igProfile: (
-    username?: string,
-  ) => Promise<{
+  igProfile: (username?: string) => Promise<{
     ok: boolean;
     followers?: number;
     following?: number;

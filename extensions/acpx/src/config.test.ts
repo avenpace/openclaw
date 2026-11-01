@@ -2,13 +2,16 @@
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { buildPluginConfigSchema } from "openclaw/plugin-sdk/plugin-entry";
-import { describe, expect, it } from "vitest";
+import { useAutoCleanupTempDirTracker } from "openclaw/plugin-sdk/test-env";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { AcpxPluginConfigSchema } from "./config-schema.js";
 import { resolveAcpxPluginConfig, resolveAcpxPluginRoot } from "./config.js";
 
 const requireFromTest = createRequire(import.meta.url);
 const TSX_IMPORT = requireFromTest.resolve("tsx");
+const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 
 function expectedMcpServerArgs(params: { sourceEntry: string; distEntry: string }): string[] {
   const distEntry = path.resolve(params.distEntry);
@@ -19,31 +22,33 @@ function expectedMcpServerArgs(params: { sourceEntry: string; distEntry: string 
 }
 
 describe("embedded acpx plugin config", () => {
-  it("resolves workspace stateDir and cwd by default", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+  });
+
+  it("resolves state independently of the session working directory", () => {
     const workspaceDir = path.resolve("/tmp/openclaw-acpx");
+    const stateDir = path.resolve("/tmp/openclaw-state");
+    vi.stubEnv("OPENCLAW_STATE_DIR", stateDir);
     const resolved = resolveAcpxPluginConfig({
       rawConfig: undefined,
       workspaceDir,
     });
 
     expect(resolved.cwd).toBe(workspaceDir);
-    expect(resolved.stateDir).toBe(path.join(workspaceDir, "state"));
+    expect(resolved.stateDir).toBe(path.join(stateDir, "acpx"));
     expect(resolved.permissionMode).toBe("approve-reads");
     expect(resolved.nonInteractivePermissions).toBe("fail");
     expect(resolved.timeoutSeconds).toBe(120);
     expect(resolved.probeAgent).toBeUndefined();
     expect(resolved.agents).toStrictEqual({});
-  });
-
-  it("keeps explicit timeoutSeconds config", () => {
-    const resolved = resolveAcpxPluginConfig({
-      rawConfig: {
-        timeoutSeconds: 300,
-      },
-      workspaceDir: "/tmp/openclaw-acpx",
-    });
-
-    expect(resolved.timeoutSeconds).toBe(300);
+    expect(
+      resolveAcpxPluginConfig({ rawConfig: { stateDir: workspaceDir }, stateDir }).stateDir,
+    ).toBe(workspaceDir);
+    expect(resolveAcpxPluginConfig({ rawConfig: {}, stateDir: workspaceDir }).stateDir).toBe(
+      path.join(workspaceDir, "acpx"),
+    );
   });
 
   it("accepts agent command overrides", () => {
@@ -58,35 +63,47 @@ describe("embedded acpx plugin config", () => {
     });
 
     expect(resolved.agents).toEqual({
-      claude: "claude --acp",
-      codex: "codex custom-acp",
+      claude: ["claude", "--acp"],
+      codex: ["codex", "custom-acp"],
     });
   });
 
-  it("combines agent command with args array", () => {
-    const resolved = resolveAcpxPluginConfig({
-      rawConfig: {
-        agents: {
-          claude: {
-            command: "node",
-            args: ["/path/to/adapter.mjs", "--verbose"],
-          },
-          codex: {
-            command: "codex-acp",
-            args: ["--model", "gpt-5"],
-          },
-        },
-      },
+  it.each([
+    {
+      platform: "win32",
+      command: String.raw`.\agent.exe --stdio`,
+      expected: [String.raw`.\agent.exe`, "--stdio"],
+    },
+    {
+      platform: "win32",
+      command: String.raw`node C:\tools\agent.js`,
+      expected: ["node", String.raw`C:\tools\agent.js`],
+    },
+    {
+      platform: "win32",
+      command: String.raw`"\\server\share\agent.exe" "" "C:\work dir\\"`,
+      expected: [String.raw`\\server\share\agent.exe`, "", "C:\\work dir\\"],
+    },
+    {
+      platform: "win32",
+      command: String.raw`node "say \"hello\""`,
+      expected: ["node", 'say "hello"'],
+    },
+    {
+      platform: "linux",
+      command: String.raw`node ./some\ file.js ""`,
+      expected: ["node", "./some file.js", ""],
+    },
+  ] as const)("preserves $platform command syntax: $command", ({ platform, command, expected }) => {
+    vi.spyOn(process, "platform", "get").mockReturnValue(platform);
+    const config = resolveAcpxPluginConfig({
+      rawConfig: { agents: { fixture: { command, args: ["suffix"] } } },
       workspaceDir: "/tmp/openclaw-acpx",
     });
-
-    expect(resolved.agents).toEqual({
-      claude: "node /path/to/adapter.mjs --verbose",
-      codex: "codex-acp --model gpt-5",
-    });
+    expect(config.agents.fixture).toEqual([...expected, "suffix"]);
   });
 
-  it("quotes agent args that need to survive command-line parsing as one token", () => {
+  it("preserves structured agent args without shell quoting", () => {
     const resolved = resolveAcpxPluginConfig({
       rawConfig: {
         agents: {
@@ -100,23 +117,17 @@ describe("embedded acpx plugin config", () => {
     });
 
     expect(resolved.agents).toEqual({
-      custom: "node '/tmp/My Adapter.mjs' '--flag=value with spaces' 'owner'\"'\"'s-choice'",
+      custom: ["node", "/tmp/My Adapter.mjs", "--flag=value with spaces", "owner's-choice"],
     });
   });
 
-  it("handles agent command without args (backward compat)", () => {
-    const resolved = resolveAcpxPluginConfig({
-      rawConfig: {
-        agents: {
-          simple: { command: "simple-acp" },
-        },
-      },
-      workspaceDir: "/tmp/openclaw-acpx",
-    });
-
-    expect(resolved.agents).toEqual({
-      simple: "simple-acp",
-    });
+  it("rejects incomplete command quoting before creating launch argv", () => {
+    expect(() =>
+      resolveAcpxPluginConfig({
+        rawConfig: { agents: { custom: { command: "node 'unfinished argument" } } },
+        workspaceDir: "/tmp/openclaw-acpx",
+      }),
+    ).toThrow("unterminated quote");
   });
 
   it("carries an explicit probeAgent through to the resolved plugin config, trimmed", () => {
@@ -175,6 +186,47 @@ describe("embedded acpx plugin config", () => {
         distEntry: "dist/mcp/openclaw-tools-serve.js",
       }),
     });
+  });
+
+  it("launches managed bridges from the host package when acpx is an external package", () => {
+    const tmp = fs.realpathSync(tempDirs.make("openclaw-acpx-external-"));
+    const hostRoot = path.join(tmp, "lib", "node_modules", "openclaw");
+    fs.mkdirSync(path.join(hostRoot, "dist", "mcp"), { recursive: true });
+    fs.writeFileSync(path.join(hostRoot, "package.json"), JSON.stringify({ name: "openclaw" }));
+    fs.writeFileSync(path.join(hostRoot, "openclaw.mjs"), "");
+    fs.writeFileSync(path.join(hostRoot, "dist", "mcp", "plugin-tools-serve.js"), "");
+    fs.writeFileSync(path.join(hostRoot, "dist", "mcp", "openclaw-tools-serve.js"), "");
+    fs.mkdirSync(path.join(tmp, "bin"));
+    fs.symlinkSync(path.join(hostRoot, "openclaw.mjs"), path.join(tmp, "bin", "openclaw"));
+    const pluginRoot = path.join(tmp, "captures", "package-0", "node_modules", "@openclaw", "acpx");
+    fs.mkdirSync(path.join(pluginRoot, "dist"), { recursive: true });
+    fs.writeFileSync(
+      path.join(pluginRoot, "package.json"),
+      JSON.stringify({ name: "@openclaw/acpx" }),
+    );
+    fs.writeFileSync(path.join(pluginRoot, "openclaw.plugin.json"), "{}");
+    const originalArgv = process.argv;
+    process.argv = [process.execPath, path.join(tmp, "bin", "openclaw"), "gateway"];
+    try {
+      const resolved = resolveAcpxPluginConfig({
+        rawConfig: { pluginToolsMcpBridge: true, openClawToolsMcpBridge: true },
+        workspaceDir: "/tmp/openclaw-acpx",
+        moduleUrl: pathToFileURL(path.join(pluginRoot, "dist", "config.js")).href,
+      });
+
+      expect(resolved.mcpServers).toEqual({
+        "openclaw-plugin-tools": {
+          command: process.execPath,
+          args: [path.join(hostRoot, "dist", "mcp", "plugin-tools-serve.js")],
+        },
+        "openclaw-tools": {
+          command: process.execPath,
+          args: [path.join(hostRoot, "dist", "mcp", "openclaw-tools-serve.js")],
+        },
+      });
+    } finally {
+      process.argv = originalArgv;
+    }
   });
 
   it("resolves the plugin root from shared dist chunk paths", () => {

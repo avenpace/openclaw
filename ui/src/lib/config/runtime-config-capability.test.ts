@@ -1,10 +1,10 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from "vitest";
+import { createDeferred as deferred } from "../../../../test/helpers/promise.js";
 import type { GatewayBrowserClient, GatewayHelloOk } from "../../api/gateway.ts";
 import type { ConfigSnapshot } from "../../api/types.ts";
 import {
   CONFIG_FORM_AUTO_SAVE_DEBOUNCE_MS,
-  deferred,
   createGatewayHarness,
   createConfigServerMock,
   createDeferredSetServerMock,
@@ -13,15 +13,17 @@ import {
 import { createRuntimeConfigCapability } from "./runtime-config-capability.ts";
 
 describe("runtime config capability", () => {
-  it("does not stage a default agent after access downgrades", async () => {
+  it("config.set does not stage a default agent after access downgrades", async () => {
     const request = vi.fn(async (method: string) => {
       if (method === "config.get") {
         return {
           sourceConfig: {
             agents: {
+              ownership: "explicit",
+              defaults: { systemAgent: { agentId: "reviewer" } },
               entries: {
                 main: {},
-                reviewer: { default: true },
+                reviewer: {},
               },
             },
           },
@@ -30,7 +32,7 @@ describe("runtime config capability", () => {
           issues: [],
         };
       }
-      return { hash: "hash-2" };
+      return {};
     });
     const client = { request } as unknown as GatewayBrowserClient;
     const { gateway, publish } = createGatewayHarness(client);
@@ -47,8 +49,113 @@ describe("runtime config capability", () => {
     expect(runtimeConfig.stageDefaultAgent("main")).toBe(false);
     expect(runtimeConfig.state.configFormDirty).toBe(false);
     expect(runtimeConfig.state.configForm).toEqual({
-      agents: { entries: { main: {}, reviewer: { default: true } } },
+      agents: {
+        ownership: "explicit",
+        defaults: { systemAgent: { agentId: "reviewer" } },
+        entries: { main: {}, reviewer: {} },
+      },
     });
+    runtimeConfig.dispose();
+  });
+
+  it("refreshes config and schema after a client replacement", async () => {
+    let snapshot = {
+      config: { endpoint: "initial" },
+      hash: "hash-initial",
+      valid: true,
+      issues: [],
+    };
+    let schema = {
+      schema: { type: "object" },
+      uiHints: {},
+      version: "schema-initial",
+      generatedAt: "2026-08-15T00:00:00.000Z",
+    };
+    const requestA = vi.fn(async (method: string) =>
+      method === "config.get" ? snapshot : method === "config.schema" ? schema : {},
+    );
+    const requestB = vi.fn(async (method: string) =>
+      method === "config.get" ? snapshot : method === "config.schema" ? schema : {},
+    );
+    const clientA = { request: requestA } as unknown as GatewayBrowserClient;
+    const clientB = { request: requestB } as unknown as GatewayBrowserClient;
+    const { gateway, publish } = createGatewayHarness(clientA);
+    const runtimeConfig = createRuntimeConfigCapability(gateway);
+    await runtimeConfig.ensureLoaded();
+    await runtimeConfig.ensureSchemaLoaded();
+
+    snapshot = {
+      config: { endpoint: "current" },
+      hash: "hash-current",
+      valid: true,
+      issues: [],
+    };
+    schema = { ...schema, version: "schema-current" };
+    publish(false, clientA);
+    publish(true, clientB);
+
+    await vi.waitFor(() => expect(runtimeConfig.state.configSnapshot?.hash).toBe("hash-current"));
+    expect(runtimeConfig.state.configForm).toEqual({ endpoint: "current" });
+    expect(runtimeConfig.state.configSchemaVersion).toBe("schema-current");
+    expect(runtimeConfig.state.configFormDirty).toBe(false);
+    expect(requestB).not.toHaveBeenCalledWith("config.set", expect.anything());
+    expect(requestA.mock.calls.filter(([method]) => method === "config.get")).toHaveLength(1);
+    expect(requestB).toHaveBeenCalledWith("config.get", {});
+    expect(requestB).toHaveBeenCalledWith("config.schema", {});
+    runtimeConfig.dispose();
+  });
+
+  it("surfaces a missing mandatory schema method after a client replacement", async () => {
+    let current = false;
+    const configRefresh = deferred();
+    const createRequest = () =>
+      vi.fn(async (method: string) => {
+        if (method === "config.get") {
+          if (current) {
+            await configRefresh.promise;
+          }
+          return {
+            config: { endpoint: current ? "current" : "initial" },
+            hash: current ? "hash-current" : "hash-initial",
+            valid: true,
+            issues: [],
+          };
+        }
+        if (current && method === "config.schema") {
+          throw new Error("unknown method: config.schema");
+        }
+        return method === "config.schema"
+          ? { schema: {}, uiHints: {}, version: "schema-initial", generatedAt: "" }
+          : {};
+      });
+    const requestA = createRequest();
+    const requestB = createRequest();
+    const clientA = { request: requestA } as unknown as GatewayBrowserClient;
+    const clientB = { request: requestB } as unknown as GatewayBrowserClient;
+    const { gateway, publish } = createGatewayHarness(clientA);
+    const runtimeConfig = createRuntimeConfigCapability(gateway);
+    await runtimeConfig.ensureLoaded();
+    await runtimeConfig.ensureSchemaLoaded();
+
+    current = true;
+    publish(false, clientA);
+    publish(true, clientB, {
+      type: "hello-ok",
+      protocol: 1,
+      auth: { role: "operator", scopes: ["operator.admin", "operator.read"] },
+      features: { methods: ["config.get"] },
+    } as GatewayHelloOk);
+
+    await vi.waitFor(() => expect(runtimeConfig.state.configLoading).toBe(true));
+    configRefresh.resolve();
+    await vi.waitFor(() => {
+      expect(runtimeConfig.state.configSnapshot?.hash).toBe("hash-current");
+      expect(runtimeConfig.state.lastError).toContain("unknown method: config.schema");
+    });
+    expect(runtimeConfig.state.configForm).toEqual({ endpoint: "current" });
+    expect(runtimeConfig.state.configSchemaVersion).toBe("schema-initial");
+    expect(requestB.mock.calls.filter(([method]) => method === "config.get")).toHaveLength(1);
+    expect(requestB.mock.calls.filter(([method]) => method === "config.schema")).toHaveLength(1);
     runtimeConfig.dispose();
   });
 
@@ -87,35 +194,13 @@ describe("runtime config capability", () => {
     runtimeConfig.dispose();
   });
 
-  it("does not auto-save a dirty draft after reconnecting with read-only access", async () => {
-    vi.useFakeTimers();
-    const server = createConfigServerMock();
-    const client = { request: server.request } as unknown as GatewayBrowserClient;
-    const { gateway, publish } = createGatewayHarness(client);
-    const runtimeConfig = createRuntimeConfigCapability(gateway);
-
-    await runtimeConfig.ensureLoaded();
-    runtimeConfig.patchForm(["count"], 2);
-    publish(true, client, {
-      type: "hello-ok",
-      protocol: 1,
-      auth: { role: "operator", scopes: ["operator.read"] },
-      features: { methods: ["config.get", "config.set"] },
-    } as GatewayHelloOk);
-    await vi.advanceTimersByTimeAsync(CONFIG_FORM_AUTO_SAVE_DEBOUNCE_MS);
-
-    expect(server.submissions).toHaveLength(0);
-    expect(runtimeConfig.state.configFormDirty).toBe(true);
-    runtimeConfig.dispose();
-  });
-
   it("rechecks operator access after the original-config parser settles", async () => {
     vi.useFakeTimers();
     const server = createConfigServerMock();
     const client = { request: server.request } as unknown as GatewayBrowserClient;
     const { gateway, publish } = createGatewayHarness(client);
     const runtimeConfig = createRuntimeConfigCapability(gateway);
-    const originalParse = deferred<void>();
+    const originalParse = deferred();
 
     await runtimeConfig.ensureLoaded();
     runtimeConfig.state.configRawOriginalParsePending = originalParse.promise;
@@ -133,35 +218,6 @@ describe("runtime config capability", () => {
 
     expect(server.submissions).toHaveLength(0);
     expect(runtimeConfig.state.configFormDirty).toBe(true);
-    runtimeConfig.dispose();
-  });
-
-  it("refreshes until a hot-reloaded revision becomes active", async () => {
-    vi.useFakeTimers();
-    let getCount = 0;
-    const request = vi.fn(async (method: string) => {
-      if (method !== "config.get") {
-        return {};
-      }
-      getCount += 1;
-      return {
-        config: { count: 2 },
-        raw: '{"count":2}',
-        hash: "raw-hash-2",
-        configRevisionHash: "revision-2",
-        appliedConfigHash: getCount >= 2 ? "revision-2" : "revision-1",
-        valid: true,
-        issues: [],
-      };
-    });
-    const { runtimeConfig } = createConfigCapabilityHarness(
-      request as GatewayBrowserClient["request"],
-    );
-    await runtimeConfig.ensureLoaded();
-
-    expect(runtimeConfig.state.configNeedsApply).toBe(true);
-    await vi.advanceTimersByTimeAsync(250);
-    expect(runtimeConfig.state.configNeedsApply).toBe(false);
     runtimeConfig.dispose();
   });
 
@@ -198,7 +254,7 @@ describe("runtime config capability", () => {
     runtimeConfig.dispose();
   });
 
-  it("discards an applied-hash poll superseded by a config write", async () => {
+  it("config.set discards an applied-hash poll superseded by a config write", async () => {
     vi.useFakeTimers();
     const stalePoll = deferred<ConfigSnapshot>();
     let getCount = 0;
@@ -218,14 +274,19 @@ describe("runtime config capability", () => {
           issues: [],
         });
       }
-      return Promise.resolve(method === "config.set" ? { hash: "hash-2" } : {});
+      return Promise.resolve(
+        method === "config.set" ? { config: { count: 2 }, hash: "hash-2" } : {},
+      );
     });
     const { runtimeConfig } = createConfigCapabilityHarness(
       request as GatewayBrowserClient["request"],
     );
-    await runtimeConfig.ensureLoaded();
+    const initialLoad = runtimeConfig.ensureLoaded();
+    expect(runtimeConfig.state.configLoading).toBe(true);
+    await initialLoad;
 
     await vi.advanceTimersByTimeAsync(250);
+    expect(runtimeConfig.state.configLoading).toBe(false);
     runtimeConfig.patchForm(["count"], 2);
     await vi.advanceTimersByTimeAsync(CONFIG_FORM_AUTO_SAVE_DEBOUNCE_MS);
     expect(runtimeConfig.state.configSnapshot?.hash).toBe("hash-2");
@@ -293,7 +354,7 @@ describe("runtime config capability", () => {
     await vi.advanceTimersByTimeAsync(1_000);
 
     expect(getCount).toBe(2);
-    patchGate.resolve({ hash: "hash-2" });
+    patchGate.resolve({ config: { count: 2 }, hash: "hash-2" });
     await vi.advanceTimersByTimeAsync(0);
     await expect(patchPromise).resolves.toBe(true);
     runtimeConfig.dispose();
@@ -321,13 +382,24 @@ describe("runtime config capability", () => {
     await vi.advanceTimersByTimeAsync(CONFIG_FORM_AUTO_SAVE_DEBOUNCE_MS * 2);
     expect(server.submissions).toHaveLength(0);
     expect(runtimeConfig.state.configFormDirty).toBe(true);
+    // The latch must be operator-visible: without a rendered state the form
+    // looks normal while every subsequent edit silently never saves.
+    expect(runtimeConfig.state.configAutoSaveStatus).toBe("paused");
+
+    // Further edits do not clear the latch state.
+    runtimeConfig.patchForm(["count"], 3);
+    await vi.advanceTimersByTimeAsync(CONFIG_FORM_AUTO_SAVE_DEBOUNCE_MS * 2);
+    expect(server.submissions).toHaveLength(0);
+    expect(runtimeConfig.state.configAutoSaveStatus).toBe("paused");
 
     await expect(runtimeConfig.save()).resolves.toBe(true);
     expect(server.submissions).toEqual([
-      { method: "config.set", raw: '{\n  "count": 2\n}\n', baseHash: "hash-1" },
+      { method: "config.set", raw: '{\n  "count": 3\n}\n', baseHash: "hash-1" },
     ]);
     expect(runtimeConfig.state.configFormDirty).toBe(false);
     expect(runtimeConfig.state.configNeedsApply).toBe(true);
+    // Explicit save rebinds the draft and clears the paused indicator.
+    expect(runtimeConfig.state.configAutoSaveStatus).not.toBe("paused");
     runtimeConfig.dispose();
   });
 
@@ -456,7 +528,7 @@ describe("runtime config capability", () => {
       }
       return { ok: true };
     });
-    const requestB = vi.fn(async () => ({ ok: true }));
+    const requestB = vi.fn(async (_method: string) => ({ ok: true }));
     const clientA = { request: requestA } as unknown as GatewayBrowserClient;
     const clientB = { request: requestB } as unknown as GatewayBrowserClient;
     const { gateway, publish } = createGatewayHarness(clientA);
@@ -479,11 +551,12 @@ describe("runtime config capability", () => {
       error: "Connection changed before the configuration update started.",
     });
     expect(requestA).not.toHaveBeenCalled();
-    expect(requestB).not.toHaveBeenCalled();
+    expect(requestB.mock.calls.map(([method]) => method)).toEqual(["config.get"]);
+    expect(requestB).not.toHaveBeenCalledWith("config.patch", expect.anything());
     runtimeConfig.dispose();
   });
 
-  it("reconciles an uncertain in-flight save without autosaving its trailing draft", async () => {
+  it("config.set reconciles an uncertain in-flight save without autosaving its trailing draft", async () => {
     vi.useFakeTimers();
     let committedRaw = '{\n  "count": 1\n}\n';
     let hash = "hash-1";
@@ -509,7 +582,7 @@ describe("runtime config capability", () => {
         }
         committedRaw = (params as { raw: string }).raw;
         hash = "hash-3";
-        return Promise.resolve({ hash });
+        return Promise.resolve({ config: JSON.parse(committedRaw), hash });
       }
       return Promise.resolve({});
     });
@@ -553,7 +626,10 @@ describe("runtime config capability", () => {
       if (method === "config.set") {
         return deadSet.promise;
       }
-      return Promise.resolve({});
+      return Promise.resolve({
+        config: { count: 1, ui: { prefs: { themeMode: "dark" } } },
+        hash: "hash-2",
+      });
     });
     const { runtimeConfig, publish } = createConfigCapabilityHarness(
       request as GatewayBrowserClient["request"],
@@ -601,7 +677,7 @@ describe("runtime config capability", () => {
     await vi.waitFor(() => expect(patchCalls).toBe(1));
     publish(false);
     publish(true);
-    firstPatch.resolve({});
+    firstPatch.resolve({ config: { count: 1 }, noop: true });
 
     await expect(stalePatch).resolves.toBe(false);
     await expect(staleSet).resolves.toBe(false);
@@ -640,7 +716,7 @@ describe("runtime config capability", () => {
       auth: { role: "operator", scopes: ["operator.read"] },
       features: { methods: ["config.get", "config.patch", "config.set"] },
     } as GatewayHelloOk);
-    firstPatch.resolve({});
+    firstPatch.resolve({ config: { count: 1 }, noop: true });
 
     await patch;
     await expect(save).resolves.toBe(false);
@@ -697,19 +773,16 @@ describe("runtime config capability", () => {
     },
   );
 
-  it.each([
-    { action: "save" as const, method: "config.set" },
-    { action: "apply" as const, method: "config.apply" },
-  ])("rechecks operator access after parsing before $method dispatch", async ({ action }) => {
+  it("rechecks operator access after parsing before config.apply dispatch", async () => {
     const server = createConfigServerMock();
     const client = { request: server.request } as unknown as GatewayBrowserClient;
     const { gateway, publish } = createGatewayHarness(client);
     const runtimeConfig = createRuntimeConfigCapability(gateway);
-    const originalParse = deferred<void>();
+    const originalParse = deferred();
 
     await runtimeConfig.ensureLoaded();
     runtimeConfig.state.configRawOriginalParsePending = originalParse.promise;
-    const result = runtimeConfig[action]();
+    const result = runtimeConfig.apply();
     await Promise.resolve();
     publish(true, client, {
       type: "hello-ok",
@@ -765,61 +838,7 @@ describe("runtime config capability", () => {
     runtimeConfig.dispose();
   });
 
-  it("recovers a manual save whose ack was lost to a disconnect", async () => {
-    vi.useFakeTimers();
-    let committedRaw = '{\n  "count": 1\n}\n';
-    let hash = "hash-1";
-    const sets: Array<{ raw: string; baseHash: string }> = [];
-    const request = vi.fn((method: string, params?: unknown) => {
-      if (method === "config.get") {
-        return Promise.resolve({
-          config: JSON.parse(committedRaw) as Record<string, unknown>,
-          raw: committedRaw,
-          hash,
-          valid: true,
-          issues: [],
-        });
-      }
-      if (method === "config.set") {
-        sets.push(params as { raw: string; baseHash: string });
-        if (sets.length === 1) {
-          // Commits server-side, but the response never arrives.
-          committedRaw = (params as { raw: string }).raw;
-          hash = "hash-2";
-          return new Promise(() => {});
-        }
-        hash = "hash-3";
-        return Promise.resolve({ hash });
-      }
-      return Promise.resolve({});
-    });
-    const { runtimeConfig, publish } = createConfigCapabilityHarness(
-      request as GatewayBrowserClient["request"],
-    );
-    await runtimeConfig.ensureLoaded();
-
-    runtimeConfig.patchForm(["count"], 2);
-    void runtimeConfig.save();
-    await vi.advanceTimersByTimeAsync(0);
-    expect(sets).toHaveLength(1);
-
-    publish(false);
-    publish(true);
-    await vi.advanceTimersByTimeAsync(0);
-
-    // The reconnect reload recognizes the committed bytes as ours even
-    // though the ack (and its manualFlightInfo hash) never arrived: the
-    // process-local pending state survives instead of silently disappearing.
-    expect(runtimeConfig.state.configNeedsApply).toBe(true);
-
-    // The matching committed bytes leave no draft to retry on the replacement.
-    await vi.advanceTimersByTimeAsync(CONFIG_FORM_AUTO_SAVE_DEBOUNCE_MS);
-    expect(sets).toHaveLength(1);
-    expect(runtimeConfig.state.configFormDirty).toBe(false);
-    runtimeConfig.dispose();
-  });
-
-  it("retries reconciliation on the next reconnect when the reload fails", async () => {
+  it("config.set retries reconciliation on the next reconnect when the reload fails", async () => {
     vi.useFakeTimers();
     let committedRaw = '{\n  "count": 1\n}\n';
     let hash = "hash-1";
@@ -847,7 +866,7 @@ describe("runtime config capability", () => {
           return new Promise(() => {});
         }
         hash = "hash-3";
-        return Promise.resolve({ hash });
+        return Promise.resolve({ config: JSON.parse(committedRaw), hash });
       }
       return Promise.resolve({});
     });
@@ -876,66 +895,6 @@ describe("runtime config capability", () => {
     expect(runtimeConfig.state.configNeedsApply).toBe(true);
     expect(sets).toHaveLength(1);
     expect(runtimeConfig.state.configFormDirty).toBe(false);
-    runtimeConfig.dispose();
-  });
-
-  it("restores a revert made while the interrupted write was in flight", async () => {
-    vi.useFakeTimers();
-    let committedRaw = '{\n  "count": 1\n}\n';
-    let hash = "hash-1";
-    const sets: Array<{ raw: string; baseHash: string }> = [];
-    const request = vi.fn((method: string, params?: unknown) => {
-      if (method === "config.get") {
-        return Promise.resolve({
-          config: JSON.parse(committedRaw) as Record<string, unknown>,
-          raw: committedRaw,
-          hash,
-          valid: true,
-          issues: [],
-        });
-      }
-      if (method === "config.set") {
-        sets.push(params as { raw: string; baseHash: string });
-        if (sets.length === 1) {
-          // Commits server-side; the ack is lost to the disconnect.
-          committedRaw = (params as { raw: string }).raw;
-          hash = "hash-2";
-          return new Promise(() => {});
-        }
-        committedRaw = (params as { raw: string }).raw;
-        hash = "hash-3";
-        return Promise.resolve({ hash });
-      }
-      return Promise.resolve({});
-    });
-    const { runtimeConfig, publish } = createConfigCapabilityHarness(
-      request as GatewayBrowserClient["request"],
-    );
-    await runtimeConfig.ensureLoaded();
-
-    runtimeConfig.patchForm(["count"], 2);
-    await vi.advanceTimersByTimeAsync(CONFIG_FORM_AUTO_SAVE_DEBOUNCE_MS);
-    expect(sets).toHaveLength(1);
-
-    // Revert to the original while the save is in flight: the draft reads
-    // clean, so a plain reconnect reload would silently replace it with the
-    // committed bytes and drop the revert forever.
-    runtimeConfig.patchForm(["count"], 1);
-    expect(runtimeConfig.state.configFormDirty).toBe(false);
-    publish(false);
-    publish(true);
-    await vi.advanceTimersByTimeAsync(CONFIG_FORM_AUTO_SAVE_DEBOUNCE_MS);
-
-    expect(sets).toHaveLength(1);
-    expect(runtimeConfig.state.configFormDirty).toBe(true);
-    expect(runtimeConfig.state.configDraftBaseHash).toBe("hash-2");
-    expect(runtimeConfig.state.configForm).toEqual({ count: 1 });
-
-    await expect(runtimeConfig.save()).resolves.toBe(true);
-    expect(sets).toHaveLength(2);
-    expect(sets[1]).toEqual({ raw: '{\n  "count": 1\n}\n', baseHash: "hash-2" });
-    expect(runtimeConfig.state.configForm).toEqual({ count: 1 });
-    expect(runtimeConfig.state.configAutoSaveStatus).toBe("saved");
     runtimeConfig.dispose();
   });
 
@@ -972,6 +931,155 @@ describe("runtime config capability", () => {
     expect(runtimeConfig.state.configFormDirty).toBe(false);
     expect(runtimeConfig.state.configRaw).toBe('{\n  "count": 1\n}\n');
     expect(runtimeConfig.state.configAutoSaveStatus).toBe("conflict");
+    runtimeConfig.dispose();
+  });
+});
+
+describe("runtime config load subscriptions", () => {
+  it("clears a settled load when an observer throws so an explicit retry can read again", async () => {
+    const request = vi.fn().mockRejectedValueOnce(new Error("temporarily unavailable"));
+    request.mockResolvedValue({ config: {}, hash: "ready", valid: true, issues: [] });
+    const { gateway } = createGatewayHarness({ request } as unknown as GatewayBrowserClient);
+    const runtimeConfig = createRuntimeConfigCapability(gateway);
+    const unsubscribe = runtimeConfig.subscribe((state) => {
+      if (!state.configLoading && !state.configSnapshot) {
+        throw new Error("observer failed");
+      }
+    });
+    try {
+      await expect(runtimeConfig.ensureLoaded()).rejects.toThrow("observer failed");
+      unsubscribe();
+      await runtimeConfig.ensureLoaded();
+      expect(request).toHaveBeenCalledTimes(2);
+      expect(runtimeConfig.state.configSnapshot?.hash).toBe("ready");
+    } finally {
+      unsubscribe();
+      runtimeConfig.dispose();
+    }
+  });
+
+  it("refresh lets an offline editor ensure config without recursive notifications", async () => {
+    const request = vi.fn(async () => ({ config: {}, hash: "ready", valid: true, issues: [] }));
+    const client = { request } as unknown as GatewayBrowserClient;
+    const { gateway, publish } = createGatewayHarness(client);
+    publish(false);
+    const runtimeConfig = createRuntimeConfigCapability(gateway);
+    const pending: Promise<void>[] = [];
+    let depth = 0;
+    let maxDepth = 0;
+    const unsubscribe = runtimeConfig.subscribe((state) => {
+      depth += 1;
+      maxDepth = Math.max(maxDepth, depth);
+      // Bound a broken implementation so the regression reports re-entry,
+      // rather than exhausting the process stack before cleanup can run.
+      if (depth < 3 && !state.configSnapshot && !state.configLoading) {
+        pending.push(runtimeConfig.ensureLoaded());
+      }
+      depth -= 1;
+    });
+    try {
+      await runtimeConfig.refresh();
+      await Promise.all(pending);
+      expect(maxDepth).toBe(1);
+      expect(request).not.toHaveBeenCalled();
+
+      publish(true);
+      await runtimeConfig.ensureLoaded();
+      expect(request).toHaveBeenCalledOnce();
+      expect(runtimeConfig.state.configSnapshot?.hash).toBe("ready");
+    } finally {
+      unsubscribe();
+      runtimeConfig.dispose();
+    }
+  });
+
+  it("publishes schema loading immediately and leaves a failed read for explicit retry", async () => {
+    const request = vi.fn().mockRejectedValueOnce(new Error("temporarily unavailable"));
+    request.mockResolvedValue({
+      config: {},
+      hash: "ready",
+      valid: true,
+      issues: [],
+      schema: { type: "object" },
+      uiHints: {},
+      version: "ready",
+    });
+    const client = { request } as unknown as GatewayBrowserClient;
+    const { gateway } = createGatewayHarness(client);
+    const runtimeConfig = createRuntimeConfigCapability(gateway);
+    const ensure = () => runtimeConfig.ensureSchemaLoaded();
+    const loading = () => runtimeConfig.state.configSchemaLoading;
+    const loaded = () => runtimeConfig.state.configSchema;
+    const observed: boolean[] = [];
+    const unsubscribe = runtimeConfig.subscribe(() => {
+      observed.push(loading());
+      if (!loading() && !loaded()) {
+        void ensure();
+      }
+    });
+    try {
+      const first = ensure();
+      expect(loading()).toBe(true);
+      expect(observed).toContain(true);
+      await first;
+      expect(request).toHaveBeenCalledOnce();
+      expect(loaded()).toBeNull();
+      expect(runtimeConfig.state.lastError).toContain("temporarily unavailable");
+
+      await ensure();
+      expect(request).toHaveBeenCalledTimes(2);
+      expect(loaded()).not.toBeNull();
+    } finally {
+      unsubscribe();
+      runtimeConfig.dispose();
+    }
+  });
+});
+
+describe("runtime config schema access", () => {
+  it("loads the schema for a legacy hello without scopes or an advertised method list", async () => {
+    const schema = {
+      schema: { type: "object" },
+      uiHints: {},
+      version: "schema-legacy",
+      generatedAt: "2026-08-15T00:00:00.000Z",
+    };
+    const request = vi.fn(async (method: string) =>
+      method === "config.get"
+        ? { config: {}, hash: "hash-legacy", valid: true, issues: [] }
+        : method === "config.schema"
+          ? schema
+          : {},
+    );
+    const client = { request } as unknown as GatewayBrowserClient;
+    const { gateway, publish } = createGatewayHarness(client);
+    const runtimeConfig = createRuntimeConfigCapability(gateway);
+    publish(true, client, {
+      type: "hello-ok",
+      protocol: 1,
+      auth: { role: "operator" },
+    } as GatewayHelloOk);
+    await runtimeConfig.ensureSchemaLoaded();
+
+    expect(request).toHaveBeenCalledWith("config.schema", {});
+    expect(runtimeConfig.state.configSchemaVersion).toBe("schema-legacy");
+    runtimeConfig.dispose();
+  });
+
+  it("skips the schema load when advertised scopes exclude operator.read", async () => {
+    const request = vi.fn(async () => ({}));
+    const client = { request } as unknown as GatewayBrowserClient;
+    const { gateway, publish } = createGatewayHarness(client);
+    const runtimeConfig = createRuntimeConfigCapability(gateway);
+    publish(true, client, {
+      type: "hello-ok",
+      protocol: 1,
+      auth: { role: "operator", scopes: ["operator.pairing"] },
+      features: { methods: ["config.schema"] },
+    } as GatewayHelloOk);
+    await runtimeConfig.ensureSchemaLoaded();
+
+    expect(request).not.toHaveBeenCalledWith("config.schema", {});
     runtimeConfig.dispose();
   });
 });

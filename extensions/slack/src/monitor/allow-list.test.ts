@@ -1,10 +1,13 @@
+import {
+  normalizeStringEntries as normalizeAllowList,
+  normalizeStringEntriesLower as normalizeAllowListLower,
+} from "openclaw/plugin-sdk/string-normalization-runtime";
 // Slack tests cover allow list plugin behavior.
 import { describe, expect, it } from "vitest";
 import {
-  normalizeAllowList,
-  normalizeAllowListLower,
   normalizeSlackSlug,
   resolveSlackAllowListMatch,
+  resolveSlackUserAllowListForTeam,
   resolveSlackUserAllowed,
 } from "./allow-list.js";
 
@@ -91,37 +94,15 @@ describe("slack/allow-list", () => {
         teamId: "T22222222",
         id: "U01234567",
       }),
-    ).toEqual({ allowed: false });
-    expect(
-      resolveSlackAllowListMatch({
-        allowList: ["u01234567"],
-        teamId: "T22222222",
-        id: "U01234567",
-        allowUnscoped: true,
-      }),
     ).toEqual({ allowed: true, matchKey: "u01234567", matchSource: "id" });
   });
 
-  it("matches a workspace-qualified bot only in that workspace", () => {
-    const allowList = ["team:t11111111:user:b01234567"];
-
+  it("preserves org-wide IDs and workspace-qualified user identities", () => {
     expect(
-      resolveSlackAllowListMatch({
-        allowList,
+      resolveSlackUserAllowListForTeam({
+        allowList: ["W01234567", "team:T11111111:user:U01234567", "team:T22222222:user:U01234567"],
         teamId: "T11111111",
-        id: "B01234567",
       }),
-    ).toEqual({
-      allowed: true,
-      matchKey: "team:t11111111:user:b01234567",
-      matchSource: "workspace-id",
-    });
-    expect(
-      resolveSlackAllowListMatch({
-        allowList,
-        teamId: "T22222222",
-        id: "B01234567",
-      }),
-    ).toEqual({ allowed: false });
+    ).toEqual(["w01234567", "team:t11111111:user:u01234567"]);
   });
 });

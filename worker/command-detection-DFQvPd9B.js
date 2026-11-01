@@ -11785,9 +11785,9 @@ function inferDefaultPlacement(ref) {
   return ref.conversationId ? "current" : "child";
 }
 function resolveAdapterPlacements(adapter) {
-  const placements = adapter.capabilities?.placements?.map((value) =>
-    normalizePlacement(value),
-  )?.filter((value) => Boolean(value));
+  const placements = adapter.capabilities?.placements
+    ?.map((value) => normalizePlacement(value))
+    ?.filter((value) => Boolean(value));
   if (placements && placements.length > 0) return [...new Set(placements)];
   return ["current", "child"];
 }
@@ -12308,7 +12308,7 @@ function parseSpawnInput(params, tokens) {
   let cwd;
   let label;
   let rawAgentId;
-  for (let i = 0; i < normalizedTokens.length; ) {
+  for (let i = 0; i < normalizedTokens.length;) {
     const token = normalizedTokens[i] ?? "";
     const modeOption = readOptionValue({
       tokens: normalizedTokens,
@@ -12419,7 +12419,7 @@ function parseSteerInput(tokens) {
   const normalizedTokens = tokens.map((token) => normalizeAcpOptionToken(token));
   let sessionToken;
   const instructionTokens = [];
-  for (let i = 0; i < normalizedTokens.length; ) {
+  for (let i = 0; i < normalizedTokens.length;) {
     const sessionOption = readOptionValue({
       tokens: normalizedTokens,
       index: i,

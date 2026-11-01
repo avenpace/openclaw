@@ -9,11 +9,11 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import type { DatabaseSync, SQLInputValue } from "node:sqlite";
-import { createSubsystemLogger } from "../../logging/subsystem.js";
 import {
   loadSqliteVecExtension,
   requireNodeSqlite,
 } from "../../../packages/memory-host-sdk/src/engine-storage.js";
+import { createSubsystemLogger } from "../../logging/subsystem.js";
 import type {
   BehavioralPattern,
   BehavioralStoreConfig,
@@ -399,7 +399,9 @@ export class BehavioralStore {
       LIMIT ?
     `;
 
-    const rows = this.db.prepare(sql).all(...(params as SQLInputValue[])) as unknown as BehavioralPatternRow[];
+    const rows = this.db
+      .prepare(sql)
+      .all(...(params as SQLInputValue[])) as unknown as BehavioralPatternRow[];
     const patterns = rows.map((row) => this.rowToPattern(row));
 
     // Filter by context match
@@ -481,7 +483,9 @@ export class BehavioralStore {
         params = [embeddingStr, limit];
       }
 
-      const rows = this.db.prepare(sql).all(...(params as SQLInputValue[])) as unknown as (BehavioralPatternRow & {
+      const rows = this.db
+        .prepare(sql)
+        .all(...(params as SQLInputValue[])) as unknown as (BehavioralPatternRow & {
         distance: number;
       })[];
 

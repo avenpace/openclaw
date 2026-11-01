@@ -1,12 +1,9 @@
 // Tests SSH config parsing and canonical command execution.
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { resolveSshTarget } from "../commands/gateway-status/discovery.js";
 import { runCommandWithTimeout } from "../process/exec.js";
 import { resolveSshClient } from "./ssh-client.js";
-import {
-  parseSshConfigOutput,
-  resolveSshConfig,
-  SSH_CONFIG_OUTPUT_MAX_CHARS,
-} from "./ssh-config.js";
+import { resolveSshConfig } from "./ssh-config.js";
 
 vi.mock("../process/exec.js", () => ({
   runCommandWithTimeout: vi.fn(),
@@ -49,27 +46,57 @@ describe("ssh-config", () => {
     resolveSshClientMock.mockReturnValue("/usr/bin/ssh");
   });
 
-  it("parses ssh -G output", () => {
-    const parsed = parseSshConfigOutput(
-      "user bob\nhostname example.com\nport 2222\nidentityfile none\nidentityfile /tmp/id\n",
-    );
-    expect(parsed).toEqual({
-      user: "bob",
-      host: "example.com",
-      port: 2222,
-      identityFiles: ["/tmp/id"],
+  it.each([
+    { rawTarget: "alias:22", port: 22, explicit: true },
+    { rawTarget: "alias", port: 2222, explicit: false },
+    { rawTarget: "alias:2022", port: 2022, explicit: true },
+  ])("preserves probe port intent for $rawTarget", async ({ rawTarget, port, explicit }) => {
+    runCommandMock.mockImplementationOnce(async (argv) => {
+      const portIndex = argv.indexOf("-p");
+      const selectedPort = portIndex >= 0 ? Number(argv[portIndex + 1]) : 2222;
+      return commandResult({
+        stdout: `user me\nhostname resolved.example\nport ${selectedPort}\n`,
+      });
     });
+    const resolved = await resolveSshTarget({ rawTarget, identity: null, overallTimeoutMs: 1000 });
+    expect(runCommandMock.mock.calls[0]?.[0]).toEqual([
+      "/usr/bin/ssh",
+      "-G",
+      ...(explicit ? ["-p", String(port)] : []),
+      "--",
+      "alias",
+    ]);
+    expect(resolved?.target).toBe(`me@resolved.example:${port}`);
   });
 
-  it("ignores invalid ports and blank lines", () => {
-    const parsed = parseSshConfigOutput(
-      "user bob\nhostname example.com\nport not-a-number\nidentityfile none\nidentityfile   \n",
+  it("preserves resolved default port instead of reapplying destination alias config", async () => {
+    runCommandMock.mockResolvedValueOnce(
+      commandResult({ stdout: "user me\nhostname resolved.example\nport 22\n" }),
     );
-    expect(parsed.port).toBeUndefined();
-    expect(parsed.identityFiles).toStrictEqual([]);
-    expect(parseSshConfigOutput("hostname example.com\nport 2222abc\n").port).toBeUndefined();
-    expect(parseSshConfigOutput("hostname example.com\nport 70000\n").port).toBeUndefined();
+    const resolved = await resolveSshTarget({
+      rawTarget: "alias",
+      identity: null,
+      overallTimeoutMs: 1000,
+    });
+    expect(resolved?.target).toBe("me@resolved.example:22");
   });
+
+  it.each(["not-a-number", "2222abc", "70000"])(
+    "ignores invalid port %s and blank lines",
+    async (port) => {
+      runCommandMock.mockResolvedValueOnce(
+        commandResult({
+          stdout: `user bob\nhostname example.com\nport ${port}\nidentityfile none\nidentityfile   \n`,
+        }),
+      );
+      await expect(resolveSshConfig({ host: "alias", port: 22 })).resolves.toEqual({
+        user: "bob",
+        host: "example.com",
+        port: undefined,
+        identityFiles: [],
+      });
+    },
+  );
 
   it("resolves ssh config through the canonical command wrapper", async () => {
     await expect(resolveSshConfig({ user: "me", host: "alias", port: 22 })).resolves.toEqual({
@@ -81,7 +108,7 @@ describe("ssh-config", () => {
     expect(runCommandMock).toHaveBeenCalledWith(
       ["/usr/bin/ssh", "-G", "--", "me@alias"],
       expect.objectContaining({
-        maxOutputBytes: SSH_CONFIG_OUTPUT_MAX_CHARS,
+        maxOutputBytes: 64 * 1024,
         outputCapture: "head",
         terminateOnOutputLimit: true,
       }),

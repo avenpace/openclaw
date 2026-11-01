@@ -1,18 +1,9 @@
-// Shared Commander registration helpers for repeated options and positive integers.
 import { parseStrictPositiveInteger } from "@openclaw/normalization-core/number-coercion";
 import { InvalidArgumentError } from "commander";
 
 /** Commander option collector for repeatable string flags. */
 export function collectOption(value: string, previous: string[] = []): string[] {
   return [...previous, value];
-}
-
-/** Parse an optional positive integer, treating empty values as unset. */
-export function parsePositiveIntOrUndefined(value: unknown): number | undefined {
-  if (value === undefined || value === null || value === "") {
-    return undefined;
-  }
-  return parseStrictPositiveInteger(value);
 }
 
 /** Commander argument parser for required positive integer options. */

@@ -21,12 +21,13 @@ OpenClaw is a single container with some config files. The interesting customiza
 ## Quick start
 
 ```bash
-# Replace with your provider: ANTHROPIC, GEMINI, OPENAI, or OPENROUTER
-export <PROVIDER>_API_KEY="..."
+# Export the key for the provider you configured. Use ANTHROPIC_API_KEY,
+# GEMINI_API_KEY, OPENAI_API_KEY, or OPENROUTER_API_KEY.
+export ANTHROPIC_API_KEY="..."
 ./scripts/k8s/deploy.sh
 
 kubectl port-forward svc/openclaw 18789:18789 -n openclaw
-open http://localhost:18789
+open http://127.0.0.1:18789
 ```
 
 `deploy.sh` creates token auth by default. Retrieve the generated gateway token for the Control UI:
@@ -55,8 +56,9 @@ Then deploy as usual with `./scripts/k8s/deploy.sh`.
 **Option A: API key in environment (one step)**
 
 ```bash
-# Replace with your provider: ANTHROPIC, GEMINI, OPENAI, or OPENROUTER
-export <PROVIDER>_API_KEY="..."
+# Export the key for the provider you configured. Use ANTHROPIC_API_KEY,
+# GEMINI_API_KEY, OPENAI_API_KEY, or OPENROUTER_API_KEY.
+export ANTHROPIC_API_KEY="..."
 ./scripts/k8s/deploy.sh
 ```
 
@@ -76,7 +78,7 @@ Add `--show-token` to either command to print the token to stdout for local test
 
 ```bash
 kubectl port-forward svc/openclaw 18789:18789 -n openclaw
-open http://localhost:18789
+open http://127.0.0.1:18789
 ```
 
 ## What gets deployed
@@ -90,7 +92,9 @@ Namespace: openclaw (configurable via OPENCLAW_NAMESPACE)
 └── Secret/openclaw-secrets    # Gateway token + API keys
 ```
 
-The Deployment uses `/startupz` for both startup and traffic-readiness probes, with a five-minute startup budget. Channel failures do not evict a healthy Gateway or Control UI from Service endpoints. `/healthz` remains the liveness probe; use `/readyz` separately when monitoring should include channel-account health.
+The Deployment checks `/readyz` for startup and traffic readiness with a five-minute startup budget, and `/healthz` for liveness. Every check asserts the JSON check contract rather than the status code alone, because the Control UI answers unknown paths with a catch-all `200`; a status-only check would pass forever against an image whose check route does not exist yet.
+
+`/startupz` is the better traffic-admission check because it ignores channel health, so one failing channel account cannot evict an otherwise healthy Gateway from Service endpoints. It requires an image built from `2026.8.1` or newer, the release that introduced it, which is newer than the tag pinned above. After pinning such an image, switch the startup and readiness checks to `/startupz` and keep `/readyz` for monitoring that should include channel-account health.
 
 ## Customization
 
@@ -112,6 +116,13 @@ The init container seeds `openclaw.json` and workspace `AGENTS.md` only when eac
 kubectl exec -n openclaw deploy/openclaw -- rm /home/node/.openclaw/openclaw.json
 kubectl rollout restart -n openclaw deploy/openclaw
 ```
+
+Keep `openclaw.json.last-good` and the `openclaw.json.bak*` backups when reseeding.
+A valid replacement does not need a `meta` block: `openclaw doctor --fix` keeps
+it, and the Gateway promotes it to last-good after it starts successfully.
+Truncated or invalid configs still use backup recovery. If recovery replaces a
+file, the warning names the saved `openclaw.json.clobbered.*` original and explains
+how to copy it back after correcting the reported problem.
 
 Deployments created from the previous template applied ConfigMap edits on every pod start (and discarded any config changes made through OpenClaw). If you relied on that flow, use the reseed commands above after ConfigMap edits.
 
@@ -150,6 +161,8 @@ Edit the `image` field in `scripts/k8s/manifests/deployment.yaml`:
 # Bump this immutable versioned tag when upgrading OpenClaw.
 image: ghcr.io/openclaw/openclaw:2026.7.1-2-slim
 ```
+
+Images from `2026.8.1` onward need a [writable cache location](/install/kubernetes#architecture-notes); the shipped manifest provides it through `XDG_CACHE_HOME`. When upgrading an older deployment, apply that environment entry along with the image change.
 
 ### Expose beyond port-forward
 
@@ -198,6 +211,7 @@ This also deletes unrelated workloads and the PVC.
 - The gateway binds to loopback inside the pod by default, so the included setup is for `kubectl port-forward`.
 - No cluster-scoped resources; everything lives in a single namespace.
 - Security hardening: `readOnlyRootFilesystem`, `drop: ALL` capabilities, non-root user (UID 1000).
+- Writable cache: the Gateway stages private SQLite snapshots under `XDG_CACHE_HOME` (default `~/.cache`). The manifest points it at `/home/node/.openclaw/.cache` on the PVC because the root filesystem is read-only. Keep an equivalent writable cache location if you customize the mounts.
 - The default config keeps the Control UI on the safer local-access path: loopback bind plus `kubectl port-forward` to `http://127.0.0.1:18789`.
 - If you move beyond localhost access, use the supported remote model: HTTPS/Tailscale plus the appropriate gateway bind and Control UI origin settings.
 - Secrets are generated in a temp directory and applied directly to the cluster; no secret material is written to the repo checkout.

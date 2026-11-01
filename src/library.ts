@@ -1,45 +1,14 @@
-import { registerResolvedAgentDir } from "./agents/agent-dir-registry.js";
-import { saveAuthProfileStore } from "./agents/auth-profiles/store.js";
 // Public library facade for consumers embedding OpenClaw reply runtime APIs.
-import { DEFAULT_MODEL, DEFAULT_PROVIDER } from "./agents/defaults.js";
-import { runEmbeddedAgent as runEmbeddedPiAgent } from "./agents/embedded-agent-runner/run.js";
-import type { ModelCatalogEntry } from "./agents/model-catalog.js";
-import { normalizeProviderId, normalizeModelRef, type ModelRef } from "./agents/model-selection.js";
-import { ensureOpenClawModelsJson } from "./agents/models-config.js";
-import type { DevicesHandler } from "./agents/tools/devices-tool.js";
-import type { HermesMemoryHandler } from "./agents/tools/hermes-memory-tool.js";
-import type { HermesSkillsHandler } from "./agents/tools/hermes-skills-tool.js";
 import type { getReplyFromConfig as getReplyFromConfigRuntime } from "./auto-reply/reply.runtime.js";
-import { applyTemplate } from "./auto-reply/templating.js";
-import type { MsgContext } from "./auto-reply/templating.js";
-import type { ReplyPayload } from "./auto-reply/types.js";
-import { createDefaultDeps } from "./cli/deps.js";
+import "./auto-reply/templating.js";
+import "./cli/deps.js";
 import type { promptYesNo as promptYesNoRuntime } from "./cli/prompt.js";
-import { waitForever } from "./cli/wait.js";
-import { loadConfig, clearConfigCache } from "./config/config.js";
-import { setConfigOverride, getConfigOverrides } from "./config/runtime-overrides.js";
-// Clawku: upstream moved session store to SQLite; legacy load/save come from the
-// legacy-session-store module (re-exported below), route updates from the accessor.
-import { updateSessionLastRoute as updateLastRoute } from "./config/sessions/inbound.runtime.js";
-import { resolveSessionStorePathCore } from "./config/sessions/paths.js";
-import { deriveSessionKey, resolveSessionKey } from "./config/sessions/session-key.js";
-import { startGatewayServer } from "./gateway/server.js";
+import "./cli/wait.js";
+import "./config/config.js";
+import "./config/sessions/paths.js";
+import "./config/sessions/session-key.js";
 import type { ensureBinary as ensureBinaryRuntime } from "./infra/binaries.js";
-import {
-  describePortOwner,
-  ensurePortAvailable,
-  handlePortError,
-  PortInUseError,
-} from "./infra/ports.js";
-import {
-  saveLegacySessionStore,
-  type LegacySessionStoreSaveOptions,
-} from "./infra/state-migrations.legacy-session-store.js";
-import { applyMediaUnderstanding } from "./media-understanding/apply.js";
-import { transcribeFirstAudio } from "./media-understanding/audio-preflight.js";
-import { loadModelCatalog } from "./plugin-sdk/agent-runtime.js";
-import { normalizeGoogleModelId } from "./plugin-sdk/image-generation-core.js";
-import { loadOpenClawPlugins } from "./plugins/loader.js";
+import "./infra/ports.js";
 import type {
   monitorWebChannel as monitorWebChannelRuntime,
   monitorWebInbox as monitorWebInboxRuntime,
@@ -51,42 +20,19 @@ import type {
   runExec as runExecRuntime,
 } from "./process/exec.js";
 import { createLazyRuntimeModule } from "./shared/lazy-runtime.js";
-import { buildWorkspaceSkillStatus } from "./skills/discovery/status.js";
-import type { TtsResult } from "./tts/tts-runtime-types.js";
-import { maybeApplyTtsToPayload, textToSpeech, resolveTtsConfig } from "./tts/tts.js";
-import { normalizeE164 } from "./utils.js";
-
-// Clawku platform: channel-specific exports are loaded dynamically from extensions.
-// These lazy loaders avoid broken imports when the old src/ shim files are removed by upstream.
-async function loadTelegramExtension() {
-  return import("../extensions/telegram/runtime-api.js");
-}
-async function loadWhatsAppExtension() {
-  return import("../extensions/whatsapp/runtime-api.js");
-}
-async function loadDiscordExtension() {
-  return import("../extensions/discord/runtime-api.js");
-}
-
-const monitorTelegramProvider: (...args: unknown[]) => Promise<void> = async (...args) => {
-  const ext = await loadTelegramExtension();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return (ext as any).monitorTelegramProvider(...args);
-};
-
-// Clawku platform: Discord monitor is run per-persona by platform-api (not the gateway), so the
-// runtime entry must be reachable from the barrel. The merge re-wired Telegram but dropped this.
-const monitorDiscordProvider: (...args: unknown[]) => Promise<void> = async (...args) => {
-  const ext = await loadDiscordExtension();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return (ext as any).monitorDiscordProvider(...args);
-};
-
-const sendMessageWhatsApp: (...args: unknown[]) => Promise<unknown> = async (...args) => {
-  const ext = await loadWhatsAppExtension();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return (ext as any).sendMessageWhatsApp(...args);
-};
+export { applyTemplate } from "./auto-reply/templating.js";
+export { createDefaultDeps } from "./cli/deps.js";
+export { waitForever } from "./cli/wait.js";
+export { loadConfig } from "./config/config.js";
+export { resolveSessionStorePathCore as resolveStorePath } from "./config/sessions/paths.js";
+export { deriveSessionKey, resolveSessionKey } from "./config/sessions/session-key.js";
+export {
+  describePortOwner,
+  ensurePortAvailable,
+  handlePortError,
+  PortInUseError,
+} from "./infra/ports.js";
+export { normalizeE164 } from "./utils.js";
 
 type GetReplyFromConfig = typeof getReplyFromConfigRuntime;
 type PromptYesNo = typeof promptYesNoRuntime;
@@ -127,97 +73,79 @@ export const startWebLoginWithCode: (...args: unknown[]) => Promise<unknown> = a
   if (typeof fn === "function") {
     return fn(...args);
   }
-  return undefined as unknown as Promise<unknown>;
+  return undefined;
 };
 export const waitForWebLogin: WaitForWebLogin = async (...args) =>
   (await loadWebChannelRuntime()).waitForWebLogin(...args);
 
+// ---------------------------------------------------------------------------
+// Clawku platform exports. platform-api embeds OpenClaw as a library and drives
+// per-persona agent runs, channel monitors, auth and model selection directly.
+// ---------------------------------------------------------------------------
+export { registerResolvedAgentDir } from "./agents/agent-dir-registry.js";
+export { saveAuthProfileStore } from "./agents/auth-profiles/store-runtime.js";
+export { DEFAULT_MODEL, DEFAULT_PROVIDER } from "./agents/defaults.js";
+export { runEmbeddedAgent as runEmbeddedPiAgent } from "./agents/embedded-agent-runner/run.js";
+export { normalizeProviderId, normalizeModelRef } from "./agents/model-selection.js";
+export { ensureOpenClawModelsJson } from "./agents/models-config.js";
+export { clearConfigCache } from "./config/config.js";
+export { setConfigOverride, getConfigOverrides } from "./config/runtime-overrides.js";
+export { updateSessionLastRoute as updateLastRoute } from "./config/sessions/inbound.runtime.js";
+export { startGatewayServer } from "./gateway/server.js";
+export { applyMediaUnderstanding } from "./media-understanding/apply.js";
+export { transcribeFirstAudio } from "./media-understanding/audio-preflight.js";
+export { loadModelCatalog } from "./plugin-sdk/agent-runtime.js";
+export { normalizeGooglePreviewModelId as normalizeGoogleModelId } from "./plugin-sdk/model-ref-parse.js";
+export { loadOpenClawPlugins } from "./plugins/loader.js";
+export { buildWorkspaceSkillStatus } from "./skills/discovery/status.js";
+export { maybeApplyTtsToPayload, textToSpeech, resolveTtsConfig } from "./tts/tts.js";
 export { loadLegacySessionStore as loadSessionStore } from "./infra/state-migrations.legacy-session-store.js";
-// Commit configured model-runtime owners from a config (gateway-reload semantics).
-// platform-api calls this to register a per-run persona agent as a configured owner
-// so the gateway-owned runtime lifecycle admits it (see prepared-model-runtime.owner).
-export { refreshPreparedModelRuntimeSnapshots } from "./agents/prepared-model-runtime.js";
-// platform-api publishes a single persona's configured owner (no global catalog stale)
-// instead of the whole-config refresh, to avoid thrashing the shared multi-tenant catalog.
-export { publishPreparedModelRuntimeSnapshot } from "./agents/prepared-model-runtime.js";
-export { listConfiguredOwnerInputs } from "./agents/prepared-model-runtime.owner.js";
-// Clawku platform: the API calls the core embedded runner directly rather than through the
-// gateway, so it must prepare each run's execution-identity admission itself. Without these
-// two the host has nothing to prepare with and every run dies at admission with "prepared
-// execution context is unavailable or disagrees with the run".
+// platform-api publishes a single persona's configured owner instead of a whole-config refresh,
+// to avoid thrashing the shared multi-tenant model catalog.
+export {
+  publishPreparedModelRuntimeSnapshot,
+  refreshPreparedModelRuntimeSnapshots,
+} from "./agents/prepared-model-runtime.js";
+export { listConfiguredOwnerInputs } from "./agents/prepared-model-runtime.configured.js";
+// The API calls the embedded runner directly, so it prepares each run's admission itself.
 export {
   createOperationalRunInstanceRef,
   prepareAgentRunAdmission,
 } from "./agents/admitted-run-context.js";
-// Clawku platform: the API drives the Anthropic sign-in itself (session-backed callbacks in
-// place of the CLI prompt), so the login entry must be reachable from the barrel.
+// The API drives the Anthropic sign-in itself (session-backed callbacks).
 export { loginAnthropic } from "./llm/utils/oauth/anthropic.js";
 
-/**
- * @deprecated Legacy sessions.json compatibility for package-root consumers.
- * Use SQLite-backed session APIs. Remove after 2026-10-12, once the v2026.7.x
- * upgrade window no longer requires the legacy doctor importer.
- */
-export async function saveSessionStore(
-  storePath: string,
-  store: Parameters<typeof saveLegacySessionStore>[1],
-  options?: LegacySessionStoreSaveOptions,
-): Promise<void> {
-  await saveLegacySessionStore(storePath, store, options);
+// Channel monitors run per persona by platform-api, loaded lazily from the bundled extensions.
+async function loadTelegramExtension() {
+  return import("../extensions/telegram/runtime-api.js");
 }
-
-export {
-  applyTemplate,
-  buildWorkspaceSkillStatus,
-  clearConfigCache,
-  createDefaultDeps,
-  deriveSessionKey,
-  describePortOwner,
-  ensureOpenClawModelsJson,
-  ensurePortAvailable,
-  handlePortError,
-  loadConfig,
-  loadModelCatalog,
-  // loadSessionStore + saveSessionStore already exported at their legacy declarations above.
-  // Platform: channel monitors loaded dynamically from extensions
-  monitorTelegramProvider,
-  monitorDiscordProvider,
-  normalizeE164,
-  PortInUseError,
-  resolveSessionKey,
-  resolveSessionStorePathCore as resolveStorePath,
-  runEmbeddedPiAgent,
-  registerResolvedAgentDir,
-  saveAuthProfileStore,
-  sendMessageWhatsApp,
-  setConfigOverride,
-  getConfigOverrides,
-  startGatewayServer,
-  transcribeFirstAudio,
-  applyMediaUnderstanding,
-  updateLastRoute,
-  waitForever,
-  // Model selection utilities
-  normalizeGoogleModelId,
-  normalizeProviderId,
-  normalizeModelRef,
-  DEFAULT_MODEL,
-  DEFAULT_PROVIDER,
-  // TTS (text-to-speech)
-  maybeApplyTtsToPayload,
-  textToSpeech,
-  resolveTtsConfig,
-  loadOpenClawPlugins,
+async function loadWhatsAppExtension() {
+  return import("../extensions/whatsapp/runtime-api.js");
+}
+async function loadDiscordExtension() {
+  return import("../extensions/discord/runtime-api.js");
+}
+export const monitorTelegramProvider: (...args: unknown[]) => Promise<void> = async (...args) => {
+  const ext = await loadTelegramExtension();
+  // oxlint-disable-next-line typescript/no-explicit-any
+  return (ext as any).monitorTelegramProvider(...args);
+};
+export const monitorDiscordProvider: (...args: unknown[]) => Promise<void> = async (...args) => {
+  const ext = await loadDiscordExtension();
+  // oxlint-disable-next-line typescript/no-explicit-any
+  return (ext as any).monitorDiscordProvider(...args);
+};
+export const sendMessageWhatsApp: (...args: unknown[]) => Promise<unknown> = async (...args) => {
+  const ext = await loadWhatsAppExtension();
+  // oxlint-disable-next-line typescript/no-explicit-any
+  return (ext as any).sendMessageWhatsApp(...args);
 };
 
-// Export types for platform integration
-export type {
-  MsgContext,
-  ReplyPayload,
-  ModelCatalogEntry,
-  DevicesHandler,
-  HermesMemoryHandler,
-  HermesSkillsHandler,
-  ModelRef,
-  TtsResult,
-};
+export type { ModelCatalogEntry } from "./agents/model-catalog.js";
+export type { ModelRef } from "./agents/model-selection.js";
+export type { DevicesHandler } from "./agents/tools/devices-tool.js";
+export type { HermesMemoryHandler } from "./agents/tools/hermes-memory-tool.js";
+export type { HermesSkillsHandler } from "./agents/tools/hermes-skills-tool.js";
+export type { MsgContext } from "./auto-reply/templating.js";
+export type { ReplyPayload } from "./auto-reply/types.js";
+export type { TtsResult } from "./tts/tts-runtime-types.js";

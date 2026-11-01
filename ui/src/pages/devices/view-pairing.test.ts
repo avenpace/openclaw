@@ -1,16 +1,12 @@
 /* @vitest-environment jsdom */
 import { render } from "lit";
 import { describe, expect, it, vi } from "vitest";
-import { renderDevicePairSetup } from "./view-pairing.ts";
+import { renderDevicePairSetup } from "./view-pairing.runtime.ts";
 
 describe("device pairing dialog", () => {
   it.each([
     {
       access: "full" as const,
-      href: "https://docs.openclaw.ai/channels/pairing#pair-from-the-control-ui-recommended",
-    },
-    {
-      access: "limited" as const,
       href: "https://docs.openclaw.ai/channels/pairing#pair-from-the-control-ui-recommended",
     },
     {
@@ -23,10 +19,7 @@ describe("device pairing dialog", () => {
     render(
       renderDevicePairSetup({
         open: true,
-        loading: false,
-        error: null,
-        setup: null,
-        access,
+        lifecycle: { phase: "selection", access },
         nowMs: 0,
         pendingCount: 0,
         onRefresh: vi.fn(),
@@ -38,6 +31,10 @@ describe("device pairing dialog", () => {
       container,
     );
 
+    expect(container.textContent).toContain(
+      "Device capabilities plus complete Gateway controls, including settings and upgrades.",
+    );
+    expect(container.textContent).toContain("Connect a computer as a command and capability host.");
     expect(container.querySelector<HTMLAnchorElement>(".device-pair-setup__footer a")?.href).toBe(
       href,
     );
@@ -50,17 +47,19 @@ describe("device pairing dialog", () => {
     render(
       renderDevicePairSetup({
         open: true,
-        loading: false,
-        error: null,
-        setup: {
-          setupCode: "AbC_123",
-          gatewayUrl: "wss://gateway.example",
-          auth: "token",
-          urlSource: "test",
+        lifecycle: {
+          phase: "waiting",
           access: "node",
-          expiresAtMs: 70_000,
+          setup: {
+            setupId: "setup-node",
+            setupCode: "AbC_123",
+            gatewayUrl: "wss://gateway.example",
+            auth: "token",
+            urlSource: "test",
+            access: "node",
+            expiresAtMs: 70_000,
+          },
         },
-        access: "node",
         nowMs: 10_000,
         pendingCount: 0,
         onRefresh: vi.fn(),

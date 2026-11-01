@@ -5,6 +5,7 @@ import { html, type PropertyValues } from "lit";
 import { state } from "lit/decorators.js";
 import { titleForRoute } from "../../app-navigation.ts";
 import { applicationContext, type ApplicationContext } from "../../app/context.ts";
+import { shellLayoutTraits } from "../../app/shell-layout-traits.ts";
 import {
   beginPanelRefresh,
   completePanelRefresh,
@@ -12,6 +13,7 @@ import {
   failPanelRefresh,
 } from "../../components/panel-refresh-status.ts";
 import { renderSettingsWorkspace } from "../../components/settings-workspace.ts";
+import { downloadTextFile } from "../../lib/download.ts";
 import {
   formatMissingOperatorReadScopeMessage,
   isMissingOperatorReadScopeError,
@@ -44,6 +46,7 @@ class LogsPage extends OpenClawLightDomElement {
   @state() private logsTruncated = false;
 
   private logsCursor: number | null = null;
+  private logsCursorBootId: string | undefined;
   private readonly logsLimit = 500;
   private readonly logsMaxBytes = 250_000;
   private readonly polling = new PollController(
@@ -53,45 +56,54 @@ class LogsPage extends OpenClawLightDomElement {
       void this.loadLogs({ quiet: true });
     },
     false,
+    "visible",
   );
   private contentScrollFrame: number | null = null;
   private logsTaskQuiet = false;
-  private logsTaskArgs(opts?: { reset?: boolean; quiet?: boolean }) {
+  private logsTaskArgs(opts?: { reset?: boolean }) {
+    const bootId = this.gateway.snapshot?.hello?.server?.bootId;
+    // Cursors belong to one server boot: a restarted Gateway can rewrite the file in place.
+    const reset = opts?.reset === true || bootId !== this.logsCursorBootId;
     return [
       this.gateway.connected ? this.gateway.gateway : null,
       this.gateway.connected ? this.gateway.client : null,
-      opts?.reset ? null : this.logsCursor,
-      opts?.reset === true,
-      opts?.quiet === true,
+      reset ? null : this.logsCursor,
+      this.logsFile,
+      reset,
+      bootId,
     ] as const;
   }
   private readonly logsTask = new Task(this, {
     autoRun: false,
-    // The cursor and reset flag make each tail page an explicit immutable read.
+    // A cursor belongs to one server boot and file; recover source changes inside this task so
+    // no mixed-source page can publish between the incremental and reset reads.
     args: () => this.logsTaskArgs(),
-    task: async ([gateway, client, cursor, reset, quiet], { signal }) => {
+    task: async ([gateway, client, cursor, file, reset, bootId], { signal }) => {
       if (!gateway || !client) {
         return initialState;
       }
       try {
-        const payload = await client.request<{
-          file?: string;
-          cursor?: number;
-          lines?: unknown;
-          truncated?: boolean;
-          reset?: boolean;
-        }>(
-          "logs.tail",
-          {
-            cursor: reset ? undefined : (cursor ?? undefined),
-            limit: this.logsLimit,
-            maxBytes: this.logsMaxBytes,
-          },
-          { signal },
-        );
-        return { ok: true as const, payload, cursor, reset, quiet };
+        const requestTail = (nextCursor?: number) =>
+          client.request<{
+            file?: string;
+            cursor?: number;
+            lines?: unknown;
+            truncated?: boolean;
+            reset?: boolean;
+          }>(
+            "logs.tail",
+            { cursor: nextCursor, limit: this.logsLimit, maxBytes: this.logsMaxBytes },
+            { signal },
+          );
+        let payload = await requestTail(reset ? undefined : (cursor ?? undefined));
+        const sourceChanged =
+          !reset && file !== null && payload.file !== undefined && payload.file !== file;
+        if (sourceChanged) {
+          payload = await requestTail();
+        }
+        return { ok: true as const, payload, cursor, reset: reset || sourceChanged, bootId };
       } catch (error) {
-        return { ok: false as const, error, quiet };
+        return { ok: false as const, error };
       }
     },
     onComplete: (result) => {
@@ -100,10 +112,17 @@ class LogsPage extends OpenClawLightDomElement {
           this.logsEntries = [];
           this.logsStatus = failPanelRefresh(
             createPanelRefreshStatus(),
-            formatMissingOperatorReadScopeMessage("logs"),
+            result.error,
+            this.gateway.snapshot,
           );
+          if (this.logsStatus.error) {
+            this.logsStatus = {
+              ...this.logsStatus,
+              error: formatMissingOperatorReadScopeMessage("logs"),
+            };
+          }
         } else {
-          this.logsStatus = failPanelRefresh(this.logsStatus, String(result.error));
+          this.logsStatus = failPanelRefresh(this.logsStatus, result.error, this.gateway.snapshot);
         }
         return;
       }
@@ -115,8 +134,10 @@ class LogsPage extends OpenClawLightDomElement {
       this.logsEntries = shouldReset
         ? entries
         : [...this.logsEntries, ...entries].slice(-LOG_BUFFER_LIMIT);
-      this.logsCursor =
-        typeof result.payload.cursor === "number" ? result.payload.cursor : this.logsCursor;
+      if (typeof result.payload.cursor === "number") {
+        this.logsCursor = result.payload.cursor;
+        this.logsCursorBootId = result.bootId;
+      }
       this.logsFile = typeof result.payload.file === "string" ? result.payload.file : this.logsFile;
       this.logsTruncated = Boolean(result.payload.truncated);
       this.logsStatus = completePanelRefresh();
@@ -130,15 +151,31 @@ class LogsPage extends OpenClawLightDomElement {
       this.logsEntries = [];
       this.logsTruncated = false;
       this.logsCursor = null;
+      this.logsCursorBootId = undefined;
       this.streamFollow.atBottom = true;
     },
     invalidateRequests: () => {
       this.logsTaskQuiet = false;
-      void this.logsTask.run([null, null, null, false, false]);
+      void this.logsTask.run([null, null, null, null, false, undefined]);
     },
     onSnapshot: () => {
-      this.syncPolling();
-      this.ensureInitialLogs();
+      if (this.gateway.connected && this.gateway.client) {
+        this.polling.start();
+      } else {
+        this.polling.stop();
+      }
+    },
+    // Only connection/identity transitions own automatic resets. Metadata snapshots
+    // must not supersede an in-flight tail or reload a successfully empty log.
+    ensureInitialData: () => {
+      const quiet = this.logsStatus.hasLoaded;
+      // A same-Gateway reconnect resumes the cursor; a full window costs a busy Gateway one
+      // file read and redaction pass per reconnect.
+      void this.loadLogs({ reset: !quiet || this.logsCursor === null, quiet }).then((current) => {
+        if (current && !quiet) {
+          this.streamFollow.schedule(true);
+        }
+      });
     },
   });
   private readonly streamFollow = new StreamAutoFollowController(this, {
@@ -179,7 +216,7 @@ class LogsPage extends OpenClawLightDomElement {
 
   override disconnectedCallback() {
     this.logsTaskQuiet = false;
-    void this.logsTask.run([null, null, null, false, false]);
+    void this.logsTask.run([null, null, null, null, false, undefined]);
     if (this.contentScrollFrame !== null) {
       cancelAnimationFrame(this.contentScrollFrame);
       this.contentScrollFrame = null;
@@ -195,60 +232,32 @@ class LogsPage extends OpenClawLightDomElement {
     }
   }
 
-  private syncPolling() {
-    if (!this.gateway.connected || !this.gateway.client) {
-      this.polling.stop();
-      return;
-    }
-    this.polling.start();
-  }
-
-  private ensureInitialLogs() {
-    if (!this.gateway.connected || !this.gateway.client || this.logsEntries.length > 0) {
-      return;
-    }
-    void this.loadLogs({ reset: true }).then((current) => {
-      if (current) {
-        this.streamFollow.schedule(true);
-      }
-    });
-  }
-
   private async loadLogs(opts?: { reset?: boolean; quiet?: boolean }): Promise<boolean> {
     const quiet = opts?.quiet === true;
     const gateway = this.gateway.gateway;
+    const args = this.logsTaskArgs(opts);
     if (
       !gateway ||
       !this.gateway.client ||
       !this.gateway.connected ||
       this.context.gateway !== gateway ||
-      (this.logsTask.status === TaskStatus.PENDING && opts?.reset !== true)
+      (this.logsTask.status === TaskStatus.PENDING && !args[4])
     ) {
       return false;
     }
     this.logsTaskQuiet = quiet;
     this.logsStatus = beginPanelRefresh(this.logsStatus, { clearError: !quiet });
-    await this.logsTask.run(this.logsTaskArgs(opts));
-    return this.logsTask.status === TaskStatus.COMPLETE;
-  }
-
-  private exportLogs(lines: string[], label: string) {
-    if (lines.length === 0) {
-      return;
-    }
-    const blob = new Blob([`${lines.join("\n")}\n`], { type: "text/plain" });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
-    anchor.href = url;
-    anchor.download = `openclaw-logs-${label}-${stamp}.log`;
-    anchor.click();
-    URL.revokeObjectURL(url);
+    // Task suppresses stale results, but an old run can resolve after a new one.
+    // Keep completion-triggered scroll work in the request's connection epoch.
+    const epoch = this.gateway.epoch;
+    await this.logsTask.run(args);
+    return this.gateway.epoch === epoch && this.logsTask.status === TaskStatus.COMPLETE;
   }
 
   override render() {
     const body = renderLogs({
       loading: this.logsTask.status === TaskStatus.PENDING && !this.logsTaskQuiet,
+      refreshDisabled: !this.gateway.connected || this.logsTask.status === TaskStatus.PENDING,
       status: this.logsStatus,
       file: this.logsFile,
       entries: this.logsEntries,
@@ -267,11 +276,14 @@ class LogsPage extends OpenClawLightDomElement {
             this.streamFollow.schedule(true);
           }
         }),
-      onExport: (lines, label) => this.exportLogs(lines, label),
+      onExport: (lines, label) => {
+        const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+        downloadTextFile(`openclaw-logs-${label}-${stamp}.log`, `${lines.join("\n")}\n`);
+      },
       onScroll: (event) => this.streamFollow.handleScroll(event),
     });
     return html`
-      <section class="content-header">
+      <section class="content-header" ${shellLayoutTraits({ toolbarHeader: true })}>
         <div>
           <div class="page-title">${titleForRoute("logs")}</div>
         </div>
