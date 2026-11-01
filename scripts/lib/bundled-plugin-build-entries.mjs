@@ -22,7 +22,7 @@ export { collectRootPackageExcludedExtensionDirs };
 // plugin that provides light-runtime-api and runtime-api") and get duplicated module state.
 const CLAWKU_CORE_BUNDLED_PLUGIN_DIRS = new Set(["whatsapp", "discord", "slack", "signal"]);
 function collectBuildExcludedExtensionDirs(params) {
-  const excluded = collectBuildExcludedExtensionDirs(params);
+  const excluded = collectRootPackageExcludedExtensionDirs(params);
   for (const id of CLAWKU_CORE_BUNDLED_PLUGIN_DIRS) {
     excluded.delete(id);
   }
