@@ -371,6 +371,27 @@ export function createExecTool(defaults?: ExecToolDefaults) {
         throw new Error("Provide a command to start.");
       }
       await rejectUnsafeExecControlShellCommand(params.command);
+      // ── Clawku: platform sandbox ──
+      // A host-supplied runner takes every command: no shell, no host process, no inherited
+      // environment. Checked before any host routing so no channel or skill path bypasses it.
+      if (defaults?.platformRunner) {
+        const result = await defaults.platformRunner.run({
+          command: params.command,
+          workdir: params.workdir,
+          timeoutSec: typeof params.timeout === "number" ? params.timeout : undefined,
+        });
+        return {
+          content: [{ type: "text", text: result.output || "(no output)" }],
+          details: {
+            status: result.exitCode === 0 ? "completed" : "failed",
+            exitCode: result.exitCode,
+            durationMs: result.durationMs,
+            aggregated: result.output,
+            ...(result.timedOut ? { timedOut: true } : {}),
+            cwd: params.workdir,
+          },
+        };
+      }
       // ── Clawku: external-channel command routing (multi-tenant exec boundary) ──
       // Commands from an external channel (WhatsApp/Telegram/etc.) may only run read-only /
       // data "safe" bins locally on the shared server. Anything else is routed to the user's
