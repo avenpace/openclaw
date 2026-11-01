@@ -249,3 +249,4 @@ export type { HermesSkillsHandler } from "./agents/tools/hermes-skills-tool.js";
 export type { MsgContext } from "./auto-reply/templating.js";
 export type { ReplyPayload } from "./auto-reply/types.js";
 export type { TtsResult } from "./tts/tts-runtime-types.js";
+export type { PlatformToolsHandler, PlatformToolSpec } from "./agents/tools/platform-tools.js";

@@ -60,6 +60,7 @@ import type { HermesSkillsHandler } from "../../tools/hermes-skills-tool.js";
 import type { ImageResizeHandler } from "../../tools/image-resize-tool.js";
 import type { InstagramHandler } from "../../tools/instagram-tool.js";
 import type { MarketplaceHandler } from "../../tools/marketplace-tool.js";
+import type { PlatformToolsHandler } from "../../tools/platform-tools.js";
 import type { EmbeddedAgentExecutionPhase } from "../execution-phase.js";
 import type { BlockReplyFlushContext } from "../types.js";
 import type { AuthProfileFailurePolicy } from "./auth-profile-failure-policy.types.js";
@@ -300,6 +301,8 @@ export type RunEmbeddedAgentParams = {
   marketplaceHandler?: MarketplaceHandler;
   /** Clinic front-desk tools, bound by the host to the verified WhatsApp sender. */
   clinicHandler?: ClinicHandler;
+  /** Clawku: host-defined tools (described and executed by the platform). */
+  platformToolsHandler?: PlatformToolsHandler;
   /** Skip per-chunk live visible-text parsing when no live stream consumer exists (e.g. subagents). */
   suppressLiveStreamOutput?: boolean;
   /**

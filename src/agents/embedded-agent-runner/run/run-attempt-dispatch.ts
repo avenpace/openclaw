@@ -593,6 +593,7 @@ export async function prepareAndDispatchEmbeddedRunAttempt(
     instagramHandler: params.instagramHandler,
     marketplaceHandler: params.marketplaceHandler,
     clinicHandler: params.clinicHandler,
+    platformToolsHandler: params.platformToolsHandler,
     replyOperation: params.replyOperation,
     shouldEmitToolResult: params.shouldEmitToolResult,
     shouldEmitToolOutput: params.shouldEmitToolOutput,

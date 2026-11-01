@@ -58,6 +58,7 @@ import { getBuiltinImageResizeHandler } from "../../tools/image-resize-handler-b
 import { createImageResizeTools } from "../../tools/image-resize-tool.js";
 import { createInstagramTools } from "../../tools/instagram-tool.js";
 import { createMarketplaceTools } from "../../tools/marketplace-tool.js";
+import { createPlatformTools } from "../../tools/platform-tools.js";
 import { log } from "../logger.js";
 import { createAttemptNestedToolActivityState } from "./attempt-nested-tool-activity.js";
 import type { EmbeddedAttemptSetup } from "./attempt-setup.js";
@@ -405,6 +406,8 @@ export async function prepareEmbeddedAttemptToolBase(params: {
       if (attempt.marketplaceHandler)
         allTools.push(...createMarketplaceTools(attempt.marketplaceHandler));
       if (attempt.clinicHandler) allTools.push(...createClinicTools(attempt.clinicHandler));
+      if (attempt.platformToolsHandler)
+        allTools.push(...createPlatformTools(attempt.platformToolsHandler));
       // Image resize always available: provided handler or built-in Sharp fallback.
       allTools.push(
         ...createImageResizeTools(attempt.imageResizeHandler ?? getBuiltinImageResizeHandler()),
