@@ -117,6 +117,7 @@ export let maybeApplyTtsToPayload: LibraryExports["maybeApplyTtsToPayload"];
 export let textToSpeech: LibraryExports["textToSpeech"];
 export let resolveTtsConfig: LibraryExports["resolveTtsConfig"];
 export let activatePlatformChannelRuntimes: LibraryExports["activatePlatformChannelRuntimes"];
+export let setHostExecInheritedEnvDenylist: LibraryExports["setHostExecInheritedEnvDenylist"];
 
 async function loadLegacyCliDeps(argv: string[]): Promise<LegacyCliDeps> {
   const startupTrace = createGatewayDispatchStartupTrace(argv, "entry");
@@ -200,6 +201,7 @@ if (!isMain) {
     textToSpeech,
     resolveTtsConfig,
     activatePlatformChannelRuntimes,
+    setHostExecInheritedEnvDenylist,
   } = await import("./library.js"));
 }
 
