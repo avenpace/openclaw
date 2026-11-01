@@ -15,6 +15,7 @@ import {
   applyToolSearchCatalog,
   resolveToolSearchConfig,
 } from "./tool-search.js";
+import { directPlatformToolNamesIn } from "./tools/platform-tools.js";
 
 export type AgentToolSurfacePlanParams = {
   config?: OpenClawConfig;
@@ -128,7 +129,11 @@ export function applyAgentToolSurfaceCatalog({
 }: ApplyAgentToolSurfaceCatalogParams) {
   // When the message tool is the only reply path it must stay directly visible
   // in every search mode; a hidden delivery tool can leave the run mute.
-  const directToolNames = forceDirectMessageTool ? ["message"] : [];
+  // Clawku: host tools that asked to stay visible (platform-tools `direct`).
+  const directToolNames = [
+    ...(forceDirectMessageTool ? ["message"] : []),
+    ...directPlatformToolNamesIn(catalogParams.tools),
+  ];
   const applyCatalog = codeModeControlsEnabled
     ? applyCodeModeCatalog
     : toolSearchConfig.mode === "directory"

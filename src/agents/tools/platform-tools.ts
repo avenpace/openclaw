@@ -17,7 +17,23 @@ export type PlatformToolSpec = {
   description: string;
   /** JSON schema of the arguments object. */
   parameters: Record<string, unknown>;
+  /**
+   * Keep the tool directly visible under tool search / code mode instead of only in
+   * the searchable catalog. For the few tools a model must not miss: a smaller model
+   * that does not think to search answers from memory instead.
+   */
+  direct?: boolean;
 };
+
+/**
+ * Names of host tools that asked to stay visible. Only consulted for tools present in
+ * the run being compacted, so a name left over from another run changes nothing.
+ */
+const directPlatformToolNames = new Set<string>();
+
+export function directPlatformToolNamesIn(tools: readonly { name: string }[]): string[] {
+  return tools.filter((tool) => directPlatformToolNames.has(tool.name)).map((tool) => tool.name);
+}
 
 export type PlatformToolsHandler = {
   tools: PlatformToolSpec[];
@@ -25,6 +41,7 @@ export type PlatformToolsHandler = {
 };
 
 export function createPlatformTools(handler: PlatformToolsHandler): AnyAgentTool[] {
+  for (const spec of handler.tools) if (spec.direct) directPlatformToolNames.add(spec.name);
   return handler.tools.map((spec): AnyAgentTool => ({
     name: spec.name,
     label: spec.label ?? spec.name,
