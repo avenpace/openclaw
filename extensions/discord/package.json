@@ -102,7 +102,6 @@
       "pluginApi": ">=2026.10.9"
     },
     "build": {
-      "bundledDist": false,
       "workerEntries": [
         "./src/voice/audio-worker.runtime.ts"
       ],
