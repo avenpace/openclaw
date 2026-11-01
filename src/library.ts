@@ -73,6 +73,9 @@ async function loadWhatsAppRuntimeApi(): Promise<WhatsAppRuntimeApi> {
   const mod = (await loadWhatsAppExtension()) as unknown as Record<string, unknown>;
   return new Proxy({} as WhatsAppRuntimeApi, {
     get: (_target, name) => {
+      if (name === "then" || typeof name === "symbol") {
+        return undefined; // keep the proxy from looking like a thenable when awaited
+      }
       const fn = mod[name as string];
       if (typeof fn !== "function") {
         throw new Error(`WhatsApp runtime does not export ${String(name)}`);
@@ -209,10 +212,28 @@ export const monitorTelegramProvider: (...args: unknown[]) => Promise<void> = as
   // oxlint-disable-next-line typescript/no-explicit-any
   return (ext as any).monitorTelegramProvider(...args);
 };
+// v2026.10.9 Discord monitors require a plugin service scheduler (the gateway passes its own
+// to channel accounts it starts). Platform-run monitors get one shared host-clock scheduler.
+let platformDiscordScheduler: unknown;
+async function getPlatformServiceScheduler(): Promise<unknown> {
+  if (!platformDiscordScheduler) {
+    const [{ GatewayScheduler }, { createPluginServiceScheduler }] = await Promise.all([
+      import("./infra/gateway-scheduler.js"),
+      import("./plugins/service-scheduler.js"),
+    ]);
+    platformDiscordScheduler = createPluginServiceScheduler(new GatewayScheduler()).scheduler;
+  }
+  return platformDiscordScheduler;
+}
 export const monitorDiscordProvider: (...args: unknown[]) => Promise<void> = async (...args) => {
   const ext = await loadDiscordExtension();
+  const [first, ...rest] = args;
+  const opts = (first && typeof first === "object" ? first : {}) as Record<string, unknown>;
+  const withScheduler = opts.scheduler
+    ? opts
+    : { ...opts, scheduler: await getPlatformServiceScheduler() };
   // oxlint-disable-next-line typescript/no-explicit-any
-  return (ext as any).monitorDiscordProvider(...args);
+  return (ext as any).monitorDiscordProvider(withScheduler, ...rest);
 };
 export const sendMessageWhatsApp: (...args: unknown[]) => Promise<unknown> = async (...args) => {
   const ext = await loadWhatsAppExtension();
