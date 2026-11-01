@@ -48,9 +48,6 @@ const loadReplyRuntime = createLazyRuntimeModule(() => import("./auto-reply/repl
 const loadPromptRuntime = createLazyRuntimeModule(() => import("./cli/prompt.js"));
 const loadBinariesRuntime = createLazyRuntimeModule(() => import("./infra/binaries.js"));
 const loadExecRuntime = createLazyRuntimeModule(() => import("./process/exec.js"));
-const loadWebChannelRuntime = createLazyRuntimeModule(
-  () => import("./plugins/runtime/runtime-web-channel-plugin.js"),
-);
 
 export const getReplyFromConfig: GetReplyFromConfig = async (...args) =>
   (await loadReplyRuntime()).getReplyFromConfig(...args);
@@ -61,14 +58,37 @@ export const ensureBinary: EnsureBinary = async (...args) =>
 export const runExec: RunExec = async (...args) => (await loadExecRuntime()).runExec(...args);
 export const runCommandWithTimeout: RunCommandWithTimeout = async (...args) =>
   (await loadExecRuntime()).runCommandWithTimeout(...args);
+// Clawku: platform-api drives WhatsApp itself with the gateway's WhatsApp plugin disabled, so the
+// gateway-registry facade (runtime-web-channel-plugin) never sees it. Call the core-bundled
+// WhatsApp runtime directly.
+type WhatsAppRuntimeFn = (...args: unknown[]) => unknown;
+type WhatsAppRuntimeApi = {
+  monitorWebChannel: WhatsAppRuntimeFn;
+  monitorWebInbox: WhatsAppRuntimeFn;
+  startWebLoginWithQr: WhatsAppRuntimeFn;
+  startWebLoginWithCode: WhatsAppRuntimeFn;
+  waitForWebLogin: WhatsAppRuntimeFn;
+};
+async function loadWhatsAppRuntimeApi(): Promise<WhatsAppRuntimeApi> {
+  const mod = (await loadWhatsAppExtension()) as unknown as Record<string, unknown>;
+  return new Proxy({} as WhatsAppRuntimeApi, {
+    get: (_target, name) => {
+      const fn = mod[name as string];
+      if (typeof fn !== "function") {
+        throw new Error(`WhatsApp runtime does not export ${String(name)}`);
+      }
+      return fn as WhatsAppRuntimeFn;
+    },
+  });
+}
 export const monitorWebChannel: MonitorWebChannel = async (...args) =>
-  (await loadWebChannelRuntime()).monitorWebChannel(...args);
+  (await loadWhatsAppRuntimeApi()).monitorWebChannel(...args) as ReturnType<MonitorWebChannel>;
 export const monitorWebInbox: MonitorWebInbox = async (...args) =>
-  (await loadWebChannelRuntime()).monitorWebInbox(...args);
+  (await loadWhatsAppRuntimeApi()).monitorWebInbox(...args) as ReturnType<MonitorWebInbox>;
 export const startWebLoginWithQr: StartWebLoginWithQr = async (...args) =>
-  (await loadWebChannelRuntime()).startWebLoginWithQr(...args);
+  (await loadWhatsAppRuntimeApi()).startWebLoginWithQr(...args) as ReturnType<StartWebLoginWithQr>;
 export const startWebLoginWithCode: (...args: unknown[]) => Promise<unknown> = async (...args) => {
-  const rt = await loadWebChannelRuntime();
+  const rt = await loadWhatsAppRuntimeApi();
   const fn = (rt as Record<string, unknown>).startWebLoginWithCode;
   if (typeof fn === "function") {
     return fn(...args);
@@ -76,7 +96,7 @@ export const startWebLoginWithCode: (...args: unknown[]) => Promise<unknown> = a
   return undefined;
 };
 export const waitForWebLogin: WaitForWebLogin = async (...args) =>
-  (await loadWebChannelRuntime()).waitForWebLogin(...args);
+  (await loadWhatsAppRuntimeApi()).waitForWebLogin(...args) as ReturnType<WaitForWebLogin>;
 
 // ---------------------------------------------------------------------------
 // Clawku platform exports. platform-api embeds OpenClaw as a library and drives
@@ -115,15 +135,74 @@ export {
 // The API drives the Anthropic sign-in itself (session-backed callbacks).
 export { loginAnthropic } from "./llm/utils/oauth/anthropic.js";
 
-// Channel monitors run per persona by platform-api, loaded lazily from the bundled extensions.
+// Clawku platform: platform-api runs its own per-persona channel monitors. In v2026.10.9 each
+// plugin owns a module instance (its runtime proxy, keyed stores and ingress queues are injected
+// there), so the platform must call the channel code inside that instance rather than a plain
+// import, which sees "<Channel> runtime not initialized". platform-api hands the registry from
+// its startup plugin load to activatePlatformChannelRuntimes; channel calls then resolve through
+// the owning plugin instance, with a direct import as fallback.
+type PlatformPluginRecord = { id: string; status?: string; rootDir?: string };
+let platformChannelRegistry: { plugins?: PlatformPluginRecord[] } | undefined;
+
+export async function activatePlatformChannelRuntimes(registry?: unknown): Promise<string[]> {
+  if (registry && typeof registry === "object") {
+    platformChannelRegistry = registry as { plugins?: PlatformPluginRecord[] };
+  }
+  const active: string[] = [];
+  for (const id of ["whatsapp", "telegram", "discord", "slack", "signal"]) {
+    if (await loadPlatformChannelInstanceModule(id)) {
+      active.push(id);
+    }
+  }
+  return active;
+}
+
+async function loadPlatformChannelInstanceModule(
+  id: string,
+): Promise<Record<string, unknown> | undefined> {
+  const record = platformChannelRegistry?.plugins?.find(
+    (entry) => entry.id === id && entry.status === "loaded",
+  );
+  if (!record?.rootDir) {
+    return undefined;
+  }
+  const [{ getPluginInstance }, { default: path }] = await Promise.all([
+    import("./plugins/plugin-instance-scope.js"),
+    import("node:path"),
+  ]);
+  const instance = getPluginInstance(record as never);
+  if (!instance) {
+    return undefined;
+  }
+  const modulePath = path.join(record.rootDir, "runtime-api.js");
+  if (instance.hasModuleSource?.(modulePath) === false) {
+    return undefined;
+  }
+  try {
+    return instance.loadModule(modulePath) as Record<string, unknown>;
+  } catch (err) {
+    console.warn(`[clawku] ${id} plugin instance module unavailable, using direct import:`, err);
+    return undefined;
+  }
+}
+
 async function loadTelegramExtension() {
-  return import("../extensions/telegram/runtime-api.js");
+  return (
+    (await loadPlatformChannelInstanceModule("telegram")) ??
+    (await import("../extensions/telegram/runtime-api.js"))
+  );
 }
 async function loadWhatsAppExtension() {
-  return import("../extensions/whatsapp/runtime-api.js");
+  return (
+    (await loadPlatformChannelInstanceModule("whatsapp")) ??
+    (await import("../extensions/whatsapp/runtime-api.js"))
+  );
 }
 async function loadDiscordExtension() {
-  return import("../extensions/discord/runtime-api.js");
+  return (
+    (await loadPlatformChannelInstanceModule("discord")) ??
+    (await import("../extensions/discord/runtime-api.js"))
+  );
 }
 export const monitorTelegramProvider: (...args: unknown[]) => Promise<void> = async (...args) => {
   const ext = await loadTelegramExtension();
@@ -149,34 +228,3 @@ export type { HermesSkillsHandler } from "./agents/tools/hermes-skills-tool.js";
 export type { MsgContext } from "./auto-reply/templating.js";
 export type { ReplyPayload } from "./auto-reply/types.js";
 export type { TtsResult } from "./tts/tts-runtime-types.js";
-
-// Clawku platform: platform-api runs its own per-persona channel monitors through the lazy
-// loaders above. The plugin loader injects each channel's runtime into the module instance
-// it loaded natively, which is not the instance these loaders import, so the monitors saw
-// "<Channel> runtime not initialized". Inject a plugin runtime into the instances the
-// platform actually calls. Returns the channels that were activated.
-export async function activatePlatformChannelRuntimes(): Promise<string[]> {
-  const { createPluginRuntime } = await import("./plugins/runtime/index.js");
-  const runtime = createPluginRuntime();
-  const activated: string[] = [];
-  const setters: Array<[string, () => Promise<unknown>, string]> = [
-    ["telegram", () => import("../extensions/telegram/runtime-api.js"), "setTelegramRuntime"],
-    ["whatsapp", () => import("../extensions/whatsapp/runtime-api.js"), "setWhatsAppRuntime"],
-    ["discord", () => import("../extensions/discord/runtime-api.js"), "setDiscordRuntime"],
-    ["slack", () => import("../extensions/slack/runtime-api.js"), "setSlackRuntime"],
-    ["signal", () => import("../extensions/signal/runtime-api.js"), "setSignalRuntime"],
-  ];
-  for (const [id, load, name] of setters) {
-    try {
-      const mod = (await load()) as Record<string, unknown>;
-      const setter = mod[name];
-      if (typeof setter === "function") {
-        (setter as (value: unknown) => void)(runtime);
-        activated.push(id);
-      }
-    } catch (err) {
-      console.warn(`[clawku] channel runtime activation failed for ${id}:`, err);
-    }
-  }
-  return activated;
-}
