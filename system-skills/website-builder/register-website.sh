@@ -24,12 +24,18 @@ if [[ ! "$PROJECT" =~ ^[a-zA-Z0-9_-]+$ ]]; then
   exit 1
 fi
 
-# Internal API endpoint - localhost only
+# Internal API endpoint - callable only from inside the container, with this persona's
+# platform token (shown in the "Platform calls" part of the system prompt).
 API_URL="http://localhost:3000/internal/websites/${PROJECT}/register"
+TOKEN="${2:-${CLAWKU_TOKEN:-}}"
+if [[ -z "$TOKEN" ]]; then
+  echo "Error: pass your platform token as the second argument (see Platform calls in your instructions)."
+  exit 1
+fi
 
 # Call the internal register endpoint (no userId needed - endpoint finds it)
 curl -sf -X POST "$API_URL" \
-  -H "X-Internal-Api-Key: ${INTERNAL_API_KEY}" \
+  -H "X-Clawku-Token: ${TOKEN}" \
   -H "Content-Type: application/json" \
   -d '{}'
 

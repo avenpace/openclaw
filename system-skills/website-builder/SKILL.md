@@ -104,10 +104,12 @@ small `limit`.
 **Registration, so you do not have to look it up later** — after tests and
 eval pass, this exact call. `{user-id}` is the owner's id: the directory
 name right after `.openclaw-users/` in your workspace path (it also appears
-in the eval curl in your system prompt). Do not invent another route:
+in the eval curl in your system prompt). `{platform-token}` is the X-Clawku-Token value
+given under "Platform calls" in your instructions; without it the call is refused.
+Do not invent another route:
 
 ```
-exec: curl -s -X POST http://localhost:3000/internal/websites/{project-name}/register -H "Content-Type: application/json" -d '{"userId": "{user-id}"}'
+exec: curl -s -X POST http://localhost:3000/internal/websites/{project-name}/register -H "Content-Type: application/json" -H "X-Clawku-Token: {platform-token}" -d '{"userId": "{user-id}"}'
 ```
 
 Then tell the user: `https://{project-name}.clawku.co`.
@@ -219,6 +221,7 @@ Only after VERIFICATION passes (STEP 6 + STEP 7):
 ```
 curl -X POST http://localhost:3000/internal/websites/{project-name}/register \
   -H "Content-Type: application/json" \
+  -H "X-Clawku-Token: {platform-token}" \
   -d '{"userId": "{user-id}"}'
 ```
 
