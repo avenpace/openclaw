@@ -6,6 +6,7 @@ import type { RuntimeEnv } from "openclaw/plugin-sdk/runtime-env";
 import { racePromiseWithAbortSignal } from "openclaw/plugin-sdk/time-runtime";
 import {
   WHATSAPP_CONNECTION_CONTROLLER_CAPABILITY,
+  publishProcessWhatsAppConnectionController,
   WHATSAPP_CONNECTION_OWNER_PENDING_CAPABILITY,
 } from "./connection-controller-runtime-context.js";
 import {
@@ -393,6 +394,7 @@ export class WhatsAppConnectionController {
 
   private current: WhatsAppLiveConnection | null = null;
   private runtimeContextLease: { dispose: () => void } | null = null;
+  private unpublishProcessController: (() => void) | null = null;
   private pendingOwnerContextLease: { dispose: () => void } | null = null;
   private connectionOwnerLease: WhatsAppConnectionOwnerLease | null = null;
   private retainedOwnerReleaseLease: WhatsAppConnectionOwnerLease | null = null;
@@ -636,6 +638,11 @@ export class WhatsAppConnectionController {
         abortSignal: this.params.abortSignal,
       });
       previousRuntimeContextLease?.dispose();
+      this.unpublishProcessController?.();
+      this.unpublishProcessController = publishProcessWhatsAppConnectionController(
+        this.accountId,
+        this,
+      );
       this.pendingOwnerContextLease?.dispose();
       this.pendingOwnerContextLease = null;
       this.startTimers(connection, {
@@ -840,6 +847,8 @@ export class WhatsAppConnectionController {
       this.runtimeContextLease?.dispose();
     } finally {
       this.runtimeContextLease = null;
+      this.unpublishProcessController?.();
+      this.unpublishProcessController = null;
       try {
         this.pendingOwnerContextLease?.dispose();
       } finally {
