@@ -185,6 +185,57 @@ export function createClinicTools(handler: ClinicHandler): AnyAgentTool[] {
         dob: readToolStringParam(p, "dob", { required: true }),
       }),
     ),
+    // A dentist of the clinic, writing from the WhatsApp number the admin recorded on
+    // their account. The app recognises them by that number alone and these change
+    // only their own schedule; anyone else gets NOT_STAFF.
+    tool(
+      "clinic_my_hours",
+      "Clinic: My Practice Hours",
+      "Only when clinic_whoami returned `staff`: this dentist's own weekly practice hours and upcoming days off.",
+      Empty,
+      "my_hours",
+      () => ({}),
+    ),
+    tool(
+      "clinic_set_my_hours",
+      "Clinic: Set My Hours",
+      "Only when clinic_whoami returned `staff`: set one weekday of this dentist's own practice hours, or mark it as not practising (off=true). One call per weekday. Read the change back to them first if anything is unclear. Existing bookings are not moved; pass on any warning in the result.",
+      Type.Object({
+        weekday: Type.Number({ description: "1 = Monday … 7 = Sunday" }),
+        from: Type.Optional(Type.String({ description: "HH:MM start" })),
+        until: Type.Optional(Type.String({ description: "HH:MM end" })),
+        off: Type.Optional(Type.Boolean({ description: "true = not practising on this weekday" })),
+      }),
+      "set_my_hours",
+      (p) => ({
+        weekday: readNumberParam(p, "weekday"),
+        from: readToolStringParam(p, "from", { required: false }) ?? "",
+        until: readToolStringParam(p, "until", { required: false }) ?? "",
+        off: p.off === true,
+      }),
+    ),
+    tool(
+      "clinic_add_my_day_off",
+      "Clinic: Add My Day Off",
+      "Only when clinic_whoami returned `staff`: record a whole day this dentist will not practise (leave, seminar, sick). Bookings already on that day are not moved; pass on any warning in the result.",
+      Type.Object({
+        date: Type.String({ description: "YYYY-MM-DD" }),
+        note: Type.Optional(Type.String({ description: "Reason, e.g. seminar" })),
+      }),
+      "add_my_day_off",
+      (p) => ({
+        date: readToolStringParam(p, "date", { required: true }),
+        note: readToolStringParam(p, "note", { required: false }) ?? "",
+      }),
+    ),
+    tool(
+      "clinic_remove_my_day_off",
+      "Clinic: Remove My Day Off",
+      "Only when clinic_whoami returned `staff`: cancel one of this dentist's own days off.",
+      Type.Object({ date: Type.String({ description: "YYYY-MM-DD" }) }),
+      "remove_my_day_off",
+      (p) => ({ date: readToolStringParam(p, "date", { required: true }) }),
+    ),
   ];
 }
 
@@ -197,4 +248,8 @@ export const CLINIC_TOOL_NAMES = [
   "clinic_running_late",
   "clinic_register",
   "clinic_record_summary",
+  "clinic_my_hours",
+  "clinic_set_my_hours",
+  "clinic_add_my_day_off",
+  "clinic_remove_my_day_off",
 ] as const;
