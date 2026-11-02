@@ -67,8 +67,22 @@ export function resolveCodexAppServerSpawnEnv(
   platform: NodeJS.Platform = process.platform,
 ): NodeJS.ProcessEnv {
   const env = Object.create(null) as NodeJS.ProcessEnv;
+  // Clawku: the embedding host names the secrets its children must not inherit (its
+  // encryption keys, JWT secrets, provider keys). Codex snapshots the environment it starts
+  // with to disk, so they are left out of what it inherits; anything a launch passes on
+  // purpose in options.env (a persona's own API key) still goes through.
+  const inheritedDenylist = new Set(
+    (baseEnv.CLAWKU_CHILD_ENV_DENYLIST ?? "")
+      .split(",")
+      .map((key) => key.trim().toUpperCase())
+      .filter(Boolean),
+  );
+  inheritedDenylist.add("CLAWKU_CHILD_ENV_DENYLIST");
   for (const source of [baseEnv, options.env ?? {}]) {
     for (const [key, value] of Object.entries(source)) {
+      if (source === baseEnv && inheritedDenylist.has(key.toUpperCase())) {
+        continue;
+      }
       if (!UNSAFE_ENVIRONMENT_KEYS.has(key)) {
         env[key] = value;
       }

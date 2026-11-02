@@ -260,3 +260,25 @@ describe("resolveCodexAppServerSpawnEnv", () => {
     expect(Object.hasOwn(env, "prototype")).toBe(false);
   });
 });
+
+describe("Clawku: inherited secrets", () => {
+  it("leaves out the names the host lists, but keeps what a launch passes on purpose", () => {
+    const env = resolveCodexAppServerSpawnEnv(
+      { env: { OPENAI_API_KEY: "persona-key" } },
+      {
+        PATH: "/usr/bin",
+        HOME: "/home/x",
+        PLATFORM_MASTER_KEY_B64: "master",
+        JWT_ACCESS_SECRET: "jwt",
+        OPENAI_API_KEY: "platform-key",
+        CLAWKU_CHILD_ENV_DENYLIST: "PLATFORM_MASTER_KEY_B64,jwt_access_secret,OPENAI_API_KEY",
+      },
+      "linux",
+    );
+    expect(env.PATH).toBe("/usr/bin");
+    expect(env.PLATFORM_MASTER_KEY_B64).toBeUndefined();
+    expect(env.JWT_ACCESS_SECRET).toBeUndefined();
+    expect(env.CLAWKU_CHILD_ENV_DENYLIST).toBeUndefined();
+    expect(env.OPENAI_API_KEY).toBe("persona-key");
+  });
+});
