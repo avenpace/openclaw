@@ -106,6 +106,13 @@ const DISABLED_FUNCTIONS = [
   "posix_setuid",
   // Mail (spam prevention)
   "mail",
+  // Clawku: raw sockets open connections past the platform's network fence.
+  "socket_create",
+  "socket_create_pair",
+  "socket_create_listen",
+  "socket_addrinfo_connect",
+  "socket_addrinfo_bind",
+  "socket_import_stream",
   // Dangerous
   "putenv",
   "ini_set",
@@ -196,6 +203,9 @@ async function executePhpSandboxed(
       "allow_url_fopen=0",
       "-d",
       "allow_url_include=0",
+      // Clawku: FFI would reach libc directly, around the network fence.
+      "-d",
+      "ffi.enable=0",
       // Memory limit
       "-d",
       "memory_limit=128M",
@@ -225,6 +235,13 @@ async function executePhpSandboxed(
         ...(databasePath && { DATABASE_PATH: databasePath }),
         // Disable Composer/etc
         COMPOSER_HOME: "/dev/null",
+        // Clawku: the host's network fence for tenant PHP (internal hosts refused, internet open).
+        ...(process.env.CLAWKU_PHP_LD_PRELOAD
+          ? {
+              LD_PRELOAD: process.env.CLAWKU_PHP_LD_PRELOAD,
+              CLAWKU_EGRESS_HOST_IPS: process.env.CLAWKU_EGRESS_HOST_IPS ?? "",
+            }
+          : {}),
       },
       stdio: ["pipe", "pipe", "pipe"],
     });
