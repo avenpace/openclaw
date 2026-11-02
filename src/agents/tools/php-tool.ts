@@ -19,8 +19,8 @@
  */
 
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
-import { resolve, normalize, relative, isAbsolute } from "node:path";
+import { existsSync, mkdirSync } from "node:fs";
+import { isAbsolute, join, normalize, relative, resolve } from "node:path";
 import { Type } from "typebox";
 import type { AnyAgentTool } from "./common.js";
 import { jsonResult } from "./common.js";
@@ -172,6 +172,8 @@ async function executePhpSandboxed(
 ): Promise<{ success: boolean; output?: string; error?: string; exitCode?: number }> {
   return new Promise((resolve) => {
     const phpPath = process.env.PHP_PATH || "/usr/bin/php";
+    const tempDir = join(workspaceDir, ".tmp");
+    mkdirSync(tempDir, { recursive: true, mode: 0o700 });
 
     // Build PHP CLI arguments with security restrictions
     const phpArgs = [
@@ -180,7 +182,15 @@ async function executePhpSandboxed(
       `disable_functions=${DISABLED_FUNCTIONS}`,
       // Restrict file access to workspace (and database dir if provided)
       "-d",
-      `open_basedir=${workspaceDir}${databasePath ? `:${databasePath}` : ""}:/tmp`,
+      // Clawku: a temp folder inside the workspace, never the shared /tmp (other tenants'
+      // sessions and files live there).
+      `open_basedir=${workspaceDir}${databasePath ? `:${databasePath}` : ""}:${tempDir}`,
+      "-d",
+      `sys_temp_dir=${tempDir}`,
+      "-d",
+      `upload_tmp_dir=${tempDir}`,
+      "-d",
+      `session.save_path=${tempDir}`,
       // Disable URL file access
       "-d",
       "allow_url_fopen=0",
