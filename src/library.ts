@@ -149,6 +149,7 @@ let platformChannelRegistry: { plugins?: PlatformPluginRecord[] } | undefined;
 
 // Clawku: secrets the host keeps out of every exec child's environment.
 export { setHostExecInheritedEnvDenylist } from "./infra/host-env-security.js";
+export { setPlatformExecRunner } from "./agents/platform-exec-runner.js";
 
 export async function activatePlatformChannelRuntimes(registry?: unknown): Promise<string[]> {
   if (registry && typeof registry === "object") {

@@ -1,6 +1,3 @@
-/**
- * Exec tool policy, host dispatch, and process lifecycle pipeline.
- */
 import path from "node:path";
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import { resolveStateDir } from "../config/paths.js";
@@ -82,6 +79,10 @@ import {
   createExecToolExecutionTimeoutResolver,
   resolveExecDefaultTimeoutSec,
 } from "./exec-tool-timeout.js";
+/**
+ * Exec tool policy, host dispatch, and process lifecycle pipeline.
+ */
+import { getPlatformExecRunner } from "./platform-exec-runner.js";
 import { resolveStoredSubagentCapabilities } from "./subagents/spawn/subagent-capabilities.js";
 import { EXEC_TOOL_DISPLAY_SUMMARY } from "./tool-description-presets.js";
 import type { AgentToolWithMeta } from "./tools/common.js";
@@ -374,8 +375,13 @@ export function createExecTool(defaults?: ExecToolDefaults) {
       // ── Clawku: platform sandbox ──
       // A host-supplied runner takes every command: no shell, no host process, no inherited
       // environment. Checked before any host routing so no channel or skill path bypasses it.
-      if (defaults?.platformRunner) {
-        const result = await defaults.platformRunner.run({
+      if (defaults?.platformSandbox) {
+        const platformRunner = getPlatformExecRunner();
+        if (!platformRunner) {
+          // Fail closed: a run that asked for the sandbox never falls back to host execution.
+          throw new Error("exec is unavailable: the platform sandbox is not running.");
+        }
+        const result = await platformRunner(defaults.platformSandbox, {
           command: params.command,
           workdir: params.workdir,
           timeoutSec: typeof params.timeout === "number" ? params.timeout : undefined,

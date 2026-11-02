@@ -157,18 +157,11 @@ export type ExecToolDefaults = {
   // Platform: count of installed skills for skill-based gating
   installedSkillCount?: number;
   /**
-   * Clawku: when set, EVERY exec command is handed to the host's sandbox runner and its
-   * output returned; nothing runs through this process's host execution. The host decides
-   * which programs exist and confines them to the tenant's own files.
+   * Clawku: when set, EVERY exec command is handed to the host's registered sandbox runner
+   * (setPlatformExecRunner) and its output returned; nothing runs through this process's
+   * host execution. Plain data so it survives structured cloning of run authority.
    */
-  platformRunner?: {
-    run: (params: { command: string; workdir?: string; timeoutSec?: number }) => Promise<{
-      output: string;
-      exitCode: number;
-      durationMs: number;
-      timedOut?: boolean;
-    }>;
-  };
+  platformSandbox?: import("./platform-exec-runner.js").PlatformSandboxContext;
 };
 
 /** Request and approval context shared by Gateway and node execution hosts. */
