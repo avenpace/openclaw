@@ -1,7 +1,9 @@
+import path from "node:path";
 import { enqueueKeyedTask } from "openclaw/plugin-sdk/keyed-async-queue";
 import { resolveTimerTimeoutMs } from "openclaw/plugin-sdk/number-runtime";
 import { replaceFileAtomic } from "openclaw/plugin-sdk/security-runtime";
 import { raceWithTimeout } from "openclaw/plugin-sdk/time-runtime";
+import { sealForDir } from "./creds-crypto.js";
 import { assertWebCredsPathRegularFileOrMissing, resolveWebCredsPath } from "./creds-files.js";
 
 const CREDS_FILE_MODE = 0o600;
@@ -24,7 +26,8 @@ export async function writeWebCredsRawAtomically(params: {
   await assertWebCredsPathRegularFileOrMissing(params.filePath);
   await replaceFileAtomic({
     filePath: params.filePath,
-    content: params.content,
+    // Clawku: sealed at rest when the platform registered a key for this folder.
+    content: sealForDir(path.dirname(params.filePath), params.content),
     dirMode: 0o700,
     mode: CREDS_FILE_MODE,
     tempPrefix: params.tempPrefix,

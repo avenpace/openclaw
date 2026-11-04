@@ -8,6 +8,7 @@ import {
   statRegularFile,
   statRegularFileSync,
 } from "openclaw/plugin-sdk/file-access-runtime";
+import { openForDir } from "./creds-crypto.js";
 
 // The legacy OAuth root is shared; keep its exact WhatsApp namespaces aligned
 // with Baileys without importing the provider into setup discovery.
@@ -72,7 +73,7 @@ export function readWebCredsJsonRawSync(filePath: string): string | null {
     const { buffer, stat } = readRegularFileSync({
       filePath,
     });
-    return stat.size > 1 ? buffer.toString("utf-8") : null;
+    return stat.size > 1 ? openForDir(path.dirname(filePath), buffer.toString("utf-8")) : null;
   } catch {
     return null;
   }
@@ -84,7 +85,7 @@ export async function readWebCredsJsonRaw(filePath: string): Promise<string | nu
     const { buffer, stat } = await readRegularFile({
       filePath,
     });
-    return stat.size > 1 ? buffer.toString("utf-8") : null;
+    return stat.size > 1 ? openForDir(path.dirname(filePath), buffer.toString("utf-8")) : null;
   } catch {
     return null;
   }

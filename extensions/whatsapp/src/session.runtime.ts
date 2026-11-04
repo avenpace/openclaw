@@ -12,5 +12,6 @@ export {
   fetchLatestBaileysVersion,
   makeCacheableSignalKeyStore,
   makeWASocket,
-  useMultiFileAuthState,
 } from "baileys";
+// Clawku: the same multi-file auth state, sealed at rest (creds-auth-state.ts).
+export { useClawkuMultiFileAuthState as useMultiFileAuthState } from "./creds-auth-state.js";

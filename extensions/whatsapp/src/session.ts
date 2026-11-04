@@ -18,6 +18,7 @@ import {
   resolveWebCredsBackupPath,
   resolveWebCredsPath,
 } from "./auth-store.js";
+import { registerWhatsAppAuthKeys, whatsAppAuthKeys } from "./creds-crypto.js";
 import { assertWebCredsPathRegularFileOrMissing } from "./creds-files.js";
 import {
   enqueueCredsSave,
@@ -177,8 +178,8 @@ export async function createWaSocket(
     cachedGroupMetadata?: (jid: string) => Promise<GroupMetadata | undefined>;
     waWebSocketUrl?: string | URL;
     // Clawku: multi-tenant extensions. codePairing selects the pairing-code login flow.
-    // encryptionKey is accepted for the encrypted-at-rest creds feature; TODO(clawku):
-    // reconnect it to an encrypted auth-state provider (upstream uses plain useMultiFileAuthState).
+    // encryptionKey: the platform's key for this auth folder; registered so every credential
+    // file is sealed at rest (creds-crypto.ts). The platform also registers keys itself at boot.
     encryptionKey?: Buffer;
     codePairing?: boolean;
   } & WhatsAppSocketTimingOptions = {},
@@ -214,6 +215,8 @@ async function createWaSocketInternal(
     });
   }
   await rejectUnsafeWebCredsPath(authDir);
+  if (opts.encryptionKey && whatsAppAuthKeys(authDir).length === 0)
+    registerWhatsAppAuthKeys(authDir, [opts.encryptionKey]);
   const { state } = await useMultiFileAuthState(authDir);
   const saveCreds = async () => {
     await writeCredsJsonAtomically(authDir, state.creds);
